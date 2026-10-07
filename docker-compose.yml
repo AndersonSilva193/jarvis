@@ -1,0 +1,13 @@
+services:
+  jarvis:
+    build: .
+    container_name: jarvis
+    env_file: .env
+    restart: unless-stopped
+    # Limite de memória para não disputar recursos com os outros sistemas da VPS
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

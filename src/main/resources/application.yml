@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: jarvis
+  main:
+    # Sem servidor web: o processo continua vivo graças à thread do Telegram.
+    web-application-type: none
+    keep-alive: true
+
+jarvis:
+  nome-usuario: ${NOME_USUARIO:chefe}
+  fuso-horario: ${FUSO_HORARIO:America/Sao_Paulo}
+  # Formato: nome=https://url,outro=https://url2
+  sites: ${SITES_MONITORADOS:}
+  telegram:
+    token: ${TELEGRAM_TOKEN}
+    # Deixe 0 na primeira vez: o bot mostra nos logs o ID de quem mandar mensagem.
+    usuario-permitido: ${TELEGRAM_USUARIO_PERMITIDO:0}
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY}
+    modelo: ${ANTHROPIC_MODELO:claude-haiku-4-5-20251001}
+    max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
+  resumo-diario:
+    # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
+    cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}
+
+logging:
+  level:
+    root: INFO
