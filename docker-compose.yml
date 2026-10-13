@@ -4,8 +4,13 @@ services:
     container_name: jarvis
     env_file: .env
     restart: unless-stopped
+    # A API da HUD escuta só no loopback do host: quem expõe com HTTPS é o nginx.
+    # A mesma variável nos dois lados para a porta não sair de sincronia com o .env.
+    ports:
+      - "127.0.0.1:${JARVIS_PORTA:-8090}:${JARVIS_PORTA:-8090}"
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
-    mem_limit: 384m
+    # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
+    mem_limit: 512m
     logging:
       driver: json-file
       options:

@@ -16,9 +16,10 @@ natural e executar ferramentas Java reais. Roda 24h numa VPS, dentro de um conta
 - **Claude chamado por `HttpClient` puro** — `ClaudeClient` faz `POST` em
   `https://api.anthropic.com/v1/messages` com `x-api-key` e `anthropic-version: 2023-06-01`,
   e repete a chamada em erros temporários (429, 500, 502, 503, 529). Sem SDK.
-- **Não há servidor web.** `spring.main.web-application-type: none` com `keep-alive: true`.
-  O processo fica vivo pela thread do poller. Não existe controller, nem porta HTTP, nem
-  endpoint de health — se precisar de um, isso é uma decisão nova, não um detalhe.
+- **Servidor web só para a HUD** (`spring-boot-starter-web`, porta `JARVIS_PORTA`, padrão 8090).
+  O Telegram **não** depende dele: continua por long polling, sem porta aberta nem domínio.
+  A API vive em `dev.jarvis.web`, exige `Authorization: Bearer <HUD_TOKEN>` em tudo menos
+  `/api/saude`, e o `docker-compose` publica a porta só em `127.0.0.1` (o nginx faz o HTTPS).
 
 ## Mapa do código
 
@@ -39,6 +40,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
+| `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
 | `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
 
 ## Convenções
@@ -61,6 +63,10 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
   texto curto: tudo que a ferramenta retorna vira tokens, e tokens custam dinheiro.
 - **Resposta ao usuário em texto simples**, sem Markdown (o `enviarMensagem` não usa
   `parse_mode` justamente para não quebrar com caracteres especiais).
+- **A camada web não entra nos serviços.** O `BriefingService` publica evento de domínio
+  (`ApplicationEventPublisher`) e quem traduz para HTTP/SSE é `dev.jarvis.web`. E o DTO manda
+  data como string ISO-8601: o `JsonMapper` do `BeansConfig` é cru, então não dependemos de
+  como ele serializaria um `ZonedDateTime`.
 
 ## Configuração nova
 

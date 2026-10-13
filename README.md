@@ -91,6 +91,74 @@ public class AgendamentosHojeFerramenta implements Ferramenta {
 Dicas: a `descricao()` é o que faz o modelo escolher a ferramenta certa, então capriche nela. E devolva
 textos curtos e objetivos: tudo que a ferramenta retorna vira tokens (custo).
 
+## API para a HUD
+
+Além do Telegram, o Jarvis sobe um servidor web pequeno (porta `JARVIS_PORTA`, padrão 8090) para
+alimentar uma tela de HUD.
+
+| Rota | O que faz |
+|---|---|
+| `POST /api/briefing` | Gera um briefing e devolve o JSON. Se já existe um de menos de 60 s, devolve esse (o campo `geradoAgora` diz qual foi o caso) |
+| `GET /api/briefing/ultimo` | O último briefing gerado. `404` enquanto não houver nenhum |
+| `GET /api/briefing/eventos` | Stream SSE: `gerando` quando um briefing começa e `briefing` quando fica pronto — inclusive os disparados pelo `/bomdia` e pelo cron das 8h |
+| `GET /api/saude` | `{"status":"ok"}`. Único endpoint sem token |
+
+### Autenticação
+
+Todos os endpoints (menos `/api/saude`) exigem o token de `HUD_TOKEN`:
+
+```bash
+curl -X POST -H "Authorization: Bearer $HUD_TOKEN" http://localhost:8090/api/briefing
+```
+
+Gere o token com `openssl rand -hex 32`. **Se `HUD_TOKEN` ficar vazio, a API recusa tudo com 401** —
+em dúvida, fecha. A comparação é feita em tempo constante, sobre o SHA-256 dos dois valores.
+
+O `EventSource` do navegador não sabe mandar header, então **só a rota de eventos** aceita o token
+na query string:
+
+```js
+const fonte = new EventSource(`https://seu-dominio/api/briefing/eventos?token=${token}`);
+fonte.addEventListener("gerando",  () => mostrarSpinner());
+fonte.addEventListener("briefing", e => desenhar(JSON.parse(e.data)));
+```
+
+Ao conectar, o último briefing é enviado na hora, para a HUD não abrir em branco. Um comentário de
+keep-alive vai a cada 25 s, para a conexão não morrer em proxy.
+
+O JSON traz as seções estruturadas **e** o texto pronto, então a HUD escolhe o que usar:
+
+```json
+{
+  "geradoEm": "2026-10-13T08:00:00-03:00",
+  "nomeUsuario": "Anderson",
+  "secoes": [{ "titulo": "clima", "conteudo": "Curitiba: 18 °C agora..." }],
+  "texto": "Bom dia, Anderson! terça-feira, 13/10 às 08:00
+
+CLIMA
+...",
+  "geradoAgora": true
+}
+```
+
+### CORS e HTTPS
+
+`HUD_ORIGEM` lista as origens liberadas, separadas por vírgula (ex.:
+`https://jarvis-hud.vercel.app,http://localhost:4200`). Vazio = nenhuma origem de navegador.
+
+O `docker-compose` publica a porta **só em `127.0.0.1`**, porque quem deve expor isso na internet é
+o nginx, com HTTPS:
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:8090;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";     # SSE precisa de conexão persistente
+    proxy_buffering off;                # sem isso o SSE chega em blocos
+    proxy_read_timeout 1h;
+}
+```
+
 ## Segurança
 
 - O bot **só responde ao seu ID**; mensagens de outras pessoas são ignoradas e registradas no log.

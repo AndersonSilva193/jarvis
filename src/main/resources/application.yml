@@ -1,10 +1,11 @@
 spring:
   application:
     name: jarvis
-  main:
-    # Sem servidor web: o processo continua vivo graças à thread do Telegram.
-    web-application-type: none
-    keep-alive: true
+
+server:
+  # Porta da API da HUD. Dentro do container escutamos em 0.0.0.0 de propósito: quem restringe
+  # o acesso é o docker-compose, que publica a porta só em 127.0.0.1 para o nginx.
+  port: ${JARVIS_PORTA:8090}
 
 jarvis:
   nome-usuario: ${NOME_USUARIO:chefe}
@@ -27,6 +28,11 @@ jarvis:
   noticias:
     # Formato: tema|url,tema|url  (o mesmo tema pode repetir, com vários feeds)
     feeds: ${NOTICIAS_FEEDS:}
+  hud:
+    # Token obrigatório em todos os endpoints (menos /api/saude). Vazio = ninguém entra.
+    token: ${HUD_TOKEN:}
+    # Origens liberadas no CORS, separadas por vírgula. Vazio = nenhuma origem de navegador.
+    origens: ${HUD_ORIGEM:}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

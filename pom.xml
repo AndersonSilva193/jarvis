@@ -22,11 +22,17 @@
     </properties>
 
     <dependencies>
-        <!-- Núcleo do Spring Boot: injeção de dependência, configuração, agendamento e logs.
-             Não usamos servidor web: o bot conversa com o Telegram por long polling. -->
+        <!-- Núcleo do Spring Boot: injeção de dependência, configuração, agendamento e logs. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Servidor web, só para a API da HUD (JARVIS_PORTA). O Telegram continua por long
+             polling, sem depender de porta aberta nem de domínio. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
         <!-- Jackson 3 (padrão do Spring Boot 4) para montar e ler os JSONs das APIs -->

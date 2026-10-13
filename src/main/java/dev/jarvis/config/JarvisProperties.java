@@ -2,6 +2,7 @@ package dev.jarvis.config;
 
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +21,8 @@ public record JarvisProperties(
         Telegram telegram,
         Anthropic anthropic,
         Clima clima,
-        Noticias noticias) {
+        Noticias noticias,
+        Hud hud) {
 
     public record Telegram(String token, long usuarioPermitido) {
     }
@@ -36,8 +38,24 @@ public record JarvisProperties(
     public record Noticias(String feeds) {
     }
 
+    /** API da HUD: token exigido nos endpoints e origens liberadas no CORS. */
+    public record Hud(String token, String origens) {
+    }
+
     public ZoneId zona() {
         return ZoneId.of(fusoHorario == null || fusoHorario.isBlank() ? "America/Sao_Paulo" : fusoHorario);
+    }
+
+    /** Origens liberadas no CORS da HUD. Lista vazia significa nenhuma origem de navegador. */
+    public List<String> origensDaHud() {
+        String config = hud == null ? null : hud.origens();
+        if (config == null || config.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(config.split(","))
+                .map(String::trim)
+                .filter(origem -> !origem.isBlank())
+                .toList();
     }
 
     /**

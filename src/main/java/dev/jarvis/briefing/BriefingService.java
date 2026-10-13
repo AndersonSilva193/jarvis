@@ -8,10 +8,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.StringJoiner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.briefing.fontes.ClimaService;
@@ -70,21 +72,27 @@ public class BriefingService {
     private final ServidorService servidor;
     private final LembreteService lembretes;
     private final JarvisProperties props;
+    private final ApplicationEventPublisher eventos;
 
     private volatile Briefing ultimo;
 
     public BriefingService(ClimaService clima, NoticiasService noticias, SitesService sites,
-            ServidorService servidor, LembreteService lembretes, JarvisProperties props) {
+            ServidorService servidor, LembreteService lembretes, JarvisProperties props,
+            ApplicationEventPublisher eventos) {
         this.clima = clima;
         this.noticias = noticias;
         this.sites = sites;
         this.servidor = servidor;
         this.lembretes = lembretes;
         this.props = props;
+        this.eventos = eventos;
     }
 
     /** Monta um briefing novo, agora, consultando todas as fontes. */
     public Briefing gerar() {
+        // Avisa antes de começar: quem está com a HUD aberta mostra "gerando" durante a coleta.
+        eventos.publishEvent(new BriefingIniciadoEvento());
+
         ZonedDateTime agora = ZonedDateTime.now(props.zona());
         List<Secao> secoes = new ArrayList<>();
 
@@ -95,7 +103,13 @@ public class BriefingService {
 
         Briefing briefing = new Briefing(agora, nomeUsuario(), secoes);
         ultimo = briefing;
+        eventos.publishEvent(new BriefingGeradoEvento(briefing));
         return briefing;
+    }
+
+    /** O último briefing montado neste processo, se já houve algum. */
+    public Optional<Briefing> ultimo() {
+        return Optional.ofNullable(ultimo);
     }
 
     /** O briefing de hoje, remontado quando o guardado já passou de meia hora. */
