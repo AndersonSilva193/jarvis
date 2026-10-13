@@ -1,17 +1,22 @@
 package dev.jarvis.briefing.fontes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import dev.jarvis.briefing.fontes.ClimaService.ClimaHoje;
+import dev.jarvis.briefing.fontes.ClimaService.PrevisaoDia;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -24,7 +29,11 @@ class ClimaServiceTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private static JsonNode exemplo() throws IOException {
-        try (InputStream in = ClimaServiceTest.class.getResourceAsStream("/clima-open-meteo.json")) {
+        return arquivo("/clima-open-meteo.json");
+    }
+
+    private static JsonNode arquivo(String caminho) throws IOException {
+        try (InputStream in = ClimaServiceTest.class.getResourceAsStream(caminho)) {
             return JSON.readTree(new String(in.readAllBytes(), StandardCharsets.UTF_8));
         }
     }
@@ -61,5 +70,67 @@ class ClimaServiceTest {
 
         IOException erro = assertThrows(IOException.class, () -> ClimaService.interpretar(raiz, "Curitiba"));
         assertTrue(erro.getMessage().contains("current.temperature_2m"), erro.getMessage());
+    }
+
+    @Test
+    @DisplayName("previsão de um dia futuro: lê os campos do bloco daily")
+    void previsaoDeUmDia() throws Exception {
+        LocalDate sabado = LocalDate.of(2026, 10, 17);
+        PrevisaoDia p = ClimaService.interpretarPrevisao(
+                arquivo("/clima-previsao-open-meteo.json"), "Curitiba", sabado);
+
+        assertEquals(sabado, p.data());
+        assertEquals("Curitiba", p.cidade());
+        assertEquals(12.1, p.minima(), 0.001);
+        assertEquals(21.5, p.maxima(), 0.001);
+        assertEquals(77, p.chanceChuvaPct());
+        assertEquals(11.7, p.ventoMaxKmh(), 0.001);
+        assertEquals("névoa", p.descricao());
+        assertTrue(p.completa());
+    }
+
+    @Test
+    @DisplayName("no limite do horizonte, campo nulo vira null em vez de estourar ou virar zero")
+    void previsaoIncompletaNaoEstoura() throws Exception {
+        LocalDate longe = LocalDate.of(2026, 10, 28);
+        PrevisaoDia p = assertDoesNotThrow(() -> ClimaService.interpretarPrevisao(
+                arquivo("/clima-previsao-incompleta.json"), "Curitiba", longe));
+
+        assertNull(p.minima());
+        assertNull(p.maxima());
+        assertNull(p.ventoMaxKmh());
+        assertEquals("", p.descricao());
+        assertFalse(p.completa());
+        // A chance de chuva é o único dado que a API ainda dá nessa distância.
+        assertEquals(60, p.chanceChuvaPct());
+    }
+
+    @Test
+    @DisplayName("resposta sem o bloco daily é erro, não previsão vazia")
+    void previsaoSemDaily() throws Exception {
+        LocalDate dia = LocalDate.of(2026, 10, 17);
+        var semDaily = (tools.jackson.databind.node.ObjectNode) arquivo("/clima-previsao-open-meteo.json");
+        semDaily.remove("daily");
+
+        IOException erro = assertThrows(IOException.class,
+                () -> ClimaService.interpretarPrevisao(semDaily, "Curitiba", dia));
+        assertTrue(erro.getMessage().contains("daily"), erro.getMessage());
+    }
+
+    @Test
+    @DisplayName("janela aceita hoje e 15 dias à frente, recusa ontem e datas distantes")
+    void validaJanelaDePrevisao() {
+        LocalDate hoje = LocalDate.of(2026, 10, 13);
+
+        assertDoesNotThrow(() -> ClimaService.validarJanela(hoje, hoje));
+        assertDoesNotThrow(() -> ClimaService.validarJanela(hoje.plusDays(15), hoje));
+
+        var passado = assertThrows(IllegalArgumentException.class,
+                () -> ClimaService.validarJanela(hoje.minusDays(1), hoje));
+        assertTrue(passado.getMessage().contains("já passou"), passado.getMessage());
+
+        var longe = assertThrows(IllegalArgumentException.class,
+                () -> ClimaService.validarJanela(hoje.plusDays(16), hoje));
+        assertTrue(longe.getMessage().contains("28/10"), longe.getMessage());
     }
 }

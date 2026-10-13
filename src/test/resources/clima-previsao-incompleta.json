@@ -1,0 +1,23 @@
+{
+  "latitude": -25.413006,
+  "longitude": -49.241608,
+  "utc_offset_seconds": -10800,
+  "timezone": "America/Sao_Paulo",
+  "elevation": 920.0,
+  "daily_units": {
+    "time": "iso8601",
+    "weather_code": "wmo code",
+    "temperature_2m_max": "°C",
+    "temperature_2m_min": "°C",
+    "precipitation_probability_max": "%",
+    "wind_speed_10m_max": "km/h"
+  },
+  "daily": {
+    "time": ["2026-10-28"],
+    "weather_code": [null],
+    "temperature_2m_max": [null],
+    "temperature_2m_min": [null],
+    "precipitation_probability_max": [60],
+    "wind_speed_10m_max": [null]
+  }
+}
