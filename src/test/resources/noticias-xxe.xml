@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Feed malicioso: tenta usar uma entidade externa para ler um arquivo do servidor (ataque XXE).
+  O parser do NoticiasService precisa recusar isso logo no DOCTYPE, sem nem tentar resolver o arquivo.
+-->
+<!DOCTYPE rss [
+  <!ENTITY segredo SYSTEM "file:///etc/passwd">
+]>
+<rss version="2.0">
+  <channel>
+    <title>Feed com XXE</title>
+    <item>
+      <title>Manchete inocente</title>
+      <link>https://malicioso.test/noticia</link>
+      <description>Conteúdo roubado: &segredo;</description>
+      <pubDate>Mon, 12 Oct 2026 19:00:00 -0000</pubDate>
+    </item>
+  </channel>
+</rss>

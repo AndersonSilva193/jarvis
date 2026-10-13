@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
+import dev.jarvis.briefing.BriefingService;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.Assistente;
 import dev.jarvis.util.Json;
@@ -23,13 +24,16 @@ public class TelegramPoller implements SmartLifecycle {
 
     private final TelegramClient telegram;
     private final Assistente assistente;
+    private final BriefingService briefing;
     private final long usuarioPermitido;
     private volatile boolean rodando;
     private Thread thread;
 
-    public TelegramPoller(TelegramClient telegram, Assistente assistente, JarvisProperties props) {
+    public TelegramPoller(TelegramClient telegram, Assistente assistente, BriefingService briefing,
+            JarvisProperties props) {
         this.telegram = telegram;
         this.assistente = assistente;
+        this.briefing = briefing;
         this.usuarioPermitido = props.telegram().usuarioPermitido();
     }
 
@@ -101,10 +105,18 @@ public class TelegramPoller implements SmartLifecycle {
                         Olá! Sou o Jarvis. Fale comigo normalmente, por exemplo:
                         • "os sites estão no ar?"
                         • "como está o servidor?"
+                        • "vai chover hoje?"
+                        • "o que tem de novo em tecnologia?"
                         • "me lembra de enviar o currículo às 15h"
                         • "quais lembretes eu tenho?"
 
-                        Comandos: /limpar apaga o histórico da conversa.""");
+                        Comandos:
+                        /bomdia mostra o briefing do dia (clima, lembretes, sistemas e notícias)
+                        /limpar apaga o histórico da conversa""");
+                case "/bomdia" -> {
+                    telegram.mostrarDigitando(chatId);
+                    telegram.enviarMensagem(chatId, briefing.gerar().paraTexto());
+                }
                 case "/limpar" -> {
                     assistente.limparHistorico(chatId);
                     telegram.enviarMensagem(chatId, "Histórico apagado. Começando do zero.");

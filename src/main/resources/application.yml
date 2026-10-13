@@ -19,6 +19,14 @@ jarvis:
     api-key: ${ANTHROPIC_API_KEY}
     modelo: ${ANTHROPIC_MODELO:claude-haiku-4-5-20251001}
     max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
+  clima:
+    cidade: ${CLIMA_CIDADE:Curitiba}
+    # Coordenadas da cidade (o "-" antes do número é o valor default, não um erro de sintaxe)
+    latitude: ${CLIMA_LATITUDE:-25.4284}
+    longitude: ${CLIMA_LONGITUDE:-49.2733}
+  noticias:
+    # Formato: tema|url,tema|url  (o mesmo tema pode repetir, com vários feeds)
+    feeds: ${NOTICIAS_FEEDS:}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

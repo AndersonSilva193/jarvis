@@ -1,0 +1,82 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+  <channel>
+    <title>Portal de Teste &gt; Tecnologia</title>
+    <link>https://exemplo.test/tecnologia/</link>
+    <description>Feed de exemplo para os testes do Jarvis</description>
+    <language>pt-BR</language>
+    <image>
+      <url>https://exemplo.test/logo-do-canal.png</url>
+      <title>Portal de Teste &gt; Tecnologia</title>
+    </image>
+
+    <!-- 1) imagem no enclosure; resumo em CDATA com HTML e acentuação -->
+    <item>
+      <title>Satélite brasileiro entra em órbita</title>
+      <link>https://exemplo.test/tecnologia/satelite.html</link>
+      <guid isPermaLink="true">https://exemplo.test/tecnologia/satelite.html</guid>
+      <description><![CDATA[<p>O lançamento ocorreu <b>na madrugada</b> e foi acompanhado por
+        t&eacute;cnicos da ag&ecirc;ncia espacial &amp; convidados.</p>]]></description>
+      <enclosure url="https://exemplo.test/img/satelite.jpg" type="image/jpeg" length="12345"/>
+      <pubDate>Mon, 12 Oct 2026 19:53:17 -0000</pubDate>
+    </item>
+
+    <!-- 2) imagem no media:content; description em CDATA começando com <img> (padrão do G1) -->
+    <item>
+      <title>Nova rede de fibra chega ao interior</title>
+      <link>https://exemplo.test/tecnologia/fibra.html</link>
+      <description><![CDATA[ <img src="https://exemplo.test/img/dentro-do-texto.jpg" /><br />
+        A obra liga doze cidades e come&ccedil;a a operar no m&ecirc;s que vem. ]]></description>
+      <media:content url="https://exemplo.test/img/fibra-media.jpg" medium="image"/>
+      <pubDate>Mon, 12 Oct 2026 18:45:36 -0000</pubDate>
+    </item>
+
+    <!-- 3) só media:thumbnail, aninhado dentro de media:content sem url (padrão do Ars Technica) -->
+    <item>
+      <title>Baterias de sódio prometem carga mais rápida</title>
+      <link>https://exemplo.test/tecnologia/baterias.html</link>
+      <content:encoded><![CDATA[<p>Pesquisadores relatam ganho de densidade energética.</p>]]></content:encoded>
+      <media:content medium="image" type="image/jpeg">
+        <media:thumbnail url="https://exemplo.test/img/baterias-thumb.jpg" width="500"/>
+        <media:credit>Agência de Teste</media:credit>
+      </media:content>
+      <pubDate>Mon, 12 Oct 2026 17:10:00 +0000</pubDate>
+    </item>
+
+    <!-- 4) título repetido (muda só caixa e espaços): deve ser descartado como duplicado -->
+    <item>
+      <title>SATÉLITE   brasileiro entra em órbita</title>
+      <link>https://outro.test/replicado.html</link>
+      <description>Republicação do mesmo assunto em outro portal.</description>
+      <pubDate>Mon, 12 Oct 2026 19:10:00 -0000</pubDate>
+    </item>
+
+    <!-- 5) velha: fora da janela de 24 h -->
+    <item>
+      <title>Notícia da semana passada</title>
+      <link>https://exemplo.test/tecnologia/antiga.html</link>
+      <description>Isso aqui não deve aparecer no radar.</description>
+      <pubDate>Mon, 05 Oct 2026 12:00:00 -0000</pubDate>
+    </item>
+
+    <!-- 6) sem data: não há como afirmar que é das últimas 24 h -->
+    <item>
+      <title>Item sem data de publicação</title>
+      <link>https://exemplo.test/tecnologia/sem-data.html</link>
+      <description>Feed desregulado, sem pubDate.</description>
+    </item>
+
+    <!-- 7) resumo longo, para exercitar o corte em 300 caracteres -->
+    <item>
+      <title>Relatório anual do setor de tecnologia</title>
+      <link>https://exemplo.test/tecnologia/relatorio.html</link>
+      <description><![CDATA[<div>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod
+        tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
+        exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
+        reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint
+        occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</div>]]></description>
+      <pubDate>Mon, 12 Oct 2026 16:00:00 -0000</pubDate>
+    </item>
+  </channel>
+</rss>
