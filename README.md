@@ -114,6 +114,10 @@ curl -X POST -H "Authorization: Bearer $HUD_TOKEN" http://localhost:8090/api/bri
 Gere o token com `openssl rand -hex 32`. **Se `HUD_TOKEN` ficar vazio, a API recusa tudo com 401** —
 em dúvida, fecha. A comparação é feita em tempo constante, sobre o SHA-256 dos dois valores.
 
+O 401 sai com os cabeçalhos de CORS (o filtro de CORS roda antes do de token), então o navegador
+consegue ler `{"erro":"token ausente ou invalido"}` em vez de mostrar um erro de rede opaco — é o
+que deixa a HUD dizer "token inválido" em vez de "API fora do ar".
+
 O `EventSource` do navegador não sabe mandar header, então **só a rota de eventos** aceita o token
 na query string:
 
@@ -123,23 +127,60 @@ fonte.addEventListener("gerando",  () => mostrarSpinner());
 fonte.addEventListener("briefing", e => desenhar(JSON.parse(e.data)));
 ```
 
-Ao conectar, o último briefing é enviado na hora, para a HUD não abrir em branco. Um comentário de
-keep-alive vai a cada 25 s, para a conexão não morrer em proxy.
+Conectar no stream **não** dispara nada: a tela fica como está até um briefing ser pedido (pela API,
+pelo `/bomdia` ou pelo cron das 8h). Se a HUD quiser mostrar algo logo ao abrir, aí sim chama
+`GET /api/briefing/ultimo`. Um comentário de keep-alive vai a cada 25 s, para a conexão não morrer
+em proxy.
 
-O JSON traz as seções estruturadas **e** o texto pronto, então a HUD escolhe o que usar:
+Cada seção vem nas **duas formas**: o `conteudo` em prosa (é o que a HUD fala, e o mesmo texto que
+vai para o Telegram) e o `dados` estruturado, para a tela desenhar número grande, lista e imagem.
+O `titulo` em minúsculas é o discriminador — `clima`, `lembretes de hoje`, `sistemas`, `notícias`,
+sempre nessa ordem. Seção que falhou vem com `dados: null` e a explicação no `conteudo`.
 
 ```json
 {
   "geradoEm": "2026-10-13T08:00:00-03:00",
   "nomeUsuario": "Anderson",
-  "secoes": [{ "titulo": "clima", "conteudo": "Curitiba: 18 °C agora..." }],
-  "texto": "Bom dia, Anderson! terça-feira, 13/10 às 08:00
-
-CLIMA
-...",
+  "secoes": [
+    {
+      "titulo": "clima",
+      "conteudo": "Curitiba: 18 °C agora (céu limpo), mínima 14 °C e máxima 22 °C\nChance de chuva: 30%",
+      "dados": {
+        "cidade": "Curitiba", "temperaturaAtual": 18, "minima": 14, "maxima": 22,
+        "chanceChuvaPct": 30, "descricao": "céu limpo"
+      }
+    },
+    {
+      "titulo": "lembretes de hoje",
+      "conteudo": "09:00 Enviar o currículo",
+      "dados": { "itens": [{ "hora": "09:00", "texto": "Enviar o currículo" }] }
+    },
+    {
+      "titulo": "sistemas",
+      "conteudo": "agendabarber-api: HTTP 200 em 180 ms (OK)\nServidor: CPU 12%, memória 1.2 GB/2.0 GB",
+      "dados": {
+        "sites": [{ "nome": "agendabarber-api", "resultado": "HTTP 200 em 180 ms (OK)" }],
+        "servidor": "Servidor: CPU 12%, memória 1.2 GB/2.0 GB"
+      }
+    },
+    {
+      "titulo": "notícias",
+      "conteudo": "• [tecnologia · G1] Manchete aqui",
+      "dados": {
+        "itens": [{
+          "titulo": "Manchete aqui", "tema": "tecnologia", "fonte": "G1",
+          "link": "https://g1.globo.com/...", "imagemUrl": "https://g1.globo.com/foto.jpg"
+        }]
+      }
+    }
+  ],
+  "texto": "Bom dia, Anderson! terça-feira, 13/10 às 08:00\n\nCLIMA\n...",
   "geradoAgora": true
 }
 ```
+
+O `link` e o `imagemUrl` da notícia **só existem no `dados`**: a prosa não os carrega. O `imagemUrl`
+vem vazio quando o feed não trouxe foto, então quem desenha precisa ter um estado sem imagem.
 
 ### CORS e HTTPS
 

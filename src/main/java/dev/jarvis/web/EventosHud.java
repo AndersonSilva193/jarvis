@@ -14,7 +14,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import dev.jarvis.briefing.BriefingGeradoEvento;
 import dev.jarvis.briefing.BriefingIniciadoEvento;
-import dev.jarvis.briefing.BriefingService;
 
 /**
  * Mantém as conexões SSE da HUD e empurra para elas tudo que acontece com o briefing,
@@ -28,13 +27,11 @@ public class EventosHud {
     private static final long SEM_TIMEOUT = 0L;
 
     private final List<SseEmitter> conectados = new CopyOnWriteArrayList<>();
-    private final BriefingService briefing;
 
-    public EventosHud(BriefingService briefing) {
-        this.briefing = briefing;
-    }
-
-    /** Registra uma conexão nova e já manda o último briefing, para a HUD não abrir em branco. */
+    /**
+     * Registra uma conexão nova. De propósito não manda nada agora: a HUD fica só com o fundo
+     * até um briefing ser pedido (pela API, pelo /bomdia ou pelo cron).
+     */
     public SseEmitter registrar() {
         SseEmitter emissor = new SseEmitter(SEM_TIMEOUT);
         emissor.onCompletion(() -> conectados.remove(emissor));
@@ -42,9 +39,6 @@ public class EventosHud {
         emissor.onError(erro -> conectados.remove(emissor));
         conectados.add(emissor);
         log.info("HUD conectada ao SSE ({} conexão(ões) aberta(s))", conectados.size());
-
-        briefing.ultimo().ifPresent(ultimo ->
-                enviarPara(emissor, "briefing", BriefingDto.de(ultimo, false)));
         return emissor;
     }
 

@@ -47,8 +47,18 @@ public class BriefingService {
             DateTimeFormatter.ofPattern("EEEE, dd/MM 'às' HH:mm", Locale.of("pt", "BR"));
     private static final DateTimeFormatter HORA = DateTimeFormatter.ofPattern("HH:mm");
 
-    /** Uma seção do briefing. Em caso de erro, o conteúdo explica o que faltou. */
-    public record Secao(String titulo, String conteudo) {
+    /**
+     * Uma seção do briefing. Em caso de erro, o conteúdo explica o que faltou.
+     *
+     * @param dados a mesma informação em formato estruturado, para a HUD desenhar cards. Fica null
+     *              quando a seção falhou: aí só resta a prosa explicando o que não deu.
+     */
+    public record Secao(String titulo, String conteudo, DadosSecao dados) {
+
+        /** Seção que só tem prosa — é o caso de erro e o dos testes. */
+        public Secao(String titulo, String conteudo) {
+            this(titulo, conteudo, null);
+        }
     }
 
     public record Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes) {
@@ -126,18 +136,23 @@ public class BriefingService {
     /** Roda um montador de seção isolando a falha: o que quebra é só aquela seção. */
     private void adicionar(List<Secao> secoes, String titulo, Montador montador) {
         try {
-            secoes.add(new Secao(titulo, montador.montar()));
+            Conteudo conteudo = montador.montar();
+            secoes.add(new Secao(titulo, conteudo.prosa(), conteudo.dados()));
         } catch (Exception e) {
             log.warn("Seção '{}' do briefing falhou: {}", titulo, e.toString());
             secoes.add(new Secao(titulo, "não consegui consultar agora (" + motivo(e) + ")"));
         }
     }
 
-    private interface Montador {
-        String montar() throws Exception;
+    /** O que um montador devolve: o texto para ler em voz alta e os dados para a HUD desenhar. */
+    private record Conteudo(String prosa, DadosSecao dados) {
     }
 
-    private String secaoClima() throws Exception {
+    private interface Montador {
+        Conteudo montar() throws Exception;
+    }
+
+    private Conteudo secaoClima() throws Exception {
         var hoje = clima.hoje();
         StringJoiner linhas = new StringJoiner("\n");
         linhas.add(String.format(Locale.of("pt", "BR"), "%s: %.0f °C agora (%s), mínima %.0f °C e máxima %.0f °C",
@@ -147,19 +162,26 @@ public class BriefingService {
             chuva += " — vale levar guarda-chuva";
         }
         linhas.add(chuva);
-        return linhas.toString();
+        // Os graus vão arredondados do mesmo jeito que o %.0f da prosa: o card não pode dizer 19
+        // enquanto a voz diz 18.
+        DadosSecao dados = new DadosSecao.Clima(hoje.cidade(), grau(hoje.temperaturaAtual()),
+                grau(hoje.minima()), grau(hoje.maxima()), hoje.chanceChuvaPct(), hoje.descricao());
+        return new Conteudo(linhas.toString(), dados);
     }
 
-    private String secaoLembretes(ZonedDateTime agora) {
+    private Conteudo secaoLembretes(ZonedDateTime agora) {
         List<Lembrete> deHoje = lembretesDeHoje(lembretes.listar(), agora);
         if (deHoje.isEmpty()) {
-            return "Nada marcado para hoje.";
+            return new Conteudo("Nada marcado para hoje.", new DadosSecao.Lembretes(List.of()));
         }
         StringJoiner linhas = new StringJoiner("\n");
+        List<DadosSecao.Lembretes.Item> itens = new ArrayList<>();
         for (Lembrete l : deHoje) {
-            linhas.add(l.quando().withZoneSameInstant(agora.getZone()).format(HORA) + " " + l.texto());
+            String hora = l.quando().withZoneSameInstant(agora.getZone()).format(HORA);
+            linhas.add(hora + " " + l.texto());
+            itens.add(new DadosSecao.Lembretes.Item(hora, l.texto()));
         }
-        return linhas.toString();
+        return new Conteudo(linhas.toString(), new DadosSecao.Lembretes(itens));
     }
 
     /** Só os lembretes que caem na data de hoje, no fuso configurado. */
@@ -170,33 +192,50 @@ public class BriefingService {
                 .toList();
     }
 
-    private String secaoSistemas() {
+    private Conteudo secaoSistemas() {
         StringJoiner linhas = new StringJoiner("\n");
         List<Checagem> checagens = sites.checarTodos();
+        List<DadosSecao.Sistemas.Site> dosSites = new ArrayList<>();
         if (checagens.isEmpty()) {
             linhas.add("Nenhum site monitorado (configure SITES_MONITORADOS).");
         } else {
             for (Checagem c : checagens) {
                 linhas.add(c.nome() + ": " + c.resultado());
+                dosSites.add(new DadosSecao.Sistemas.Site(c.nome(), c.resultado()));
             }
         }
-        linhas.add(servidor.estado().curto());
-        return linhas.toString();
+        String doServidor = servidor.estado().curto();
+        linhas.add(doServidor);
+        return new Conteudo(linhas.toString(), new DadosSecao.Sistemas(dosSites, doServidor));
     }
 
-    private String secaoNoticias() {
+    private Conteudo secaoNoticias() {
         List<Noticia> ultimas = noticias.ultimas(NoticiasService.TODOS, NOTICIAS_NO_BRIEFING);
         if (ultimas.isEmpty()) {
-            return noticias.temas().isEmpty()
+            String vazio = noticias.temas().isEmpty()
                     ? "Nenhum feed configurado (configure NOTICIAS_FEEDS)."
                     : "Nada novo nas últimas 24 horas.";
+            return new Conteudo(vazio, new DadosSecao.Noticias(List.of()));
         }
         StringJoiner linhas = new StringJoiner("\n");
+        List<DadosSecao.Noticias.Item> itens = new ArrayList<>();
         for (Noticia n : ultimas) {
             String fonte = n.fonte().isBlank() ? n.tema() : n.tema() + " · " + n.fonte();
             linhas.add("• [" + fonte + "] " + n.titulo());
+            // O link e a imagem só chegam à HUD por aqui: na prosa não cabem.
+            itens.add(new DadosSecao.Noticias.Item(n.titulo(), n.tema(), n.fonte(), n.link(), n.imagemUrl()));
         }
-        return linhas.toString();
+        return new Conteudo(linhas.toString(), new DadosSecao.Noticias(itens));
+    }
+
+    /**
+     * Graus inteiros, do mesmo jeito que o %.0f da prosa arredonda.
+     *
+     * O %.0f arredonda para longe do zero no empate (-17,5 vira -18), e o Math.round arredonda
+     * para cima (-17,5 viraria -17); o espelho resolve a diferença.
+     */
+    private static int grau(double celsius) {
+        return (int) (celsius < 0 ? -Math.round(-celsius) : Math.round(celsius));
     }
 
     private String nomeUsuario() {

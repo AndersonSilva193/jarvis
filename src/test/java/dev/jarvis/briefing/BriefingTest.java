@@ -60,6 +60,20 @@ class BriefingTest {
     }
 
     @Test
+    @DisplayName("os dados estruturados da HUD não vazam para o texto do Telegram")
+    void dadosNaoEntramNoTexto() {
+        Briefing briefing = new Briefing(AGORA, "Anderson", List.of(
+                new Secao("clima", "Curitiba: 18 °C agora (nublado)",
+                        new DadosSecao.Clima("Curitiba", 18, 14, 22, 30, "nublado"))));
+
+        assertEquals("""
+                Bom dia, Anderson! terça-feira, 13/10 às 08:00
+
+                CLIMA
+                Curitiba: 18 °C agora (nublado)""", briefing.paraTexto());
+    }
+
+    @Test
     @DisplayName("sem nenhuma seção, ainda sai a saudação")
     void semSecoes() {
         String texto = new Briefing(AGORA, "chefe", List.of()).paraTexto();
