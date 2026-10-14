@@ -45,6 +45,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Codex (Messages
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
+| `dev.jarvis.conversa` | Execução assíncrona HUD, retratos públicos do histórico, progresso e registro temporário de anexos |
 | `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
 
 ## Personalidade e canais
@@ -149,5 +150,6 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 ## Limitações conhecidas
 
 - **Lembretes e histórico ficam em memória**: somem quando o container reinicia.
-- Só entende texto (nada de áudio ou foto).
-- Atende **uma mensagem por vez** — `Assistente.responder` é `synchronized`.
+- Telegram recebe texto; a voz da HUD é transcrita e sintetizada pelo navegador.
+- Atende **uma execução por vez** — conversas, tarefas e limpeza usam o mesmo `ReentrantLock`.
+- O histórico público usa um bloqueio curto separado: nunca manter esse bloqueio durante I/O do modelo.

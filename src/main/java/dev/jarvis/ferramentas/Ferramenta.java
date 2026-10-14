@@ -22,4 +22,24 @@ public interface Ferramenta {
 
     /** Executa e devolve um texto com o resultado, que volta para o modelo. */
     String executar(JsonNode entrada) throws Exception;
+
+    /** Adaptação compatível; ferramentas futuras podem fornecer artefatos e subetapas reais. */
+    default ResultadoFerramenta executarDetalhado(JsonNode entrada,
+            dev.jarvis.conversa.OuvinteProgresso progresso) throws Exception {
+        return ResultadoFerramenta.texto(executar(entrada));
+    }
+
+    default String progresso() {
+        return switch (nome()) {
+            case "noticias" -> "consultando notícias";
+            case "clima" -> "consultando o clima";
+            case "verificar_site" -> "verificando os sites";
+            case "status_servidor" -> "verificando o servidor";
+            case "criar_lembrete" -> "criando o lembrete";
+            case "cancelar_lembrete" -> "cancelando o lembrete";
+            case "listar_lembretes" -> "consultando os lembretes";
+            case "briefing_do_dia" -> "preparando o briefing";
+            default -> "executando " + nome().replace('_', ' ');
+        };
+    }
 }

@@ -45,6 +45,11 @@ public class Ferramentas {
 
     /** Recebe um bloco "tool_use" do modelo e devolve o bloco "tool_result" correspondente. */
     public ObjectNode executar(JsonNode blocoToolUse) {
+        return executar(blocoToolUse, new dev.jarvis.conversa.OuvinteProgresso() { }, saida -> { });
+    }
+
+    public ObjectNode executar(JsonNode blocoToolUse, dev.jarvis.conversa.OuvinteProgresso progresso,
+            java.util.function.Consumer<ResultadoFerramenta> receber) {
         String nome = Json.texto(blocoToolUse.path("name"));
         JsonNode entrada = blocoToolUse.path("input");
 
@@ -59,9 +64,12 @@ public class Ferramentas {
             return resultado;
         }
 
-        log.info("Executando ferramenta {} com {}", nome, entrada);
+        log.info("Executando ferramenta {}", nome);
+        dev.jarvis.conversa.OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, ferramenta.progresso(), null, null));
         try {
-            String saida = ferramenta.executar(entrada);
+            ResultadoFerramenta detalhado = ferramenta.executarDetalhado(entrada, progresso);
+            receber.accept(detalhado);
+            String saida = detalhado.texto();
             resultado.put("content", saida == null || saida.isBlank() ? "(sem resultado)" : saida);
         } catch (Exception e) {
             log.warn("Ferramenta {} falhou: {}", nome, e.getMessage());

@@ -142,7 +142,13 @@ alimentar uma tela de HUD.
 |---|---|
 | `POST /api/briefing` | Gera um briefing e devolve o JSON. Se já existe um de menos de 60 s, devolve esse (o campo `geradoAgora` diz qual foi o caso) |
 | `GET /api/briefing/ultimo` | O último briefing gerado. `404` enquanto não houver nenhum |
-| `GET /api/briefing/eventos` | Stream SSE: `gerando` quando um briefing começa e `briefing` quando fica pronto — inclusive os disparados pelo `/bomdia` e pelo cron das 8h |
+| `GET /api/eventos` | SSE unificado de briefing e conversa, com keep-alive a cada 25 s |
+| `GET /api/briefing/eventos` | Alias do mesmo SSE, mantido para a HUD antiga |
+| `POST /api/conversa` | Recebe `{texto}` (1–8.000 caracteres); aceita com `202 {id}` e executa em virtual thread; `409` se já houver pedido HUD pendente |
+| `GET /api/conversa/ultima` | Último resultado terminal da HUD, inclusive erro; `204` enquanto não existir |
+| `GET /api/conversa/historico` | Dez trocas públicas compartilhadas, sessão, revisão, pedido HUD pendente e última resposta |
+| `POST /api/conversa/limpar` | Limpa histórico dos dois canais e última resposta HUD; `204`, ou `409` durante pedido HUD |
+| `GET /api/anexos/{id}` | Arquivo registrado por ferramenta; exige token, expira em uma hora; ausente/expirado retorna `404` |
 | `GET /api/saude` | `{"status":"ok"}`. Único endpoint sem token |
 
 ### Autenticação
@@ -160,19 +166,58 @@ O 401 sai com os cabeçalhos de CORS (o filtro de CORS roda antes do de token), 
 consegue ler `{"erro":"token ausente ou invalido"}` em vez de mostrar um erro de rede opaco — é o
 que deixa a HUD dizer "token inválido" em vez de "API fora do ar".
 
-O `EventSource` do navegador não sabe mandar header, então **só a rota de eventos** aceita o token
-na query string:
+O `EventSource` do navegador não sabe mandar header. Somente GET de `/api/eventos`, do alias
+`/api/briefing/eventos` e de `/api/anexos/{id}` aceita também `?token=`. A HUD baixa anexos com
+Bearer e URLs de objeto locais; nunca acrescenta credenciais a links externos.
 
 ```js
-const fonte = new EventSource(`https://seu-dominio/api/briefing/eventos?token=${token}`);
+const fonte = new EventSource(`https://seu-dominio/api/eventos?token=${token}`);
 fonte.addEventListener("gerando",  () => mostrarSpinner());
 fonte.addEventListener("briefing", e => desenhar(JSON.parse(e.data)));
 ```
 
-Conectar no stream **não** dispara nada: a tela fica como está até um briefing ser pedido (pela API,
-pelo `/bomdia` ou pelo cron das 8h). Se a HUD quiser mostrar algo logo ao abrir, aí sim chama
-`GET /api/briefing/ultimo`. Um comentário de keep-alive vai a cada 25 s, para a conexão não morrer
-em proxy.
+Conectar no stream não dispara pedidos. A HUD consulta briefing, histórico e última resposta
+para restaurar a tela; repete a recuperação a cada reconexão. Um comentário de keep-alive vai
+a cada 25 s. Não registre query strings com credenciais: o exemplo nginx desliga o access log
+em `/api/`.
+
+### Conversa compartilhada com o Telegram
+
+A HUD usa o mesmo `chatId` de `TELEGRAM_USUARIO_PERMITIDO` e o mesmo `Assistente`. O que você
+disser num canal continua no outro, mas respostas solicitadas pela HUD nunca são enviadas pelo
+`TelegramClient`. A execução de conversas e tarefas é serializada por `ReentrantLock`; consultas
+ao retrato público do histórico não aguardam o modelo. Um pedido HUD pode aguardar o Telegram;
+um segundo pedido HUD recebe `409`, sem fila adicional.
+
+O SSE preserva `gerando` e `briefing` e acrescenta:
+
+- `conversa.pensando`: `{id, canal, texto, estado, iniciadoEm}`; estado `aguardando` ou `processando`.
+- `conversa.ferramenta`: `{id, canal, nome, descricao, passo, total}`; subetapas são opcionais.
+- `conversa.resposta`: `{id, canal, texto, anexos, confirmacao, concluidoEm, erro}`.
+- `conversa.erro`: mesmo resultado terminal, com mensagem pública em `erro`.
+- `conversa.historico`: `{sessao, revisao}` para invalidar o histórico de qualquer canal.
+
+Respostas do Telegram atualizam apenas o histórico na HUD. O `/limpar` também invalida esse
+histórico. São expostos somente pedidos, respostas públicas e metadados; pensamentos e resultados
+internos de ferramentas não entram nos DTOs. Tudo permanece em memória e é perdido ao reiniciar.
+
+`GET /api/conversa/historico` inclui `ultima` no mesmo retrato atômico, além de `emAndamento`.
+O identificador de sessão muda no reinício. A HUD deduplica por ID/revisão, recupera respostas
+perdidas e não repete automaticamente um POST de resultado incerto.
+
+### Extensão para anexos e confirmações
+
+`Ferramenta.executarDetalhado` adapta o retorno textual existente para `ResultadoFerramenta`.
+Uma ferramenta futura poderá devolver artefatos explícitos (`Path`, nome e MIME), referências
+HTTP/HTTPS e confirmação `{codigo, descricao, expiraEm}`. O registro copia apenas esses artefatos
+para uma pasta temporária própria: 10 MiB por arquivo, 50 MiB no total e validade de uma hora.
+Uma limpeza periódica remove expirados. Texto produzido pelo modelo nunca é interpretado como
+caminho de arquivo. Imagens raster têm preview; os demais arquivos são entregues como download.
+
+Esta entrega prepara o contrato e a interface; não adiciona ferramentas de criação de arquivos,
+captura/controle de tela nem execução de ações protegidas. As ferramentas atuais não emitem
+confirmação. Os botões da HUD só aparecem com metadados explícitos, enviando `confirmo <código>`
+ou `cancelo <código>`; a ferramenta futura deverá gerar, validar e executar a ação correspondente.
 
 Cada seção vem nas **duas formas**: o `conteudo` em prosa (é o que a HUD fala, e o mesmo texto que
 vai para o Telegram) e o `dados` estruturado, para a tela desenhar número grande, lista e imagem.
@@ -234,6 +279,7 @@ o nginx, com HTTPS:
 
 ```nginx
 location /api/ {
+    access_log off;                     # nunca gravar token da query string
     proxy_pass http://127.0.0.1:8090;
     proxy_http_version 1.1;
     proxy_set_header Connection "";     # SSE precisa de conexão persistente
@@ -266,7 +312,7 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 ## Limitações atuais
 
 - Lembretes e histórico ficam **em memória**: somem se o container reiniciar.
-- Só entende texto (nada de áudio ou foto ainda).
+- No Telegram, recebe somente texto. Na HUD, o navegador converte voz em texto e sintetiza a resposta.
 - Atende uma mensagem por vez.
 - A formatação do Telegram cobre o básico (negrito, código e listas); itálico, links e citações ainda saem
   como texto comum.
@@ -277,3 +323,14 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 2. Ferramenta que consulta a API do AgendaBarber (agendamentos do dia, faturamento).
 3. Receber áudio do Telegram e transcrever, para falar com o Jarvis por voz.
 4. Ferramentas com confirmação ("tem certeza?") para ações que alteram dados.
+
+## Validar a conversa e disponibilizar
+
+Rode `mvn -q -B package` aqui e `npm test -- --watch=false` / `npm run build` em `jarvis-hud`.
+Os testes usam modelo, reconhecimento e síntese simulados; nenhuma mensagem é enviada ao Telegram.
+Incluem aceitação assíncrona, exclusão entre canais, SSE novo/alias, recuperação, autenticação,
+anexos e metadados de confirmação simulados.
+
+Quando for publicar, disponibilize primeiro este backend (mantém o alias da HUD antiga) e depois
+a nova HUD. Não são necessárias dependências nem variáveis de ambiente adicionais. A validação
+com microfone físico deve ser feita no navegador, seguindo o roteiro do README da HUD.

@@ -23,8 +23,8 @@ import jakarta.servlet.http.HttpServletResponse;
 /**
  * Exige o token da HUD em tudo sob /api, menos em /api/saude.
  *
- * O normal é vir em "Authorization: Bearer <token>". Na rota de eventos aceitamos também
- * "?token=", porque o EventSource do navegador não sabe mandar header nenhum.
+ * O normal é vir em "Authorization: Bearer <token>". GET de eventos e anexos aceita
+ * também "?token="; o EventSource do navegador não sabe mandar header nenhum.
  */
 @Component
 public class TokenHudFiltro extends OncePerRequestFilter {
@@ -84,8 +84,11 @@ public class TokenHudFiltro extends OncePerRequestFilter {
         if (cabecalho != null && cabecalho.startsWith(PREFIXO)) {
             return cabecalho.substring(PREFIXO.length()).trim();
         }
-        // Só o SSE pode usar query string: é o único cliente que não consegue mandar header.
-        if (ROTA_EVENTOS.equals(requisicao.getRequestURI())) {
+        // Exceção restrita aos GETs de SSE e anexos previamente registrados.
+        String rota = requisicao.getRequestURI();
+        if (HttpMethod.GET.matches(requisicao.getMethod()) &&
+                (ROTA_EVENTOS.equals(rota) || "/api/eventos".equals(rota)
+                || rota.matches("/api/anexos/[a-fA-F0-9-]{36}"))) {
             return requisicao.getParameter("token");
         }
         return null;

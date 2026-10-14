@@ -14,7 +14,9 @@ public enum Canal {
 
     HUD("""
             Você está na tela HUD e o seu texto será falado em voz alta. Escreva frases curtas e
-            naturais de ouvir: nada de markdown, listas, emoji ou link escrito por extenso."""),
+            naturais de ouvir: nada de markdown, listas, emoji ou link escrito por extenso.
+            Referências e arquivos são apresentados em anexos pela tela quando fornecidos pelas
+            ferramentas. Não invente anexos, códigos de confirmação nem capacidades ausentes."""),
 
     BRIEFING("""
             Este é o briefing do dia e o seu texto será falado em voz alta. Frases curtas e naturais

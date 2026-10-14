@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,10 +17,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import dev.jarvis.briefing.BriefingGeradoEvento;
 import dev.jarvis.briefing.BriefingIniciadoEvento;
+import dev.jarvis.conversa.EventoConversa;
+import dev.jarvis.conversa.RespostaConversa;
+import dev.jarvis.config.JarvisProperties;
 
 /**
- * Mantém as conexões SSE da HUD e empurra para elas tudo que acontece com o briefing,
- * não importa quem disparou: a API, o /bomdia no Telegram, o cron das 8h ou a ferramenta do Claude.
+ * Traduz eventos de domínio de briefing e conversa para as conexões SSE da HUD.
  */
 @Component
 public class EventosHud {
@@ -27,10 +32,27 @@ public class EventosHud {
     private static final long SEM_TIMEOUT = 0L;
 
     private final List<SseEmitter> conectados = new CopyOnWriteArrayList<>();
+    private final long chatId;
+    /** O cliente SSE lento não pode atrasar o 202 nem segurar a execução do assistente. */
+    private final ExecutorService transmissao = Executors.newSingleThreadExecutor(
+            Thread.ofVirtual().name("hud-eventos-", 0).factory());
+
+    public EventosHud(JarvisProperties props) { this.chatId = props.telegram().usuarioPermitido(); }
+
+    @EventListener
+    public void aoConversar(EventoConversa evento) {
+        if (evento.chatId() != chatId) return;
+        Object dados = evento.dados() instanceof RespostaConversa resposta ? ConversaDto.de(resposta) : evento.dados();
+        // Quem conectou depois recupera por HTTP; não recebe a fila de eventos antigos.
+        List<SseEmitter> destinatarios = List.copyOf(conectados);
+        transmissao.submit(() -> destinatarios.stream().filter(conectados::contains)
+                .forEach(emissor -> enviarPara(emissor, evento.nome(), dados)));
+    }
+
+    @PreDestroy public void fechar() { transmissao.shutdownNow(); conectados.forEach(SseEmitter::complete); }
 
     /**
-     * Registra uma conexão nova. De propósito não manda nada agora: a HUD fica só com o fundo
-     * até um briefing ser pedido (pela API, pelo /bomdia ou pelo cron).
+     * Registra uma conexão nova. A recuperação de estado é feita pelas consultas HTTP da HUD.
      */
     public SseEmitter registrar() {
         SseEmitter emissor = new SseEmitter(SEM_TIMEOUT);
@@ -77,7 +99,7 @@ public class EventosHud {
     private void enviarPara(SseEmitter emissor, String nome, Object dados) {
         try {
             emissor.send(SseEmitter.event().name(nome).data(dados));
-        } catch (IOException | IllegalStateException e) {
+        } catch (IOException | RuntimeException e) {
             conectados.remove(emissor);
             log.debug("Conexão SSE caiu ao enviar '{}': {}", nome, e.getMessage());
         }

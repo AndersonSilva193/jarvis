@@ -6,6 +6,12 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
+import org.springframework.beans.factory.annotation.Autowired;
+import dev.jarvis.conversa.*;
+import dev.jarvis.ferramentas.ResultadoFerramenta;
 
 import org.springframework.stereotype.Service;
 
@@ -32,15 +38,26 @@ public class Assistente {
     private final Ferramentas ferramentas;
     private final SistemaDoJarvis sistema;
     private final JsonMapper json;
+    private final RegistroConversas conversas;
+    private final AnexosService anexos;
+    private final ReentrantLock execucao = new ReentrantLock(true);
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
     private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
+        this(claude, ferramentas, sistema, json, new RegistroConversas(evento -> { }), new AnexosService());
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos) {
         this.claude = claude;
         this.ferramentas = ferramentas;
         this.sistema = sistema;
         this.json = json;
+        this.conversas = conversas;
+        this.anexos = anexos;
     }
 
     /** Responde a uma mensagem vinda do Telegram. */
@@ -49,19 +66,46 @@ public class Assistente {
     }
 
     /** Responde a uma mensagem da conversa, usando e atualizando o histórico daquele chat. */
-    public synchronized String responder(long chatId, String texto, Canal canal) throws Exception {
-        Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, id -> new ArrayDeque<>());
-        List<ObjectNode> turno = new ArrayList<>();
-        turno.add(mensagemDoUsuario(texto));
+    public String responder(long chatId, String texto, Canal canal) throws Exception {
+        return responder(chatId, texto, canal, null).texto();
+    }
 
-        String resposta = executarLoop(historico, turno, canal);
+    public RespostaConversa responder(long chatId, String texto, Canal canal, OuvinteProgresso ouvinte) throws Exception {
+        OuvinteProgresso progresso = ouvinte == null ? new OuvinteProgresso() { } : ouvinte;
+        String id = progresso.idPedido() == null ? UUID.randomUUID().toString() : progresso.idPedido();
+        execucao.lockInterruptibly();
+        try {
+            if (progresso.idPedido() != null && !conversas.pendente(chatId, id))
+                throw new IllegalStateException("Pedido encerrado pela limpeza do histórico");
+            OuvinteProgresso.avisar(progresso::iniciado);
+            Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
+            List<ObjectNode> turno = new ArrayList<>();
+            turno.add(mensagemDoUsuario(texto));
 
-        // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
-        historico.addLast(semPensamentos(turno));
-        while (historico.size() > MAX_TURNOS_HISTORICO) {
-            historico.removeFirst();
-        }
-        return resposta;
+            List<ResultadoFerramenta> resultados = new ArrayList<>();
+            String resposta = executarLoop(historico, turno, canal, progresso, resultados);
+            List<Anexo> publicados = new ArrayList<>();
+            Confirmacao confirmacao = null;
+            for (ResultadoFerramenta resultado : resultados) {
+                for (var artefato : resultado.artefatos()) {
+                    try { publicados.add(anexos.registrar(artefato)); }
+                    catch (java.io.IOException e) { resposta += "\nNão consegui disponibilizar um dos anexos."; }
+                }
+                for (var referencia : resultado.referencias())
+                    anexos.referencia(referencia.nome(), referencia.url()).ifPresent(publicados::add);
+                if (resultado.confirmacao() != null) confirmacao = resultado.confirmacao();
+            }
+            RespostaConversa publica = new RespostaConversa(id, canal.nome(), resposta, publicados,
+                    confirmacao, Instant.now().toString(), null);
+
+            // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
+            historico.addLast(semPensamentos(turno));
+            while (historico.size() > MAX_TURNOS_HISTORICO) {
+                historico.removeFirst();
+            }
+            conversas.concluir(chatId, texto, publica);
+            return publica;
+        } finally { execucao.unlock(); }
     }
 
     /** Executa uma instrução avulsa sem misturar com o histórico da conversa. */
@@ -73,17 +117,25 @@ public class Assistente {
      * Executa uma instrução avulsa (ex.: tarefas agendadas, briefing falado, HUD) sem misturar com o
      * histórico da conversa. O canal decide só o formato do texto que volta.
      */
-    public synchronized String executarTarefa(String instrucao, Canal canal) throws Exception {
-        List<ObjectNode> turno = new ArrayList<>();
-        turno.add(mensagemDoUsuario(instrucao));
-        return executarLoop(new ArrayDeque<>(), turno, canal);
+    public String executarTarefa(String instrucao, Canal canal) throws Exception {
+        execucao.lockInterruptibly();
+        try {
+            List<ObjectNode> turno = new ArrayList<>();
+            turno.add(mensagemDoUsuario(instrucao));
+            return executarLoop(new ArrayDeque<>(), turno, canal, new OuvinteProgresso() { }, new ArrayList<>());
+        } finally { execucao.unlock(); }
     }
 
-    public synchronized void limparHistorico(long chatId) {
-        historicos.remove(chatId);
+    public void limparHistorico(long chatId) {
+        execucao.lock();
+        try {
+            historicos.remove(chatId);
+            conversas.limpar(chatId);
+        } finally { execucao.unlock(); }
     }
 
-    private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno, Canal canal)
+    private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno, Canal canal,
+            OuvinteProgresso progresso, List<ResultadoFerramenta> detalhados)
             throws Exception {
         // Montado UMA vez por pedido, de propósito. O bloco dinâmico tem a hora: remontá-lo a cada
         // ida e vinda de ferramenta mudaria o system no meio do turno, e o modelo rejeita (HTTP 400)
@@ -123,7 +175,12 @@ public class Assistente {
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
                 if ("tool_use".equals(Json.texto(bloco.path("type")))) {
-                    resultados.add(ferramentas.executar(bloco));
+                    OuvinteProgresso seguro = new OuvinteProgresso() {
+                        @Override public void ferramenta(String nome, String descricao, Integer atual, Integer total) {
+                            OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
+                        }
+                    };
+                    resultados.add(ferramentas.executar(bloco, seguro, detalhados::add));
                 }
             }
             ObjectNode comResultados = json.createObjectNode();
