@@ -41,10 +41,12 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- JUnit 5 só para os testes (versão vem do BOM do Boot); não entra no jar final -->
+        <!-- Testes (versão vem do BOM do Boot); nada aqui entra no jar final. Traz o JUnit 5 que
+             a maioria dos testes usa sozinho, e o Mockito/spring-test que o ContextoDaAplicacaoTest
+             precisa para levantar o contexto sem abrir o poller do Telegram. -->
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
