@@ -17,15 +17,18 @@ public record BriefingDto(
         String geradoEm,
         String nomeUsuario,
         List<SecaoDto> secoes,
+        String abertura,
         String texto,
         boolean geradoAgora) {
 
     /**
-     * Uma seção com as duas leituras: o texto pronto (que a HUD fala) e os dados estruturados
-     * (que a HUD desenha). Cada seção tem a sua forma de `dados`, pelo título; seção que falhou
-     * vem com `dados` nulo e a explicação no `conteudo`.
+     * Uma seção com as três leituras: `conteudo` é a prosa que a HUD desenha, `dados` é a forma
+     * estruturada que ela usa para montar o card (cada seção tem a sua, discriminada pelo título) e
+     * `fala` é o mesmo conteúdo narrado pelo Jarvis, que é o que a HUD diz em voz alta. Sem
+     * narração, `fala` repete o `conteudo`. Seção que falhou vem com `dados` nulo e a explicação no
+     * `conteudo`.
      */
-    public record SecaoDto(String titulo, String conteudo, DadosSecao dados) {
+    public record SecaoDto(String titulo, String conteudo, DadosSecao dados, String fala) {
     }
 
     /** @param geradoAgora false quando a resposta reaproveita um briefing montado antes. */
@@ -33,7 +36,10 @@ public record BriefingDto(
         return new BriefingDto(
                 briefing.geradoEm().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 briefing.nomeUsuario(),
-                briefing.secoes().stream().map(s -> new SecaoDto(s.titulo(), s.conteudo(), s.dados())).toList(),
+                briefing.secoes().stream()
+                        .map(s -> new SecaoDto(s.titulo(), s.conteudo(), s.dados(), s.paraFala()))
+                        .toList(),
+                briefing.abertura(),
                 briefing.paraFala(),
                 geradoAgora);
     }

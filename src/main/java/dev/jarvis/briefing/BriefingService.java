@@ -53,23 +53,47 @@ public class BriefingService {
      * @param dados a mesma informação em formato estruturado, para a HUD desenhar cards. Fica null
      *              quando a seção falhou: aí só resta a prosa explicando o que não deu.
      */
-    public record Secao(String titulo, String conteudo, DadosSecao dados) {
+    public record Secao(String titulo, String conteudo, DadosSecao dados, String fala) {
 
         /** Seção que só tem prosa — é o caso de erro e o dos testes. */
         public Secao(String titulo, String conteudo) {
-            this(titulo, conteudo, null);
+            this(titulo, conteudo, null, "");
+        }
+
+        public Secao(String titulo, String conteudo, DadosSecao dados) {
+            this(titulo, conteudo, dados, "");
+        }
+
+        /**
+         * O que falar desta seção: a narração do Jarvis, quando houver, senão a prosa montada em
+         * Java. O {@code conteudo} nunca muda — é ele que a HUD desenha e o Telegram mostra.
+         */
+        public String paraFala() {
+            return fala == null || fala.isBlank() ? conteudo : fala;
+        }
+
+        Secao comFala(String narrada) {
+            return new Secao(titulo, conteudo, dados, narrada);
         }
     }
 
     /**
-     * @param narracao o mesmo briefing lido pelo Claude com a personalidade, ou vazio quando a
-     *                 chamada falhou. Os números vêm sempre das seções, nunca do modelo.
+     * @param abertura o cumprimento narrado pelo Jarvis, que a HUD fala no primeiro card. Vazio
+     *                 quando não houve narração.
+     * @param narracao o briefing inteiro lido pelo Claude (abertura + seções), que é o que vai
+     *                 para o Telegram. Os números vêm sempre das seções, nunca do modelo.
      */
-    public record Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes, String narracao) {
+    public record Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes,
+            String abertura, String narracao) {
 
         /** Briefing sem narração — é o caso de falha e o dos testes. */
         public Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes) {
-            this(geradoEm, nomeUsuario, secoes, "");
+            this(geradoEm, nomeUsuario, secoes, "", "");
+        }
+
+        /** Briefing narrado sem abertura própria — usado nos testes de formato. */
+        public Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes, String narracao) {
+            this(geradoEm, nomeUsuario, secoes, "", narracao);
         }
 
         /** O briefing em texto simples, montado em Java. É o que vai para o Claude narrar. */
@@ -150,12 +174,29 @@ public class BriefingService {
         // A narração entra antes do evento: assim a HUD, o /bomdia e o resumo das 8h recebem todos
         // o mesmo briefing já com a voz do Jarvis, em vez de cada um narrar por conta.
         String usuario = nomeUsuario();
-        Briefing bruto = new Briefing(agora, usuario, secoes);
-        Briefing briefing = new Briefing(agora, usuario, secoes, narrador.narrar(bruto.paraTexto()));
+        Briefing briefing = narrado(agora, usuario, secoes);
 
         ultimo = briefing;
         eventos.publishEvent(new BriefingGeradoEvento(briefing));
         return briefing;
+    }
+
+    /**
+     * Passa o briefing pelo Claude e devolve as seções com a fala narrada, mais a narração inteira
+     * (abertura + seções) que vai para o Telegram. Narração que não veio: tudo segue com o texto
+     * montado em Java, sem nenhum caminho ficar sem briefing.
+     */
+    private Briefing narrado(ZonedDateTime agora, String usuario, List<Secao> secoes) {
+        List<String> falas = narrador.narrar(usuario, secoes);
+        if (falas.isEmpty()) {
+            return new Briefing(agora, usuario, secoes);
+        }
+
+        List<Secao> comFala = new ArrayList<>(secoes.size());
+        for (int i = 0; i < secoes.size(); i++) {
+            comFala.add(secoes.get(i).comFala(falas.get(i + 1)));
+        }
+        return new Briefing(agora, usuario, comFala, falas.get(0), String.join("\n\n", falas));
     }
 
     /** O último briefing montado neste processo, se já houve algum. */
