@@ -8,6 +8,7 @@ import java.nio.file.attribute.FileTime;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.config.JarvisProperties;
@@ -33,6 +34,12 @@ public class PersonalidadeService {
     /** Para avisar só na transição para a reserva, e não a cada mensagem. */
     private boolean naReserva;
 
+    /**
+     * O @Autowired é obrigatório: como existe também o construtor de teste abaixo, a classe tem
+     * dois construtores, e aí o Spring não escolhe sozinho — ele procura um construtor vazio,
+     * não acha, e a aplicação nem sobe.
+     */
+    @Autowired
     public PersonalidadeService(JarvisProperties props) {
         this(props.arquivoDaPersonalidade(), props.nomeUsuario());
     }
