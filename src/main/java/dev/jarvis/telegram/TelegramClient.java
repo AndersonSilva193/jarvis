@@ -56,21 +56,46 @@ public class TelegramClient {
         return atualizacoes;
     }
 
-    /** Envia texto puro (sem Markdown, para não quebrar com caracteres especiais), dividindo se for longo. */
+    /**
+     * Envia a resposta convertendo o markdown simples do Jarvis para o HTML do Telegram, dividindo
+     * em várias mensagens se for longa. Se o Telegram recusar a formatação, o mesmo pedaço vai de
+     * novo em texto puro: antes uma mensagem sem negrito do que nenhuma mensagem.
+     */
     public void enviarMensagem(long chatId, String texto) {
         String conteudo = texto == null || texto.isBlank() ? "(resposta vazia)" : texto;
-        for (int inicio = 0; inicio < conteudo.length(); inicio += LIMITE_MENSAGEM) {
-            String parte = conteudo.substring(inicio, Math.min(conteudo.length(), inicio + LIMITE_MENSAGEM));
-            ObjectNode corpo = json.createObjectNode();
-            corpo.put("chat_id", chatId);
-            corpo.put("text", parte);
+        for (String parte : MarkdownTelegram.dividir(conteudo, LIMITE_MENSAGEM)) {
             try {
-                chamar("sendMessage", corpo, Duration.ofSeconds(20));
+                enviarPedaco(chatId, MarkdownTelegram.paraHtml(parte), "HTML");
+            } catch (TelegramRecusouException e) {
+                // 400 é como o Telegram devolve "can't parse entities". Outras recusas (chat
+                // inexistente, limite de taxa) não melhoram sem formatação, então nem tentamos.
+                if (e.status() != 400) {
+                    log.error("Telegram recusou a mensagem do chat {}: {}", chatId, e.descricao());
+                    return;
+                }
+                log.warn("Telegram recusou o HTML ({}); reenviando em texto puro.", e.descricao());
+                try {
+                    enviarPedaco(chatId, parte, null);
+                } catch (Exception falha) {
+                    log.error("Falha ao reenviar em texto puro para o chat {}: {}", chatId, falha.getMessage());
+                    return;
+                }
             } catch (Exception e) {
                 log.error("Falha ao enviar mensagem para o chat {}: {}", chatId, e.getMessage());
                 return;
             }
         }
+    }
+
+    private void enviarPedaco(long chatId, String conteudo, String formato)
+            throws IOException, InterruptedException {
+        ObjectNode corpo = json.createObjectNode();
+        corpo.put("chat_id", chatId);
+        corpo.put("text", conteudo);
+        if (formato != null) {
+            corpo.put("parse_mode", formato);
+        }
+        chamar("sendMessage", corpo, Duration.ofSeconds(20));
     }
 
     /** Mostra "digitando..." no Telegram enquanto o Jarvis pensa. Falhas aqui são ignoradas. */
@@ -98,9 +123,7 @@ public class TelegramClient {
 
         JsonNode ok = raiz.path("ok");
         if (!(ok.isBoolean() && ok.booleanValue())) {
-            // Nunca logamos a URL: ela contém o token do bot.
-            throw new IOException("Telegram recusou " + metodo + " (HTTP " + resposta.statusCode() + "): "
-                    + Json.texto(raiz.path("description")));
+            throw new TelegramRecusouException(metodo, resposta.statusCode(), Json.texto(raiz.path("description")));
         }
         return raiz.path("result");
     }

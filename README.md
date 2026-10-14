@@ -12,7 +12,10 @@ linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um c
 | "me lembra de mandar o currículo amanhã às 9h" | `criar_lembrete` |
 | "quais lembretes eu tenho?" / "cancela o 2" | `listar_lembretes` / `cancelar_lembrete` |
 
-Além disso, todo dia útil às 8h ele manda um resumo de bom dia (sites, servidor e lembretes).
+Além disso, todo dia útil às 8h ele manda um resumo de bom dia (clima, lembretes, sites e notícias).
+
+Ele responde no personagem descrito em `config/personalidade.md` — um arquivo de texto que você edita na
+VPS e ele relê sozinho, sem rebuild e sem reiniciar o container.
 
 ## Como funciona
 
@@ -28,6 +31,30 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (API)
 2. O `Assistente` manda a conversa e a lista de ferramentas para o Claude.
 3. Se o Claude pedir uma ferramenta, o Java executa e devolve o resultado. Isso se repete até ele responder.
 4. A resposta volta para você no Telegram.
+
+### O prompt de sistema
+
+Toda chamada ao Claude leva o `system` em **dois blocos**, nesta ordem:
+
+| Bloco | Conteúdo | Cache |
+|---|---|---|
+| fixo | o texto de `config/personalidade.md`, byte a byte | `cache_control: ephemeral` |
+| dinâmico | data e hora com fuso, canal do pedido, regras técnicas e de formato | nunca |
+
+A ordem importa: o cache de prompt da Anthropic casa **prefixo exato**, então qualquer coisa que muda a cada
+pedido (a começar pelo relógio) tem de ficar *depois* do bloco cacheado. O marcador de cache só é enviado
+quando a personalidade passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` — abaixo disso a API o ignoraria calada.
+
+O **canal** diz ao Jarvis como escrever: `telegram` aceita negrito, listas e blocos de código; `hud` e
+`briefing` viram áudio, então são frases curtas sem markdown; `tarefa` começa pelo resultado, com uma
+linha de status. Cada chamada ao Claude registra no log quanto consumiu:
+
+```
+Claude: entrada=812 saída=96 cache_escrito=0 cache_lido=2310
+```
+
+`cache_escrito` aparece na primeira chamada (quando o prefixo é gravado) e `cache_lido` nas seguintes. Se as
+duas ficarem sempre em zero, o cache não está pegando.
 
 ## Passo 1: pegar as credenciais
 
@@ -45,13 +72,28 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (API)
 cp .env.example .env
 nano .env                      # preencha token, chave, seu ID e os sites
 
+nano config/personalidade.md   # opcional: ajuste o jeito do Jarvis (veja abaixo)
+
 docker compose up -d --build   # compila e sobe
 docker compose logs -f         # acompanha os logs (Ctrl+C para sair)
 ```
 
 Mudou o `.env` ou o código? Rode `docker compose up -d --build` de novo.
 
-Para rodar no seu PC (sem Docker), exporte as mesmas variáveis do `.env` e rode `mvn spring-boot:run`.
+Para rodar no seu PC (sem Docker), exporte as mesmas variáveis do `.env`, aponte
+`JARVIS_PERSONALIDADE_ARQUIVO=config/personalidade.md` e rode `mvn spring-boot:run`.
+
+### A personalidade
+
+`config/personalidade.md` é o system prompt fixo: identidade, tom, o que o Jarvis faz e o que não faz. Ele
+é versionado junto com o código (o repositório é privado), mas **não entra na imagem**: chega ao container
+por volume, montado como somente leitura em `/app/config`.
+
+É justamente por isso que editar o texto **não** exige rebuild — o Jarvis compara a data de modificação do
+arquivo a cada chamada e relê quando ela muda. Se o arquivo faltar ou estiver em branco, o bot sobe com uma
+personalidade mínima de reserva e avisa no log, em vez de deixar de responder.
+
+Segredo nenhum entra aqui: token, chave de API e afins continuam só no `.env`.
 
 ## Criando uma ferramenta nova
 
@@ -185,7 +227,7 @@ vem vazio quando o feed não trouxe foto, então quem desenha precisa ter um est
 ### CORS e HTTPS
 
 `HUD_ORIGEM` lista as origens liberadas, separadas por vírgula (ex.:
-`https://jarvis-hud.vercel.app,http://localhost:4200`). Vazio = nenhuma origem de navegador.
+`https://jarvis-hud-gamma.vercel.app,http://localhost:4200`). Vazio = nenhuma origem de navegador.
 
 O `docker-compose` publica a porta **só em `127.0.0.1`**, porque quem deve expor isso na internet é
 o nginx, com HTTPS:
@@ -207,18 +249,27 @@ location /api/ {
   e limitada (ex.: `verificar_site` só acessa as URLs da lista, nunca uma URL qualquer).
 - Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar.
 - O `.env` tem segredos: ele está no `.gitignore` e no `.dockerignore`; mantenha assim.
+- A `config/personalidade.md` é versionada (repositório privado) e **não é lugar de segredo**: token,
+  chave de API e senha ficam só no `.env`. Ela entra no container por volume somente leitura.
 
 ## Custos
 
-Com o modelo padrão (Claude Haiku 4.5: US$ 1 por milhão de tokens de entrada e US$ 5 por milhão de saída),
-uma mensagem comum costuma custar bem menos de 1 centavo de dólar. Você acompanha o gasto no console da
-Anthropic e pode definir um limite mensal por lá.
+Com o modelo padrão (Claude Haiku 5.5: US$ 0,10 por milhão de tokens de entrada e US$ 0,50 por milhão de
+saída), uma mensagem comum custa uma fração de centavo de dólar. O texto da personalidade vai em cache de
+prompt, então ele é pago cheio uma vez e sai por cerca de um décimo disso nas chamadas seguintes — é o que
+os campos `cache_escrito` e `cache_lido` do log mostram. Você acompanha o gasto no console da Anthropic e
+pode definir um limite mensal por lá.
+
+Se trocar `ANTHROPIC_MODELO`, ajuste `ANTHROPIC_CACHE_MINIMO_TOKENS` junto: o menor prefixo cacheável muda
+por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 
 ## Limitações atuais
 
 - Lembretes e histórico ficam **em memória**: somem se o container reiniciar.
 - Só entende texto (nada de áudio ou foto ainda).
 - Atende uma mensagem por vez.
+- A formatação do Telegram cobre o básico (negrito, código e listas); itálico, links e citações ainda saem
+  como texto comum.
 
 ## Próximos passos sugeridos
 

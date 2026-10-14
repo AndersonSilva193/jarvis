@@ -18,8 +18,11 @@ jarvis:
     usuario-permitido: ${TELEGRAM_USUARIO_PERMITIDO:0}
   anthropic:
     api-key: ${ANTHROPIC_API_KEY}
-    modelo: ${ANTHROPIC_MODELO:claude-haiku-4-5-20251001}
+    modelo: ${ANTHROPIC_MODELO:claude-haiku-5-5}
     max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
+    # Menor prefixo cacheável do modelo. Precisa acompanhar ANTHROPIC_MODELO: 512 no Haiku 5.5
+    # e no Sonnet 5.5, 4096 no Haiku 4.5. Abaixo disso a API ignora o cache_control calado.
+    cache-minimo-tokens: ${ANTHROPIC_CACHE_MINIMO_TOKENS:512}
   clima:
     cidade: ${CLIMA_CIDADE:Curitiba}
     # Coordenadas da cidade (o "-" antes do número é o valor default, não um erro de sintaxe)
@@ -33,6 +36,9 @@ jarvis:
     token: ${HUD_TOKEN:}
     # Origens liberadas no CORS, separadas por vírgula. Vazio = nenhuma origem de navegador.
     origens: ${HUD_ORIGEM:}
+  personalidade:
+    # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
+    arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

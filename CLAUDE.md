@@ -16,6 +16,10 @@ natural e executar ferramentas Java reais. Roda 24h numa VPS, dentro de um conta
 - **Claude chamado por `HttpClient` puro** — `ClaudeClient` faz `POST` em
   `https://api.anthropic.com/v1/messages` com `x-api-key` e `anthropic-version: 2023-06-01`,
   e repete a chamada em erros temporários (429, 500, 502, 503, 529). Sem SDK.
+- **O `system` vai em dois blocos**: o fixo é a personalidade de `config/personalidade.md`, com
+  `cache_control` quando passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` (o mínimo muda por modelo); o
+  dinâmico vem depois, com data, canal e regras. O cache casa **prefixo exato**, então nada que
+  mude por pedido pode entrar no bloco fixo — nem o relógio, nem o nome do usuário.
 - **Servidor web só para a HUD** (`spring-boot-starter-web`, porta `JARVIS_PORTA`, padrão 8090).
   O Telegram **não** depende dele: continua por long polling, sem porta aberta nem domínio.
   A API vive em `dev.jarvis.web`, exige `Authorization: Bearer <HUD_TOKEN>` em tudo menos
@@ -33,7 +37,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | Pacote | Responsabilidade |
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (loop + filtro de usuário) |
-| `dev.jarvis.ia` | `Assistente` (loop de agente, histórico, prompt de sistema) e `ClaudeClient` |
+| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `PromptDeSistema` (monta os blocos de system) e `Canal` |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService`: junta as fontes e monta o texto do briefing do dia |
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
@@ -61,8 +65,11 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
   passa a poder usá-la — não há lista manual para atualizar.
 - **A `descricao()` é o que faz o modelo escolher certo**, então capriche nela. E devolva
   texto curto: tudo que a ferramenta retorna vira tokens, e tokens custam dinheiro.
-- **Resposta ao usuário em texto simples**, sem Markdown (o `enviarMensagem` não usa
-  `parse_mode` justamente para não quebrar com caracteres especiais).
+- **O formato da resposta depende do canal**, e quem diz isso ao modelo é o `Canal` no bloco
+  dinâmico do system: `telegram` aceita markdown simples, `hud` e `briefing` viram áudio (frases
+  curtas, sem markdown) e `tarefa` começa pelo resultado. No Telegram, o `enviarMensagem` converte
+  o markdown para o HTML da Bot API (`MarkdownTelegram`), escapando `< > &`; se o Telegram recusar
+  a formatação (HTTP 400), o mesmo pedaço é reenviado em texto puro.
 - **A camada web não entra nos serviços.** O `BriefingService` publica evento de domínio
   (`ApplicationEventPublisher`) e quem traduz para HTTP/SSE é `dev.jarvis.web`. E o DTO manda
   data como string ISO-8601: o `JsonMapper` do `BeansConfig` é cru, então não dependemos de
@@ -91,6 +98,9 @@ Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto.
   o ID aparece no log.
 - Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar.
 - O `.env` tem segredos e está no `.gitignore` e no `.dockerignore`. Mantenha assim.
+- A `config/personalidade.md` é versionada (o repositório é privado), mas **não é lugar de segredo**:
+  token, chave e senha ficam só no `.env`. Ela fica fora da imagem e chega ao container por volume
+  somente leitura (`./config:/app/config:ro`) — é isso que permite editá-la sem rebuild.
 
 ## Como validar
 

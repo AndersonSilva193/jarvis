@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -41,12 +42,24 @@ public class ClaudeClient {
         this.config = props.anthropic();
     }
 
+    /** Versão simples, com o system num bloco de texto só e sem cache. */
     public JsonNode criarMensagem(String system, ArrayNode mensagens, ArrayNode ferramentas)
+            throws IOException, InterruptedException {
+        ArrayNode blocos = json.createArrayNode();
+        blocos.addObject().put("type", "text").put("text", system);
+        return criarMensagem(blocos, mensagens, ferramentas);
+    }
+
+    /**
+     * Versão com o system em blocos, que é o que permite marcar o bloco fixo com
+     * {@code cache_control} e pagar o texto da personalidade uma vez só.
+     */
+    public JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas)
             throws IOException, InterruptedException {
         ObjectNode corpo = json.createObjectNode();
         corpo.put("model", config.modelo());
         corpo.put("max_tokens", config.maxTokens());
-        corpo.put("system", system);
+        corpo.set("system", system);
         corpo.set("messages", mensagens);
         if (!ferramentas.isEmpty()) {
             corpo.set("tools", ferramentas);
@@ -64,7 +77,9 @@ public class ClaudeClient {
             HttpResponse<String> resposta = http.send(requisicao, HttpResponse.BodyHandlers.ofString());
             int status = resposta.statusCode();
             if (status == 200) {
-                return json.readTree(resposta.body());
+                JsonNode raiz = json.readTree(resposta.body());
+                registrarConsumo(raiz.path("usage"));
+                return raiz;
             }
             if (STATUS_TEMPORARIOS.contains(status) && tentativa < TENTATIVAS) {
                 log.warn("API do Claude respondeu {} (tentativa {}), tentando de novo...", status, tentativa);
@@ -73,6 +88,19 @@ public class ClaudeClient {
             }
             throw new IOException("API do Claude respondeu HTTP " + status + ": " + resumir(resposta.body()));
         }
+    }
+
+    /**
+     * Mostra no log quanto a chamada consumiu. Os dois campos de cache só aparecem quando há cache:
+     * {@code cache_escrito} na primeira chamada (quando o prefixo é gravado) e {@code cache_lido}
+     * nas seguintes. Se as duas ficarem sempre em zero, o bloco fixo não está sendo cacheado.
+     */
+    private void registrarConsumo(JsonNode usage) {
+        log.info("Claude: entrada={} saída={} cache_escrito={} cache_lido={}",
+                Json.numero(usage.path("input_tokens")),
+                Json.numero(usage.path("output_tokens")),
+                Json.numero(usage.path("cache_creation_input_tokens")),
+                Json.numero(usage.path("cache_read_input_tokens")));
     }
 
     private static String resumir(String corpo) {

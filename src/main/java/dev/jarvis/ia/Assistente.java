@@ -1,13 +1,11 @@
 package dev.jarvis.ia;
 
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
@@ -31,31 +29,37 @@ public class Assistente {
     private static final int MAX_PASSOS = 8;
     /** Quantas trocas (pedido + resposta) o Jarvis lembra por conversa. Fica em memória. */
     private static final int MAX_TURNOS_HISTORICO = 10;
-    private static final DateTimeFormatter FORMATO_DATA =
-            DateTimeFormatter.ofPattern("EEEE, dd/MM/yyyy HH:mm", Locale.of("pt", "BR"));
 
     private final ClaudeClient claude;
     private final Ferramentas ferramentas;
+    private final PersonalidadeService personalidade;
     private final JsonMapper json;
     private final JarvisProperties props;
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
     private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
 
-    public Assistente(ClaudeClient claude, Ferramentas ferramentas, JsonMapper json, JarvisProperties props) {
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, PersonalidadeService personalidade,
+            JsonMapper json, JarvisProperties props) {
         this.claude = claude;
         this.ferramentas = ferramentas;
+        this.personalidade = personalidade;
         this.json = json;
         this.props = props;
     }
 
+    /** Responde a uma mensagem vinda do Telegram. */
+    public String responder(long chatId, String texto) throws Exception {
+        return responder(chatId, texto, Canal.TELEGRAM);
+    }
+
     /** Responde a uma mensagem da conversa, usando e atualizando o histórico daquele chat. */
-    public synchronized String responder(long chatId, String texto) throws Exception {
+    public synchronized String responder(long chatId, String texto, Canal canal) throws Exception {
         Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, id -> new ArrayDeque<>());
         List<ObjectNode> turno = new ArrayList<>();
         turno.add(mensagemDoUsuario(texto));
 
-        String resposta = executarLoop(historico, turno);
+        String resposta = executarLoop(historico, turno, canal);
 
         // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
         historico.addLast(turno);
@@ -65,18 +69,27 @@ public class Assistente {
         return resposta;
     }
 
-    /** Executa uma instrução avulsa (ex.: tarefas agendadas) sem misturar com o histórico da conversa. */
-    public synchronized String executarTarefa(String instrucao) throws Exception {
+    /** Executa uma instrução avulsa sem misturar com o histórico da conversa. */
+    public String executarTarefa(String instrucao) throws Exception {
+        return executarTarefa(instrucao, Canal.TAREFA);
+    }
+
+    /**
+     * Executa uma instrução avulsa (ex.: tarefas agendadas, briefing falado, HUD) sem misturar com o
+     * histórico da conversa. O canal decide só o formato do texto que volta.
+     */
+    public synchronized String executarTarefa(String instrucao, Canal canal) throws Exception {
         List<ObjectNode> turno = new ArrayList<>();
         turno.add(mensagemDoUsuario(instrucao));
-        return executarLoop(new ArrayDeque<>(), turno);
+        return executarLoop(new ArrayDeque<>(), turno, canal);
     }
 
     public synchronized void limparHistorico(long chatId) {
         historicos.remove(chatId);
     }
 
-    private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno) throws Exception {
+    private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno, Canal canal)
+            throws Exception {
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
             for (List<ObjectNode> turnoAnterior : historico) {
@@ -88,7 +101,7 @@ public class Assistente {
                 mensagens.add(m);
             }
 
-            JsonNode resposta = claude.criarMensagem(promptDeSistema(), mensagens, ferramentas.definicoes());
+            JsonNode resposta = claude.criarMensagem(blocosDeSistema(canal), mensagens, ferramentas.definicoes());
             JsonNode conteudo = resposta.path("content");
 
             ObjectNode doAssistente = json.createObjectNode();
@@ -142,18 +155,15 @@ public class Assistente {
         return sb.isEmpty() ? "(sem resposta)" : sb.toString().trim();
     }
 
-    private String promptDeSistema() {
-        String agora = ZonedDateTime.now(props.zona()).format(FORMATO_DATA);
-        return """
-                Você é o Jarvis, assistente pessoal de %s, rodando em um servidor (VPS) próprio.
-                Responda sempre em português do Brasil, de forma curta e direta: suas respostas são lidas
-                no Telegram, no celular. Escreva em texto simples, sem Markdown (nada de **, # ou tabelas).
-
-                Use as ferramentas sempre que precisar de dados reais e nunca invente o resultado de uma
-                ferramenta. Se não existir ferramenta para o que foi pedido, diga com clareza que ainda não
-                consegue fazer isso.
-
-                Agora são %s (fuso %s). Use isso para interpretar "hoje", "amanhã", "às 15h" etc.
-                """.formatted(props.nomeUsuario(), agora, props.zona());
+    /**
+     * O system em dois blocos: a personalidade (fixa, cacheada) e o contexto do pedido (dinâmico).
+     * O cache_control só vai quando o bloco fixo passa do mínimo do modelo — abaixo disso a API o
+     * ignoraria em silêncio.
+     */
+    private ArrayNode blocosDeSistema(Canal canal) {
+        String texto = personalidade.texto();
+        boolean cachear = PersonalidadeService.estimarTokens(texto) >= props.anthropic().cacheMinimoTokens();
+        return PromptDeSistema.montar(json, texto, cachear, canal, props.nomeUsuario(),
+                ZonedDateTime.now(props.zona()));
     }
 }

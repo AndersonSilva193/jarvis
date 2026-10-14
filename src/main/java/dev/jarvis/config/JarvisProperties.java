@@ -1,5 +1,6 @@
 package dev.jarvis.config;
 
+import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,12 +23,20 @@ public record JarvisProperties(
         Anthropic anthropic,
         Clima clima,
         Noticias noticias,
-        Hud hud) {
+        Hud hud,
+        Personalidade personalidade) {
 
     public record Telegram(String token, long usuarioPermitido) {
     }
 
-    public record Anthropic(String apiKey, String modelo, int maxTokens) {
+    /**
+     * Acesso à Messages API.
+     *
+     * @param cacheMinimoTokens menor prefixo que o modelo aceita cachear. Abaixo disso a API ignora o
+     *                          cache_control em silêncio, então nem mandamos o marcador. Muda por
+     *                          modelo: 512 no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5.
+     */
+    public record Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens) {
     }
 
     /** Cidade do clima e suas coordenadas (a Open-Meteo trabalha com latitude/longitude). */
@@ -42,8 +51,18 @@ public record JarvisProperties(
     public record Hud(String token, String origens) {
     }
 
+    /** Arquivo markdown com a personalidade do Jarvis, lido em tempo de execução (sem rebuild). */
+    public record Personalidade(String arquivo) {
+    }
+
     public ZoneId zona() {
         return ZoneId.of(fusoHorario == null || fusoHorario.isBlank() ? "America/Sao_Paulo" : fusoHorario);
+    }
+
+    /** Caminho do arquivo de personalidade. Dentro do container é o volume montado em /app/config. */
+    public Path arquivoDaPersonalidade() {
+        String caminho = personalidade == null ? null : personalidade.arquivo();
+        return Path.of(caminho == null || caminho.isBlank() ? "/app/config/personalidade.md" : caminho);
     }
 
     /** Origens liberadas no CORS da HUD. Lista vazia significa nenhuma origem de navegador. */

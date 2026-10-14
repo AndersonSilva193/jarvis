@@ -52,8 +52,8 @@ class TokenHudTest {
     @Test
     @DisplayName("origens do CORS: separa por vírgula, tira espaço e ignora pedaço vazio")
     void leOrigens() {
-        assertEquals(List.of("https://jarvis-hud.vercel.app", "http://localhost:4200"),
-                comOrigens("https://jarvis-hud.vercel.app, http://localhost:4200"));
+        assertEquals(List.of("https://jarvis-hud-gamma.vercel.app", "http://localhost:4200"),
+                comOrigens("https://jarvis-hud-gamma.vercel.app, http://localhost:4200"));
         assertEquals(List.of("http://localhost:4200"), comOrigens(" http://localhost:4200 ,, "));
         assertEquals(List.of(), comOrigens(""));
         assertEquals(List.of(), comOrigens(null));
@@ -61,7 +61,7 @@ class TokenHudTest {
 
     private static List<String> comOrigens(String config) {
         var props = new JarvisProperties("Anderson", "America/Sao_Paulo", "", null, null, null, null,
-                new JarvisProperties.Hud("token", config));
+                new JarvisProperties.Hud("token", config), null);
         return props.origensDaHud();
     }
 }

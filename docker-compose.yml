@@ -8,6 +8,10 @@ services:
     # A mesma variável nos dois lados para a porta não sair de sincronia com o .env.
     ports:
       - "127.0.0.1:${JARVIS_PORTA:-8090}:${JARVIS_PORTA:-8090}"
+    # A personalidade entra por volume, e não dentro da imagem: dá para editar o texto na VPS e o
+    # Jarvis relê sozinho, sem rebuild. Somente leitura, porque o container nunca precisa escrever.
+    volumes:
+      - ./config:/app/config:ro
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
     mem_limit: 512m
