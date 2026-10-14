@@ -80,20 +80,22 @@ public class BriefingService {
     /**
      * @param abertura o cumprimento narrado pelo Jarvis, que a HUD fala no primeiro card. Vazio
      *                 quando não houve narração.
-     * @param narracao o briefing inteiro lido pelo Claude (abertura + seções), que é o que vai
-     *                 para o Telegram. Os números vêm sempre das seções, nunca do modelo.
+     * @param encerramento as observações finais narradas pelo Jarvis, que a HUD só fala se o
+     *                     usuário pedir. Vazio quando não houve narração.
+     * @param narracao o briefing inteiro lido pelo Claude (abertura + seções + observações), que é
+     *                 o que vai para o Telegram. Os números vêm sempre das seções, nunca do modelo.
      */
     public record Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes,
-            String abertura, String narracao) {
+            String abertura, String encerramento, String narracao) {
 
         /** Briefing sem narração — é o caso de falha e o dos testes. */
         public Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes) {
-            this(geradoEm, nomeUsuario, secoes, "", "");
+            this(geradoEm, nomeUsuario, secoes, "", "", "");
         }
 
         /** Briefing narrado sem abertura própria — usado nos testes de formato. */
         public Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes, String narracao) {
-            this(geradoEm, nomeUsuario, secoes, "", narracao);
+            this(geradoEm, nomeUsuario, secoes, "", "", narracao);
         }
 
         /** O briefing em texto simples, montado em Java. É o que vai para o Claude narrar. */
@@ -182,9 +184,9 @@ public class BriefingService {
     }
 
     /**
-     * Passa o briefing pelo Claude e devolve as seções com a fala narrada, mais a narração inteira
-     * (abertura + seções) que vai para o Telegram. Narração que não veio: tudo segue com o texto
-     * montado em Java, sem nenhum caminho ficar sem briefing.
+     * Passa o briefing pelo Claude e devolve as seções com a fala narrada, mais as observações do
+     * fim e a narração inteira, que vai para o Telegram. Narração que não veio: tudo segue com o
+     * texto montado em Java, sem nenhum caminho ficar sem briefing.
      */
     private Briefing narrado(ZonedDateTime agora, String usuario, List<Secao> secoes) {
         List<String> falas = narrador.narrar(usuario, secoes);
@@ -196,7 +198,8 @@ public class BriefingService {
         for (int i = 0; i < secoes.size(); i++) {
             comFala.add(secoes.get(i).comFala(falas.get(i + 1)));
         }
-        return new Briefing(agora, usuario, comFala, falas.get(0), String.join("\n\n", falas));
+        return new Briefing(agora, usuario, comFala, falas.get(0), falas.get(falas.size() - 1),
+                String.join("\n\n", falas));
     }
 
     /** O último briefing montado neste processo, se já houve algum. */

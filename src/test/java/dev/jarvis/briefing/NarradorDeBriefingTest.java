@@ -63,24 +63,26 @@ class NarradorDeBriefingTest {
     class Chamada {
 
         @Test
-        @DisplayName("devolve a abertura e uma fala por seção")
+        @DisplayName("devolve a abertura, uma fala por seção e as observações do fim")
         void narraCadaSecao() throws Exception {
             respondeComoModelo("""
                     [0] Bom dia, senhor. Seu briefing está pronto.
                     [1] Dezoito graus e nublado em Curitiba.
-                    [2] A API do AgendaBarber responde normalmente.""");
+                    [2] A API do AgendaBarber responde normalmente.
+                    [3] Dia tranquilo, senhor. Nada que peça a sua atenção.""");
 
             List<String> falas = narrador.narrar("Anderson", SECOES);
 
-            assertEquals(3, falas.size(), "abertura + uma por seção");
+            assertEquals(4, falas.size(), "abertura + uma por seção + observações");
             assertEquals("Bom dia, senhor. Seu briefing está pronto.", falas.get(0));
             assertEquals("A API do AgendaBarber responde normalmente.", falas.get(2));
+            assertEquals("Dia tranquilo, senhor. Nada que peça a sua atenção.", falas.get(3));
         }
 
         @Test
         @DisplayName("pede o system do canal briefing, que é o das regras de fala")
         void usaOCanalBriefing() throws Exception {
-            respondeComoModelo("[0] a\n[1] b\n[2] c");
+            respondeComoModelo("[0] a\n[1] b\n[2] c\n[3] d");
 
             narrador.narrar("Anderson", SECOES);
 
@@ -90,7 +92,7 @@ class NarradorDeBriefingTest {
         @Test
         @DisplayName("não manda ferramenta nenhuma: o modelo não pode chamar o briefing de dentro do briefing")
         void semFerramentas() throws Exception {
-            respondeComoModelo("[0] a\n[1] b\n[2] c");
+            respondeComoModelo("[0] a\n[1] b\n[2] c\n[3] d");
 
             narrador.narrar("Anderson", SECOES);
 
@@ -102,7 +104,7 @@ class NarradorDeBriefingTest {
         @Test
         @DisplayName("manda o conteúdo das seções e a ordem de não alterar dado")
         void mandaOsDadosEAsRegras() throws Exception {
-            respondeComoModelo("[0] a\n[1] b\n[2] c");
+            respondeComoModelo("[0] a\n[1] b\n[2] c\n[3] d");
 
             narrador.narrar("Anderson", SECOES);
 

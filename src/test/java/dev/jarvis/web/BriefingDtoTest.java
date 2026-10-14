@@ -115,4 +115,26 @@ class BriefingDtoTest {
                 json.get("texto").stringValue());
         assertFalse(json.get("texto").stringValue().contains("dados"));
     }
+
+    @Test
+    @DisplayName("encerramento: as observações do fim chegam em campo próprio, fora do texto")
+    void encerramentoEmCampoProprio() {
+        Briefing briefing = new Briefing(AGORA, "Anderson",
+                List.of(new Secao("clima", "Curitiba: 18 °C agora", null, "Dezoito graus.")),
+                "Bom dia, senhor.", "Nada que peça a sua atenção.",
+                "Bom dia, senhor.\n\nDezoito graus.\n\nNada que peça a sua atenção.");
+
+        JsonNode json = JSON.readTree(JSON.writeValueAsString(BriefingDto.de(briefing, true)));
+
+        assertEquals("Bom dia, senhor.", json.get("abertura").stringValue());
+        assertEquals("Nada que peça a sua atenção.", json.get("encerramento").stringValue());
+    }
+
+    @Test
+    @DisplayName("sem narração o encerramento vem vazio: é como a HUD sabe que não há o que oferecer")
+    void semNarracaoNaoTemEncerramento() {
+        JsonNode json = comoJson(new Secao("clima", "Curitiba: 18 °C agora"));
+
+        assertEquals("", json.get("encerramento").stringValue());
+    }
 }

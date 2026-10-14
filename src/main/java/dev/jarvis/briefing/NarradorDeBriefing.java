@@ -57,9 +57,9 @@ public class NarradorDeBriefing {
     /**
      * Narra a abertura e cada seção, numa chamada só.
      *
-     * @return lista com {@code secoes.size() + 1} falas — a de índice 0 é a abertura — ou lista
-     *         vazia se algo não bateu. Nunca lança: briefing sem enfeite é melhor que manhã sem
-     *         briefing.
+     * @return lista com {@code secoes.size() + 2} falas — a de índice 0 é a abertura, as do meio
+     *         seguem as seções e a última são as observações — ou lista vazia se algo não bateu.
+     *         Nunca lança: briefing sem enfeite é melhor que manhã sem briefing.
      */
     public List<String> narrar(String nomeUsuario, List<Secao> secoes) {
         if (secoes.isEmpty()) {
@@ -73,7 +73,7 @@ public class NarradorDeBriefing {
 
             JsonNode resposta = claude.criarMensagem(sistema.blocos(Canal.BRIEFING), mensagens,
                     json.createArrayNode());
-            List<String> falas = separar(extrairTexto(resposta.path("content")), secoes.size() + 1);
+            List<String> falas = separar(extrairTexto(resposta.path("content")), secoes.size() + 2);
 
             if (falas.isEmpty()) {
                 log.warn("A narração do briefing voltou fora do formato esperado; fica o texto montado em Java.");
@@ -97,11 +97,14 @@ public class NarradorDeBriefing {
                 Responda com %d trechos, cada um começando com a sua marca entre colchetes, na ordem,
                 e nada além disso:
                 [0] a abertura: cumprimento e uma frase dizendo que o briefing está pronto.
-                """.formatted(nomeUsuario, secoes.size() + 1));
+                """.formatted(nomeUsuario, secoes.size() + 2));
 
         for (int i = 0; i < secoes.size(); i++) {
             pedido.append("[%d] a seção \"%s\".%n".formatted(i + 1, secoes.get(i).titulo()));
         }
+        pedido.append(("[%d] as observações: uma ou duas frases fechando o briefing — o que, no "
+                + "conjunto do dia, merece atenção. Sem número novo e sem nada que não esteja aqui.%n")
+                .formatted(secoes.size() + 1));
         pedido.append("\nDados:\n");
         for (int i = 0; i < secoes.size(); i++) {
             Secao secao = secoes.get(i);

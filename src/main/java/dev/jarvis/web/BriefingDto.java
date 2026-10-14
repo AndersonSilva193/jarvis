@@ -12,12 +12,16 @@ import dev.jarvis.briefing.DadosSecao;
  * A data vai como texto ISO-8601 de propósito: o JsonMapper do projeto é criado cru em BeansConfig
  * (sem módulos), então não dependemos de como ele serializaria um ZonedDateTime. Do lado da HUD,
  * `new Date(geradoEm)` resolve direto.
+ *
+ * O `encerramento` são as observações do fim da narração, que a HUD guarda e só fala se o usuário
+ * pedir; vem vazio quando não houve narração.
  */
 public record BriefingDto(
         String geradoEm,
         String nomeUsuario,
         List<SecaoDto> secoes,
         String abertura,
+        String encerramento,
         String texto,
         boolean geradoAgora) {
 
@@ -40,6 +44,7 @@ public record BriefingDto(
                         .map(s -> new SecaoDto(s.titulo(), s.conteudo(), s.dados(), s.paraFala()))
                         .toList(),
                 briefing.abertura(),
+                briefing.encerramento(),
                 briefing.paraFala(),
                 geradoAgora);
     }
