@@ -1,6 +1,5 @@
 package dev.jarvis.ia;
 
-import java.time.ZonedDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -10,7 +9,6 @@ import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
-import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ferramentas.Ferramentas;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -32,20 +30,17 @@ public class Assistente {
 
     private final ClaudeClient claude;
     private final Ferramentas ferramentas;
-    private final PersonalidadeService personalidade;
+    private final SistemaDoJarvis sistema;
     private final JsonMapper json;
-    private final JarvisProperties props;
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
     private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
 
-    public Assistente(ClaudeClient claude, Ferramentas ferramentas, PersonalidadeService personalidade,
-            JsonMapper json, JarvisProperties props) {
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
         this.claude = claude;
         this.ferramentas = ferramentas;
-        this.personalidade = personalidade;
+        this.sistema = sistema;
         this.json = json;
-        this.props = props;
     }
 
     /** Responde a uma mensagem vinda do Telegram. */
@@ -93,7 +88,7 @@ public class Assistente {
         // Montado UMA vez por pedido, de propósito. O bloco dinâmico tem a hora: remontá-lo a cada
         // ida e vinda de ferramenta mudaria o system no meio do turno, e o modelo rejeita (HTTP 400)
         // os blocos de pensamento que ele devolveu sob o system anterior.
-        ArrayNode system = blocosDeSistema(canal);
+        ArrayNode system = sistema.blocos(canal);
 
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
@@ -199,15 +194,4 @@ public class Assistente {
         return sb.isEmpty() ? "(sem resposta)" : sb.toString().trim();
     }
 
-    /**
-     * O system em dois blocos: a personalidade (fixa, cacheada) e o contexto do pedido (dinâmico).
-     * O cache_control só vai quando o bloco fixo passa do mínimo do modelo — abaixo disso a API o
-     * ignoraria em silêncio.
-     */
-    private ArrayNode blocosDeSistema(Canal canal) {
-        String texto = personalidade.texto();
-        boolean cachear = PersonalidadeService.estimarTokens(texto) >= props.anthropic().cacheMinimoTokens();
-        return PromptDeSistema.montar(json, texto, cachear, canal, props.nomeUsuario(),
-                ZonedDateTime.now(props.zona()));
-    }
 }

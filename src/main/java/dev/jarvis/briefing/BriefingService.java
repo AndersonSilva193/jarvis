@@ -61,15 +61,49 @@ public class BriefingService {
         }
     }
 
-    public record Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes) {
+    /**
+     * @param narracao o mesmo briefing lido pelo Claude com a personalidade, ou vazio quando a
+     *                 chamada falhou. Os números vêm sempre das seções, nunca do modelo.
+     */
+    public record Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes, String narracao) {
 
-        /** O briefing em texto simples, pronto para mandar no Telegram. */
+        /** Briefing sem narração — é o caso de falha e o dos testes. */
+        public Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes) {
+            this(geradoEm, nomeUsuario, secoes, "");
+        }
+
+        /** O briefing em texto simples, montado em Java. É o que vai para o Claude narrar. */
         public String paraTexto() {
+            return montar(false);
+        }
+
+        /**
+         * O que mandar no Telegram: a narração, quando houver. Sem ela, o texto determinístico com
+         * os títulos em negrito — o markdown simples que o TelegramClient converte para HTML.
+         */
+        public String paraTelegram() {
+            return temNarracao() ? narracao : montar(true);
+        }
+
+        /**
+         * O que a HUD fala em voz alta: a narração, quando houver. Sem ela, o texto simples — nunca
+         * a versão com negrito, que viraria asterisco na fala.
+         */
+        public String paraFala() {
+            return temNarracao() ? narracao : paraTexto();
+        }
+
+        private boolean temNarracao() {
+            return narracao != null && !narracao.isBlank();
+        }
+
+        private String montar(boolean negrito) {
             StringBuilder sb = new StringBuilder();
             sb.append("Bom dia, ").append(nomeUsuario).append("! ")
                     .append(geradoEm.format(CABECALHO));
             for (Secao secao : secoes) {
-                sb.append("\n\n").append(secao.titulo().toUpperCase(Locale.of("pt", "BR")))
+                String titulo = secao.titulo().toUpperCase(Locale.of("pt", "BR"));
+                sb.append("\n\n").append(negrito ? "**" + titulo + "**" : titulo)
                         .append("\n").append(secao.conteudo());
             }
             return sb.toString();
@@ -81,19 +115,21 @@ public class BriefingService {
     private final SitesService sites;
     private final ServidorService servidor;
     private final LembreteService lembretes;
+    private final NarradorDeBriefing narrador;
     private final JarvisProperties props;
     private final ApplicationEventPublisher eventos;
 
     private volatile Briefing ultimo;
 
     public BriefingService(ClimaService clima, NoticiasService noticias, SitesService sites,
-            ServidorService servidor, LembreteService lembretes, JarvisProperties props,
-            ApplicationEventPublisher eventos) {
+            ServidorService servidor, LembreteService lembretes, NarradorDeBriefing narrador,
+            JarvisProperties props, ApplicationEventPublisher eventos) {
         this.clima = clima;
         this.noticias = noticias;
         this.sites = sites;
         this.servidor = servidor;
         this.lembretes = lembretes;
+        this.narrador = narrador;
         this.props = props;
         this.eventos = eventos;
     }
@@ -111,7 +147,12 @@ public class BriefingService {
         adicionar(secoes, "sistemas", this::secaoSistemas);
         adicionar(secoes, "notícias", this::secaoNoticias);
 
-        Briefing briefing = new Briefing(agora, nomeUsuario(), secoes);
+        // A narração entra antes do evento: assim a HUD, o /bomdia e o resumo das 8h recebem todos
+        // o mesmo briefing já com a voz do Jarvis, em vez de cada um narrar por conta.
+        String usuario = nomeUsuario();
+        Briefing bruto = new Briefing(agora, usuario, secoes);
+        Briefing briefing = new Briefing(agora, usuario, secoes, narrador.narrar(bruto.paraTexto()));
+
         ultimo = briefing;
         eventos.publishEvent(new BriefingGeradoEvento(briefing));
         return briefing;

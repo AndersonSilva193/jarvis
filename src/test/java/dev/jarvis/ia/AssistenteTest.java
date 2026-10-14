@@ -41,9 +41,8 @@ class AssistenteTest {
     private final Assistente assistente = new Assistente(
             claude,
             new Ferramentas(List.of(), JSON),
-            new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
-            JSON,
-            props());
+            new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"), JSON, props()),
+            JSON);
 
     private static JarvisProperties props() {
         return new JarvisProperties("Anderson", "America/Sao_Paulo", "", null,

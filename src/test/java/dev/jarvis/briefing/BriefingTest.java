@@ -1,6 +1,7 @@
 package dev.jarvis.briefing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.ZoneId;
@@ -104,5 +105,41 @@ class BriefingTest {
         List<Lembrete> pendentes = List.of(new Lembrete(1, "Chamada internacional", emLondres));
 
         assertEquals(1, BriefingService.lembretesDeHoje(pendentes, AGORA).size());
+    }
+
+    @Test
+    @DisplayName("sem narração: o Telegram leva os títulos em negrito e a fala não")
+    void formatosSemNarracao() {
+        Briefing briefing = new Briefing(AGORA, "Anderson", List.of(
+                new Secao("clima", "Curitiba: 18 °C agora (nublado)")));
+
+        assertTrue(briefing.paraTelegram().contains("**CLIMA**"), briefing.paraTelegram());
+        // Asterisco na fala viraria ruído na voz da HUD.
+        assertFalse(briefing.paraFala().contains("**"), briefing.paraFala());
+        assertFalse(briefing.paraTexto().contains("**"), briefing.paraTexto());
+        assertEquals(briefing.paraTexto(), briefing.paraFala());
+    }
+
+    @Test
+    @DisplayName("com narração: Telegram e HUD falam o mesmo texto do Jarvis")
+    void formatosComNarracao() {
+        String narrado = "Bom dia, senhor. Dezoito graus e nublado em Curitiba.";
+        Briefing briefing = new Briefing(AGORA, "Anderson", List.of(
+                new Secao("clima", "Curitiba: 18 °C agora (nublado)")), narrado);
+
+        assertEquals(narrado, briefing.paraTelegram());
+        assertEquals(narrado, briefing.paraFala());
+        // O texto montado em Java continua intacto: é ele que vai para o Claude narrar.
+        assertTrue(briefing.paraTexto().contains("Curitiba: 18 °C agora (nublado)"));
+    }
+
+    @Test
+    @DisplayName("narração em branco cai no texto montado em Java")
+    void narracaoVaziaVoltaAoDeterministico() {
+        Briefing semNada = new Briefing(AGORA, "Anderson", List.of(
+                new Secao("clima", "Curitiba: 18 °C")), "   ");
+
+        assertTrue(semNada.paraTelegram().contains("**CLIMA**"), semNada.paraTelegram());
+        assertEquals(semNada.paraTexto(), semNada.paraFala());
     }
 }

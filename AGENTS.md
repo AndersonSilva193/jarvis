@@ -37,15 +37,38 @@ Telegram ──► TelegramPoller ──► Assistente ──► Codex (Messages
 | Pacote | Responsabilidade |
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (loop + filtro de usuário) |
-| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `PromptDeSistema` (monta os blocos de system) e `Canal` |
+| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema` e `Canal` |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
-| `dev.jarvis.briefing` | `BriefingService`: junta as fontes e monta o texto do briefing do dia |
+| `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
 | `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
 | `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
+
+## Personalidade e canais
+
+O jeito do Jarvis mora em `config/personalidade.md` — texto, não código. Quem lê é o
+`PersonalidadeService`, que recarrega sozinho quando a data de modificação do arquivo muda, então
+ajustar o tom na VPS não pede rebuild.
+
+**Toda chamada nova ao Claude passa pelo `SistemaDoJarvis`**, pedindo os blocos de `system` com o
+canal de onde veio o pedido:
+
+```java
+ArrayNode system = sistema.blocos(Canal.TELEGRAM);   // telegram | hud | briefing | tarefa
+```
+
+Não monte prompt de sistema à mão em lugar nenhum: a personalidade tem de valer igual em todos os
+caminhos, e é ali que se decide o `cache_control`. O canal muda só o formato da resposta —
+`telegram` aceita markdown simples, `hud` e `briefing` viram voz (sem markdown, link ou emoji) e
+`tarefa` começa pelo resultado.
+
+Monte os blocos **uma vez por pedido** e repita o mesmo objeto em todas as idas e vindas de
+ferramenta. O bloco dinâmico carrega a hora, e remontá-lo no meio do turno invalida os blocos de
+pensamento que o modelo já devolveu — a API recusa com HTTP 400. Pelo mesmo motivo, o histórico é
+guardado sem os blocos de pensamento.
 
 ## Convenções
 

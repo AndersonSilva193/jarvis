@@ -34,7 +34,7 @@ public record BriefingDto(
                 briefing.geradoEm().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 briefing.nomeUsuario(),
                 briefing.secoes().stream().map(s -> new SecaoDto(s.titulo(), s.conteudo(), s.dados())).toList(),
-                briefing.paraTexto(),
+                briefing.paraFala(),
                 geradoAgora);
     }
 }

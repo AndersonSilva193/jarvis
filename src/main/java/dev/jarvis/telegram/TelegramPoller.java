@@ -115,7 +115,7 @@ public class TelegramPoller implements SmartLifecycle {
                         /limpar apaga o histórico da conversa""");
                 case "/bomdia" -> {
                     telegram.mostrarDigitando(chatId);
-                    telegram.enviarMensagem(chatId, briefing.gerar().paraTexto());
+                    telegram.enviarMensagem(chatId, briefing.gerar().paraTelegram());
                 }
                 case "/limpar" -> {
                     assistente.limparHistorico(chatId);
