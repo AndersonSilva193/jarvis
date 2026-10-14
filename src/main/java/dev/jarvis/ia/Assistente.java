@@ -62,7 +62,7 @@ public class Assistente {
         String resposta = executarLoop(historico, turno, canal);
 
         // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
-        historico.addLast(turno);
+        historico.addLast(semPensamentos(turno));
         while (historico.size() > MAX_TURNOS_HISTORICO) {
             historico.removeFirst();
         }
@@ -90,6 +90,11 @@ public class Assistente {
 
     private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno, Canal canal)
             throws Exception {
+        // Montado UMA vez por pedido, de propósito. O bloco dinâmico tem a hora: remontá-lo a cada
+        // ida e vinda de ferramenta mudaria o system no meio do turno, e o modelo rejeita (HTTP 400)
+        // os blocos de pensamento que ele devolveu sob o system anterior.
+        ArrayNode system = blocosDeSistema(canal);
+
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
             for (List<ObjectNode> turnoAnterior : historico) {
@@ -101,7 +106,7 @@ public class Assistente {
                 mensagens.add(m);
             }
 
-            JsonNode resposta = claude.criarMensagem(blocosDeSistema(canal), mensagens, ferramentas.definicoes());
+            JsonNode resposta = claude.criarMensagem(system, mensagens, ferramentas.definicoes());
             JsonNode conteudo = resposta.path("content");
 
             ObjectNode doAssistente = json.createObjectNode();
@@ -132,6 +137,45 @@ public class Assistente {
             turno.add(comResultados);
         }
         throw new IllegalStateException("precisei de passos demais para resolver isso. Tente um pedido mais simples.");
+    }
+
+    /**
+     * Copia o turno sem os blocos de pensamento ("thinking") do modelo, que é a forma que guardamos
+     * no histórico.
+     *
+     * <p>Cada bloco desses vem assinado e preso ao prefixo exato que o produziu — system, ferramentas
+     * e mensagens anteriores. Como o nosso system carrega a hora e o histórico tem janela deslizante
+     * (os turnos mais velhos caem fora), esse prefixo muda entre um pedido e outro, e a API recusa o
+     * bloco com HTTP 400 ("block is bound to a different conversation"). Dentro do turno em curso eles
+     * continuam intactos, que é o que o laço de ferramentas exige; o que sai é sempre tudo que é
+     * anterior, nunca um pedaço do meio.
+     */
+    private List<ObjectNode> semPensamentos(List<ObjectNode> turno) {
+        List<ObjectNode> limpo = new ArrayList<>(turno.size());
+        for (ObjectNode mensagem : turno) {
+            JsonNode conteudo = mensagem.path("content");
+            if (!conteudo.isArray()) {
+                limpo.add(mensagem);
+                continue;
+            }
+            ArrayNode mantidos = json.createArrayNode();
+            for (int i = 0; i < conteudo.size(); i++) {
+                JsonNode bloco = conteudo.get(i);
+                String tipo = Json.texto(bloco.path("type"));
+                if (!"thinking".equals(tipo) && !"redacted_thinking".equals(tipo)) {
+                    mantidos.add(bloco);
+                }
+            }
+            ObjectNode copia = mensagem.deepCopy();
+            // Mensagem sem conteúdo nenhum a API recusa; sobra o texto de marcação.
+            if (mantidos.isEmpty()) {
+                copia.put("content", "(sem resposta)");
+            } else {
+                copia.set("content", mantidos);
+            }
+            limpo.add(copia);
+        }
+        return limpo;
     }
 
     private ObjectNode mensagemDoUsuario(String texto) {
