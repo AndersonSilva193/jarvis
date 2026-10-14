@@ -35,7 +35,7 @@ class BriefingTest {
         String texto = briefing.paraTexto();
 
         assertEquals("""
-                Bom dia, Anderson! terça-feira, 13/10 às 08:00
+                Bom dia, senhor. Seu briefing está pronto. terça-feira, 13/10 às 08:00
 
                 CLIMA
                 Curitiba: 18 °C agora (nublado)
@@ -68,7 +68,7 @@ class BriefingTest {
                         new DadosSecao.Clima("Curitiba", 18, 14, 22, 30, "nublado"))));
 
         assertEquals("""
-                Bom dia, Anderson! terça-feira, 13/10 às 08:00
+                Bom dia, senhor. Seu briefing está pronto. terça-feira, 13/10 às 08:00
 
                 CLIMA
                 Curitiba: 18 °C agora (nublado)""", briefing.paraTexto());
@@ -78,7 +78,16 @@ class BriefingTest {
     @DisplayName("sem nenhuma seção, ainda sai a saudação")
     void semSecoes() {
         String texto = new Briefing(AGORA, "chefe", List.of()).paraTexto();
-        assertEquals("Bom dia, chefe! terça-feira, 13/10 às 08:00", texto);
+        assertEquals("Bom dia, senhor. Seu briefing está pronto. terça-feira, 13/10 às 08:00", texto);
+    }
+
+    @Test
+    @DisplayName("o cabeçalho acompanha o horário: tarde e noite não abrem com bom dia")
+    void saudacaoSegueOHorario() {
+        assertEquals("Boa tarde, senhor. Seu briefing está pronto. terça-feira, 13/10 às 15:30",
+                new Briefing(AGORA.withHour(15).withMinute(30), "Anderson", List.of()).paraTexto());
+        assertEquals("Boa noite, senhor. Seu briefing está pronto. terça-feira, 13/10 às 21:00",
+                new Briefing(AGORA.withHour(21), "Anderson", List.of()).paraTexto());
     }
 
     @Test

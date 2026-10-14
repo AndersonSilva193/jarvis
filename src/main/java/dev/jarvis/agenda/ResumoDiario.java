@@ -40,7 +40,7 @@ public class ResumoDiario {
             telegram.enviarMensagem(chatDoDono, briefing.gerar().paraTelegram());
         } catch (Exception e) {
             log.error("Falha ao gerar o briefing diário", e);
-            telegram.enviarMensagem(chatDoDono, "Bom dia! Não consegui montar o briefing de hoje: " + e.getMessage());
+            telegram.enviarMensagem(chatDoDono, "Não consegui montar o briefing de hoje: " + e.getMessage());
         }
     }
 }

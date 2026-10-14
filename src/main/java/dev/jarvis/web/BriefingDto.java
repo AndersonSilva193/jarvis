@@ -23,7 +23,8 @@ public record BriefingDto(
         String abertura,
         String encerramento,
         String texto,
-        boolean geradoAgora) {
+        boolean geradoAgora,
+        String fusoHorario) {
 
     /**
      * Uma seção com as três leituras: `conteudo` é a prosa que a HUD desenha, `dados` é a forma
@@ -46,6 +47,7 @@ public record BriefingDto(
                 briefing.abertura(),
                 briefing.encerramento(),
                 briefing.paraFala(),
-                geradoAgora);
+                geradoAgora,
+                briefing.geradoEm().getZone().getId());
     }
 }

@@ -227,6 +227,7 @@ sempre nessa ordem. Seção que falhou vem com `dados: null` e a explicação no
 ```json
 {
   "geradoEm": "2026-10-13T08:00:00-03:00",
+  "fusoHorario": "America/Sao_Paulo",
   "nomeUsuario": "Anderson",
   "secoes": [
     {
@@ -261,13 +262,33 @@ sempre nessa ordem. Seção que falhou vem com `dados: null` e a explicação no
       }
     }
   ],
-  "texto": "Bom dia, Anderson! terça-feira, 13/10 às 08:00\n\nCLIMA\n...",
+  "abertura": "Bom dia, senhor. Seu briefing está pronto.",
+  "texto": "Bom dia, senhor. Seu briefing está pronto. terça-feira, 13/10 às 08:00\n\nCLIMA\n...",
   "geradoAgora": true
 }
 ```
 
 O `link` e o `imagemUrl` da notícia **só existem no `dados`**: a prosa não os carrega. O `imagemUrl`
 vem vazio quando o feed não trouxe foto, então quem desenha precisa ter um estado sem imagem.
+
+### A saudação
+
+O cumprimento é **decidido aqui**, uma vez por briefing, a partir do instante de geração no fuso
+configurado em `JARVIS_ZONA`: **bom dia das 05h às 11h59, boa tarde das 12h às 17h59 e boa noite nos
+demais horários** (`dev.jarvis.briefing.Saudacao`). Dele sai uma **abertura canônica** — a mesma
+string no campo `abertura`, no começo do `texto` do Telegram e no primeiro trecho da narração.
+
+Por isso o modelo não escolhe mais o período do dia: o `NarradorDeBriefing` pede só "Seu briefing
+está pronto." no trecho `[0]`, e o cumprimento é colado pelo aplicativo. Um modelo que inventasse
+"bom dia" às dez da noite seria a única fonte de divergência entre o que a HUD mostra e o que ela
+fala.
+
+O `fusoHorario` acompanha o `geradoEm` para que a HUD formate a data no relógio do servidor em vez
+do relógio do navegador. É campo novo: um consumidor antigo simplesmente o ignora.
+
+O cache do briefing (30 min no serviço, 60 s no `POST`) **não atravessa a virada da data nem a
+troca de período**: às 11h59 um briefing guardado ainda serve, às 12h00 ele é refeito, para não
+abrir com "bom dia" depois do meio-dia.
 
 ### CORS e HTTPS
 

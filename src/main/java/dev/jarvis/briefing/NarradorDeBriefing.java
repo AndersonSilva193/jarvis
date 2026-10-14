@@ -96,7 +96,8 @@ public class NarradorDeBriefing {
 
                 Responda com %d trechos, cada um começando com a sua marca entre colchetes, na ordem,
                 e nada além disso:
-                [0] a abertura: cumprimento e uma frase dizendo que o briefing está pronto.
+                [0] escreva apenas "Seu briefing está pronto.". O cumprimento por horário é inserido
+                pelo aplicativo. Nas demais seções, não acrescente cumprimentos nem presuma manhã ou noite.
                 """.formatted(nomeUsuario, secoes.size() + 2));
 
         for (int i = 0; i < secoes.size(); i++) {

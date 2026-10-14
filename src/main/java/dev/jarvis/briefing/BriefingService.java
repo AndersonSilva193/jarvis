@@ -1,7 +1,6 @@
 package dev.jarvis.briefing;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -90,7 +89,7 @@ public class BriefingService {
 
         /** Briefing sem narração — é o caso de falha e o dos testes. */
         public Briefing(ZonedDateTime geradoEm, String nomeUsuario, List<Secao> secoes) {
-            this(geradoEm, nomeUsuario, secoes, "", "", "");
+            this(geradoEm, nomeUsuario, secoes, Saudacao.abertura(geradoEm), "", "");
         }
 
         /** Briefing narrado sem abertura própria — usado nos testes de formato. */
@@ -125,7 +124,7 @@ public class BriefingService {
 
         private String montar(boolean negrito) {
             StringBuilder sb = new StringBuilder();
-            sb.append("Bom dia, ").append(nomeUsuario).append("! ")
+            sb.append(abertura == null || abertura.isBlank() ? Saudacao.abertura(geradoEm) : abertura).append(" ")
                     .append(geradoEm.format(CABECALHO));
             for (Secao secao : secoes) {
                 String titulo = secao.titulo().toUpperCase(Locale.of("pt", "BR"));
@@ -198,8 +197,10 @@ public class BriefingService {
         for (int i = 0; i < secoes.size(); i++) {
             comFala.add(secoes.get(i).comFala(falas.get(i + 1)));
         }
-        return new Briefing(agora, usuario, comFala, falas.get(0), falas.get(falas.size() - 1),
-                String.join("\n\n", falas));
+        List<String> canonicas = new ArrayList<>(falas);
+        canonicas.set(0, Saudacao.abertura(agora));
+        return new Briefing(agora, usuario, comFala, canonicas.getFirst(), canonicas.getLast(),
+                String.join("\n\n", canonicas));
     }
 
     /** O último briefing montado neste processo, se já houve algum. */
@@ -211,8 +212,7 @@ public class BriefingService {
     public Briefing deHoje() {
         Briefing guardado = ultimo;
         if (guardado != null
-                && guardado.geradoEm().toLocalDate().equals(LocalDate.now(props.zona()))
-                && Duration.between(guardado.geradoEm().toInstant(), Instant.now()).compareTo(VALIDADE) < 0) {
+                && Saudacao.reutilizavel(guardado.geradoEm(), ZonedDateTime.now(props.zona()), VALIDADE)) {
             return guardado;
         }
         return gerar();

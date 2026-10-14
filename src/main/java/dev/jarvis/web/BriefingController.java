@@ -1,7 +1,7 @@
 package dev.jarvis.web;
 
 import java.time.Duration;
-import java.time.Instant;
+import java.time.ZonedDateTime;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +12,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import dev.jarvis.briefing.BriefingService;
 import dev.jarvis.briefing.BriefingService.Briefing;
+import dev.jarvis.briefing.Saudacao;
 
 /** API que a tela da HUD consome. Todo endpoint aqui exige o token (ver TokenHudFiltro). */
 @RestController
@@ -61,6 +62,6 @@ public class BriefingController {
     }
 
     private static boolean ehRecente(Briefing b) {
-        return Duration.between(b.geradoEm().toInstant(), Instant.now()).compareTo(JANELA_DE_REUSO) < 0;
+        return Saudacao.reutilizavel(b.geradoEm(), ZonedDateTime.now(b.geradoEm().getZone()), JANELA_DE_REUSO);
     }
 }

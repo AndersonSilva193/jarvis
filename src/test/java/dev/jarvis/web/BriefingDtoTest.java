@@ -111,7 +111,8 @@ class BriefingDtoTest {
         assertEquals("2026-10-13T08:00:00-03:00", json.get("geradoEm").stringValue());
         assertEquals("Anderson", json.get("nomeUsuario").stringValue());
         assertTrue(json.get("geradoAgora").booleanValue());
-        assertTrue(json.get("texto").stringValue().startsWith("Bom dia, Anderson!"),
+        assertEquals("America/Sao_Paulo", json.get("fusoHorario").stringValue());
+        assertTrue(json.get("texto").stringValue().startsWith("Bom dia, senhor. Seu briefing está pronto."),
                 json.get("texto").stringValue());
         assertFalse(json.get("texto").stringValue().contains("dados"));
     }
