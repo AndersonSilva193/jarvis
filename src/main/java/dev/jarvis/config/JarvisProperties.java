@@ -24,7 +24,8 @@ public record JarvisProperties(
         Clima clima,
         Noticias noticias,
         Hud hud,
-        Personalidade personalidade) {
+        Personalidade personalidade,
+        Voz voz) {
 
     public record Telegram(String token, long usuarioPermitido) {
     }
@@ -51,6 +52,15 @@ public record JarvisProperties(
     public record Hud(String token, String origens) {
     }
 
+    /**
+     * Voz da HUD.
+     *
+     * @param provedor   "elevenlabs" ou "navegador". Em "navegador" nada é enviado à ElevenLabs.
+     * @param reservaPct fatia da cota que o Jarvis se recusa a gastar, em por cento do limite.
+     */
+    public record Voz(String provedor, String apiKey, String vozId, String modelo, int reservaPct) {
+    }
+
     /** Arquivo markdown com a personalidade do Jarvis, lido em tempo de execução (sem rebuild). */
     public record Personalidade(String arquivo) {
     }
@@ -75,6 +85,29 @@ public record JarvisProperties(
                 .map(String::trim)
                 .filter(origem -> !origem.isBlank())
                 .toList();
+    }
+
+    /**
+     * Verdadeiro quando a ElevenLabs está escolhida E tem chave e voz configuradas. Faltando
+     * qualquer um dos três, a HUD fala pela voz do navegador — melhor do que descobrir isso
+     * no meio de um briefing mudo.
+     */
+    public boolean vozRemotaConfigurada() {
+        return voz != null
+                && "elevenlabs".equalsIgnoreCase(voz.provedor())
+                && voz.apiKey() != null && !voz.apiKey().isBlank()
+                && voz.vozId() != null && !voz.vozId().isBlank();
+    }
+
+    /** Modelo de voz, com o Flash v2.5 de padrão: fala português e custa metade por caractere. */
+    public String modeloDeVoz() {
+        String modelo = voz == null ? null : voz.modelo();
+        return modelo == null || modelo.isBlank() ? "eleven_flash_v2_5" : modelo;
+    }
+
+    /** Fatia intocável da cota. Limitada a 0-100 para um valor errado no .env não travar a voz. */
+    public int reservaDeVozPct() {
+        return Math.clamp(voz == null ? 5 : voz.reservaPct(), 0, 100);
     }
 
     /**

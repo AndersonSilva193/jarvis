@@ -39,6 +39,7 @@ public interface Ferramenta {
             case "cancelar_lembrete" -> "cancelando o lembrete";
             case "listar_lembretes" -> "consultando os lembretes";
             case "briefing_do_dia" -> "preparando o briefing";
+            case "status_voz" -> "consultando a cota de voz";
             default -> "executando " + nome().replace('_', ' ');
         };
     }

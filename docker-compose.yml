@@ -12,6 +12,9 @@ services:
     # Jarvis relê sozinho, sem rebuild. Somente leitura, porque o container nunca precisa escrever.
     volumes:
       - ./config:/app/config:ro
+      # Os MP3s já sintetizados. Volume nomeado para a cota não ser gasta de novo com as
+      # mesmas frases toda vez que o container reinicia.
+      - voz:/data/voz
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
     mem_limit: 512m
@@ -20,3 +23,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  voz:

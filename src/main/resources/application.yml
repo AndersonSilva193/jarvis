@@ -36,6 +36,17 @@ jarvis:
     token: ${HUD_TOKEN:}
     # Origens liberadas no CORS, separadas por vírgula. Vazio = nenhuma origem de navegador.
     origens: ${HUD_ORIGEM:}
+  voz:
+    # elevenlabs = a voz do Jarvis sai da ElevenLabs; navegador = a HUD usa a voz do sistema.
+    provedor: ${VOZ_PROVEDOR:navegador}
+    # Chave da ElevenLabs. Vazia com provedor=elevenlabs cai para o navegador, sem derrubar nada.
+    api-key: ${VOZ_API_KEY:}
+    # ID da voz escolhida no painel da ElevenLabs (Voices -> ID).
+    voz-id: ${VOZ_ID:}
+    # Flash v2.5: ~75ms, fala português e custa metade por caractere. Turbo v2.5 está deprecado.
+    modelo: ${VOZ_MODELO:eleven_flash_v2_5}
+    # Por cento da cota que o Jarvis se recusa a gastar. Chegando aí, volta à voz do navegador.
+    reserva-pct: ${VOZ_RESERVA_PCT:5}
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}

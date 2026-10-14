@@ -1,0 +1,14 @@
+{
+  "tier": "starter",
+  "status": "active",
+  "character_count": 18000,
+  "character_limit": 30000,
+  "next_character_count_reset_unix": 1738356858,
+  "currency": "usd",
+  "billing_period": "monthly_period",
+  "character_refresh_period": "monthly_period",
+  "voice_slots_used": 2,
+  "voice_limit": 10,
+  "can_extend_character_limit": false,
+  "max_credit_limit_extension": 0
+}

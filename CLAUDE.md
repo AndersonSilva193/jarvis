@@ -44,6 +44,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
+| `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
 | `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
 
@@ -148,6 +149,7 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 
 ## Limitações conhecidas
 
-- **Lembretes e histórico ficam em memória**: somem quando o container reinicia.
+- **Lembretes e histórico ficam em memória**: somem quando o container reinicia. O cache de
+  voz, não: ele vive no volume `/data/voz` e sobrevive ao restart.
 - Só entende texto (nada de áudio ou foto).
 - Atende **uma mensagem por vez** — `Assistente.responder` é `synchronized`.
