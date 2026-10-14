@@ -47,7 +47,7 @@ class AssistenteTest {
     private static JarvisProperties props() {
         return new JarvisProperties("Anderson", "America/Sao_Paulo", "", null,
                 new JarvisProperties.Anthropic("chave", "claude-haiku-5-5", 1024, 512),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     /** Resposta com um bloco de pensamento assinado antes do texto, como o modelo devolve. */
@@ -77,6 +77,36 @@ class AssistenteTest {
         uso.put("id", "tu_1");
         uso.put("name", "inexistente");
         uso.set("input", JSON.createObjectNode());
+        return resposta;
+    }
+
+    /**
+     * Resposta de busca na web: os blocos vêm prontos do servidor da Anthropic, e o
+     * encrypted_content é o que ela decifra nos turnos seguintes.
+     */
+    private static ArrayNode blocosDeBusca(JsonNode destino) {
+        ArrayNode conteudo = (ArrayNode) destino;
+        ObjectNode uso = conteudo.addObject();
+        uso.put("type", "server_tool_use");
+        uso.put("id", "srvtoolu_1");
+        uso.put("name", "web_search");
+        uso.putObject("input").put("query", "prefeito de Curitiba");
+        ObjectNode resultado = conteudo.addObject();
+        resultado.put("type", "web_search_tool_result");
+        resultado.put("tool_use_id", "srvtoolu_1");
+        ObjectNode achado = resultado.putArray("content").addObject();
+        achado.put("type", "web_search_result");
+        achado.put("url", "https://exemplo.com");
+        achado.put("title", "Exemplo");
+        achado.put("encrypted_content", "EqgfCioIARgBIiQ3");
+        return conteudo;
+    }
+
+    /** Turno que o servidor pausou no meio da busca. */
+    private static JsonNode respostaPausada() {
+        ObjectNode resposta = JSON.createObjectNode();
+        resposta.put("stop_reason", "pause_turn");
+        blocosDeBusca(resposta.putArray("content"));
         return resposta;
     }
 
@@ -152,5 +182,42 @@ class AssistenteTest {
         // teste passaria com o bug. O que precisa valer é que foi montado uma vez só.
         assertSame(captor.getAllValues().get(0), captor.getAllValues().get(1),
                 "remontar o system no meio do turno invalida o pensamento já devolvido");
+    }
+
+    @Test
+    @DisplayName("pause_turn continua o mesmo turno, com os blocos da busca inalterados")
+    void pausaContinuaOTurno() throws Exception {
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(respostaPausada())
+                .thenReturn(respostaComPensamento("é o Eduardo Pimentel"));
+
+        String resposta = assistente.responder(1L, "quem é o prefeito de Curitiba?");
+
+        assertEquals("é o Eduardo Pimentel", resposta);
+        List<ArrayNode> enviadas = mensagensEnviadas();
+        assertEquals(2, enviadas.size(), "pause_turn não encerra o turno: reenviamos e seguimos");
+
+        List<JsonNode> achados = blocosDe(enviadas.get(1), "web_search_tool_result");
+        assertEquals(1, achados.size(), "o resultado da busca tem que voltar no mesmo turno");
+        assertEquals("EqgfCioIARgBIiQ3",
+                achados.get(0).path("content").get(0).path("encrypted_content").stringValue(),
+                "encrypted_content alterado ou ausente é HTTP 400");
+    }
+
+    @Test
+    @DisplayName("bloco server-side não é executado aqui nem vira mensagem de content vazio")
+    void blocoServerSideNaoEExecutado() throws Exception {
+        ObjectNode soBusca = JSON.createObjectNode();
+        // stop_reason de ferramenta, mas no conteúdo só o que o servidor já resolveu.
+        soBusca.put("stop_reason", "tool_use");
+        blocosDeBusca(soBusca.putArray("content")).addObject().put("type", "text").put("text", "achei");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(soBusca);
+
+        assertEquals("achei", assistente.responder(1L, "procura aí"));
+
+        List<ArrayNode> enviadas = mensagensEnviadas();
+        assertEquals(1, enviadas.size(), "não há ferramenta nossa para executar: o turno acaba aqui");
+        assertTrue(blocosDe(enviadas.get(0), "tool_result").isEmpty());
     }
 }

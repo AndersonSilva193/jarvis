@@ -25,7 +25,8 @@ public record JarvisProperties(
         Noticias noticias,
         Hud hud,
         Personalidade personalidade,
-        Voz voz) {
+        Voz voz,
+        BuscaWeb buscaWeb) {
 
     public record Telegram(String token, long usuarioPermitido) {
     }
@@ -38,6 +39,19 @@ public record JarvisProperties(
      *                          modelo: 512 no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5.
      */
     public record Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens) {
+    }
+
+    /**
+     * Busca na web pela ferramenta server-side da Messages API: a definição vai no array de
+     * ferramentas e quem executa é o servidor da Anthropic, não o Jarvis.
+     *
+     * @param tipo    versão do tipo da ferramenta. "web_search_20250305" é a básica e roda em
+     *                qualquer modelo atual; as versões de 2026 fazem filtragem dinâmica, que roda a
+     *                busca dentro do code execution e exige modelo com programmatic tool calling.
+     *                Confira pelo Models API (capabilities.server_tools.web_search) antes de trocar.
+     * @param maxUsos teto de buscas por pedido. Cada busca é cobrada à parte dos tokens.
+     */
+    public record BuscaWeb(boolean ativa, String tipo, int maxUsos) {
     }
 
     /** Cidade do clima e suas coordenadas (a Open-Meteo trabalha com latitude/longitude). */
@@ -67,6 +81,14 @@ public record JarvisProperties(
 
     public ZoneId zona() {
         return ZoneId.of(fusoHorario == null || fusoHorario.isBlank() ? "America/Sao_Paulo" : fusoHorario);
+    }
+
+    /**
+     * Se a busca na web está ligada. Null-safe de propósito: quem monta as properties à mão (testes,
+     * chamadas internas) deixa o bloco de fora e a busca simplesmente fica desligada.
+     */
+    public boolean buscaWebAtiva() {
+        return buscaWeb != null && buscaWeb.ativa();
     }
 
     /** Caminho do arquivo de personalidade. Dentro do container é o volume montado em /app/config. */

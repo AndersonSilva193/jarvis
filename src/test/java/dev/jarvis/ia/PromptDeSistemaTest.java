@@ -26,7 +26,11 @@ class PromptDeSistemaTest {
     private static final String PERSONALIDADE = "# Jarvis\n\nTrate o Anderson por senhor.";
 
     private static ArrayNode montar(Canal canal, boolean cachear) {
-        return PromptDeSistema.montar(JSON, PERSONALIDADE, cachear, canal, "Anderson", AGORA);
+        return montar(canal, cachear, false);
+    }
+
+    private static ArrayNode montar(Canal canal, boolean cachear, boolean buscaAtiva) {
+        return PromptDeSistema.montar(JSON, PERSONALIDADE, cachear, canal, "Anderson", AGORA, buscaAtiva);
     }
 
     private static String texto(JsonNode bloco) {

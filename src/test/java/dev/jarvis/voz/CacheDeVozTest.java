@@ -24,7 +24,7 @@ class CacheDeVozTest {
 
     private static JarvisProperties props(String vozId, String modelo) {
         return new JarvisProperties("Anderson", "America/Sao_Paulo", "", null, null, null, null, null, null,
-                new JarvisProperties.Voz("elevenlabs", "chave", vozId, modelo, 5));
+                new JarvisProperties.Voz("elevenlabs", "chave", vozId, modelo, 5), null);
     }
 
     @Test

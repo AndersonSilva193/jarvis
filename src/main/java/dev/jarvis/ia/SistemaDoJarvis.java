@@ -42,6 +42,6 @@ public class SistemaDoJarvis {
         String texto = personalidade.texto();
         boolean cachear = PersonalidadeService.estimarTokens(texto) >= props.anthropic().cacheMinimoTokens();
         return PromptDeSistema.montar(json, texto, cachear, canal, props.nomeUsuario(),
-                ZonedDateTime.now(props.zona()));
+                ZonedDateTime.now(props.zona()), props.buscaWebAtiva());
     }
 }

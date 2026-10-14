@@ -61,7 +61,7 @@ class TokenHudTest {
 
     private static List<String> comOrigens(String config) {
         var props = new JarvisProperties("Anderson", "America/Sao_Paulo", "", null, null, null, null,
-                new JarvisProperties.Hud("token", config), null, null);
+                new JarvisProperties.Hud("token", config), null, null, null);
         return props.origensDaHud();
     }
 }

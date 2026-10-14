@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import dev.jarvis.conversa.*;
 import dev.jarvis.ferramentas.ResultadoFerramenta;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.ferramentas.Ferramentas;
@@ -34,30 +36,35 @@ public class Assistente {
     /** Quantas trocas (pedido + resposta) o Jarvis lembra por conversa. Fica em memória. */
     private static final int MAX_TURNOS_HISTORICO = 10;
 
+    private static final Logger log = LoggerFactory.getLogger(Assistente.class);
+
     private final ClaudeClient claude;
     private final Ferramentas ferramentas;
     private final SistemaDoJarvis sistema;
     private final JsonMapper json;
     private final RegistroConversas conversas;
     private final AnexosService anexos;
+    private final BuscaWebServidor buscaWeb;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
     private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
-        this(claude, ferramentas, sistema, json, new RegistroConversas(evento -> { }), new AnexosService());
+        this(claude, ferramentas, sistema, json, new RegistroConversas(evento -> { }), new AnexosService(),
+                BuscaWebServidor.desligada());
     }
 
     @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
-            RegistroConversas conversas, AnexosService anexos) {
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb) {
         this.claude = claude;
         this.ferramentas = ferramentas;
         this.sistema = sistema;
         this.json = json;
         this.conversas = conversas;
         this.anexos = anexos;
+        this.buscaWeb = buscaWeb;
     }
 
     /** Responde a uma mensagem vinda do Telegram. */
@@ -141,6 +148,13 @@ public class Assistente {
         // ida e vinda de ferramenta mudaria o system no meio do turno, e o modelo rejeita (HTTP 400)
         // os blocos de pensamento que ele devolveu sob o system anterior.
         ArrayNode system = sistema.blocos(canal);
+        // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
+        // do cache de prompt. A da busca na web é server-side — quem executa é a Anthropic.
+        ArrayNode definicoes = ferramentas.definicoes();
+        if (buscaWeb.ativa()) {
+            definicoes.add(buscaWeb.definicao());
+        }
+        int buscas = 0;
 
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
@@ -153,7 +167,9 @@ public class Assistente {
                 mensagens.add(m);
             }
 
-            JsonNode resposta = claude.criarMensagem(system, mensagens, ferramentas.definicoes());
+            JsonNode resposta = claude.criarMensagem(system, mensagens, definicoes);
+            buscas += (int) Json.numero(resposta.path("usage").path("server_tool_use")
+                    .path("web_search_requests"));
             JsonNode conteudo = resposta.path("content");
 
             ObjectNode doAssistente = json.createObjectNode();
@@ -166,7 +182,14 @@ public class Assistente {
             }
             turno.add(doAssistente);
 
-            if (!"tool_use".equals(Json.texto(resposta.path("stop_reason")))) {
+            String motivo = Json.texto(resposta.path("stop_reason"));
+            // A API pausa turno longo de busca. Continuar é reenviar a mensagem do assistente
+            // inalterada — ela já foi anexada crua ao turno logo acima.
+            if ("pause_turn".equals(motivo)) {
+                continue;
+            }
+            if (!"tool_use".equals(motivo)) {
+                registrarBuscas(buscas);
                 return extrairTexto(conteudo);
             }
 
@@ -183,12 +206,35 @@ public class Assistente {
                     resultados.add(ferramentas.executar(bloco, seguro, detalhados::add));
                 }
             }
+            // Os blocos server_tool_use e web_search_tool_result já vêm resolvidos pelo servidor da
+            // Anthropic e não passam pelo registro de ferramentas. Se o turno só tinha desses, não
+            // há resultado para devolver — e mensagem de content vazio a API recusa.
+            if (resultados.isEmpty()) {
+                registrarBuscas(buscas);
+                return extrairTexto(conteudo);
+            }
             ObjectNode comResultados = json.createObjectNode();
             comResultados.put("role", "user");
             comResultados.set("content", resultados);
             turno.add(comResultados);
         }
+        registrarBuscas(buscas);
         throw new IllegalStateException("precisei de passos demais para resolver isso. Tente um pedido mais simples.");
+    }
+
+    /**
+     * Quantas buscas na web o pedido gastou. Cada uma é cobrada à parte dos tokens, então bater no
+     * teto merece aviso: é o sinal de pedido caro, ou de pergunta que não precisava de busca.
+     */
+    private void registrarBuscas(int buscas) {
+        if (buscas <= 0) {
+            return;
+        }
+        if (buscaWeb.maxUsos() > 0 && buscas >= buscaWeb.maxUsos()) {
+            log.warn("Busca na web: {} buscas neste pedido, o teto (BUSCA_WEB_MAX_USOS)", buscas);
+        } else {
+            log.info("Busca na web: {} busca(s) neste pedido", buscas);
+        }
     }
 
     /**
@@ -214,6 +260,9 @@ public class Assistente {
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
                 String tipo = Json.texto(bloco.path("type"));
+                // Só o pensamento sai. Os blocos de busca (server_tool_use, web_search_tool_result)
+                // ficam: o encrypted_content deles é o que a API decifra nos turnos seguintes, e
+                // mexer nele — ou deixá-lo de fora — é HTTP 400.
                 if (!"thinking".equals(tipo) && !"redacted_thinking".equals(tipo)) {
                     mantidos.add(bloco);
                 }

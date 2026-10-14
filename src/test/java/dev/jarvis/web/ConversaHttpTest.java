@@ -20,7 +20,7 @@ class ConversaHttpTest {
     @TempDir Path pasta;
     private final JarvisProperties props = new JarvisProperties("Anderson", "America/Sao_Paulo", "",
             new JarvisProperties.Telegram("teste", 42), null, null, null,
-            new JarvisProperties.Hud("token-de-teste", ""), null, null);
+            new JarvisProperties.Hud("token-de-teste", ""), null, null, null);
 
     @Test void autenticaRotasEValidaPedidoPeloHttp() throws Exception {
         var conversa = mock(ConversaService.class);

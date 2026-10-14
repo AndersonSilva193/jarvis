@@ -31,11 +31,11 @@ class ConversaServiceTest {
     });
     private final JarvisProperties props = new JarvisProperties("Anderson", "America/Sao_Paulo", "",
             new JarvisProperties.Telegram("teste", 42), new JarvisProperties.Anthropic("teste", "modelo", 1000, 1000),
-            null, null, new JarvisProperties.Hud("teste", ""), null, null);
+            null, null, new JarvisProperties.Hud("teste", ""), null, null, null);
     private final AnexosService anexos = new AnexosService();
     private final Assistente assistente = new Assistente(claude, new Ferramentas(List.of(), json),
             new SistemaDoJarvis(new PersonalidadeService(props), json, props),
-            json, registro, anexos);
+            json, registro, anexos, dev.jarvis.ia.BuscaWebServidor.desligada());
     private final ConversaService servico = new ConversaService(assistente, registro, props);
 
     @AfterEach void fechar() { servico.fechar(); anexos.fechar(); }
@@ -192,7 +192,8 @@ class ConversaServiceTest {
         when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
                 .thenReturn(executar, resposta("Pronto"));
         var agente = new Assistente(claude, new Ferramentas(List.of(ferramenta), json),
-                new SistemaDoJarvis(new PersonalidadeService(props), json, props), json, registro, anexos);
+                new SistemaDoJarvis(new PersonalidadeService(props), json, props), json, registro, anexos,
+                dev.jarvis.ia.BuscaWebServidor.desligada());
         List<String> progresso = new java.util.ArrayList<>();
         var resultado = agente.responder(42, "teste", Canal.HUD, new OuvinteProgresso() {
             public void ferramenta(String nome, String descricao, Integer passo, Integer total) {

@@ -33,9 +33,10 @@ final class PromptDeSistema {
     /**
      * @param personalidade texto do arquivo de personalidade, usado sem nenhuma substituição
      * @param cachear       se o bloco fixo é grande o bastante para o modelo aceitar cachear
+     * @param buscaAtiva    se a busca na web está ligada; só então o modelo é instruído a usá-la
      */
     static ArrayNode montar(JsonMapper json, String personalidade, boolean cachear,
-            Canal canal, String nomeUsuario, ZonedDateTime agora) {
+            Canal canal, String nomeUsuario, ZonedDateTime agora, boolean buscaAtiva) {
         ArrayNode blocos = json.createArrayNode();
 
         ObjectNode fixo = blocos.addObject();
@@ -47,11 +48,12 @@ final class PromptDeSistema {
 
         ObjectNode dinamico = blocos.addObject();
         dinamico.put("type", "text");
-        dinamico.put("text", parteDinamica(canal, nomeUsuario, agora));
+        dinamico.put("text", parteDinamica(canal, nomeUsuario, agora, buscaAtiva));
         return blocos;
     }
 
-    private static String parteDinamica(Canal canal, String nomeUsuario, ZonedDateTime agora) {
+    private static String parteDinamica(Canal canal, String nomeUsuario, ZonedDateTime agora,
+            boolean buscaAtiva) {
         return """
                 Agora são %s (fuso %s). Use isso para interpretar "hoje", "amanhã", "às 15h" etc.
                 Você está atendendo %s pelo canal: %s.
@@ -61,10 +63,36 @@ final class PromptDeSistema {
                   uma ferramenta.
                 - Se não existir ferramenta para o que foi pedido, diga com clareza que ainda não
                   consegue fazer isso.
-
+                %s
                 Formato para este canal:
                 %s
                 """.formatted(agora.format(FORMATO_DATA), agora.getZone(), nomeUsuario, canal.nome(),
-                canal.regrasDeFormato());
+                regrasDeBusca(canal, buscaAtiva), canal.regrasDeFormato());
+    }
+
+    /**
+     * As regras da busca na web, vazias quando ela está desligada.
+     *
+     * <p>A ferramenta é server-side: o modelo não "chama" nada nosso, ele pede e o servidor da
+     * Anthropic procura. Então o que dá para controlar daqui é só <b>quando</b> buscar e como citar.
+     * A citação muda por canal porque a HUD e o briefing viram áudio, onde link não se lê em voz alta.
+     */
+    private static String regrasDeBusca(Canal canal, boolean buscaAtiva) {
+        if (!buscaAtiva) {
+            return "";
+        }
+        String citacao = canal == Canal.TELEGRAM
+                ? "Termine com até 3 links das fontes, em texto simples, um por linha."
+                : "Diga o nome da fonte dentro da frase (\"segundo a Folha\") e não leia link nenhum.";
+        return """
+
+                Busca na web:
+                - Você tem busca na web. Use para fato atual: notícia, resultado, cotação, preço, quem
+                  ocupa um cargo, o que mudou desde o seu treino.
+                - Não busque o que você já sabe, nem para conta, conceito, código ou texto criativo —
+                  responda direto.
+                - Responda curto, com o que a busca trouxe, e nunca invente resultado de busca.
+                - %s
+                """.formatted(citacao);
     }
 }

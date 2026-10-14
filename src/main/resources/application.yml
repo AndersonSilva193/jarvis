@@ -23,6 +23,15 @@ jarvis:
     # Menor prefixo cacheável do modelo. Precisa acompanhar ANTHROPIC_MODELO: 512 no Haiku 5.5
     # e no Sonnet 5.5, 4096 no Haiku 4.5. Abaixo disso a API ignora o cache_control calado.
     cache-minimo-tokens: ${ANTHROPIC_CACHE_MINIMO_TOKENS:512}
+  busca-web:
+    # Busca na web pela ferramenta server-side do Claude: quem executa é o servidor da Anthropic.
+    ativa: ${BUSCA_WEB_ATIVA:true}
+    # Versão do tipo da ferramenta. A básica roda em qualquer modelo atual; as de 2026 fazem
+    # filtragem dinâmica, que roda a busca dentro do code execution e pede um modelo com
+    # programmatic tool calling. Confira o capabilities do modelo no Models API antes de trocar.
+    tipo: ${BUSCA_WEB_TIPO:web_search_20250305}
+    # Teto de buscas por pedido. Cada busca é cobrada à parte dos tokens.
+    max-usos: ${BUSCA_WEB_MAX_USOS:3}
   clima:
     cidade: ${CLIMA_CIDADE:Curitiba}
     # Coordenadas da cidade (o "-" antes do número é o valor default, não um erro de sintaxe)
