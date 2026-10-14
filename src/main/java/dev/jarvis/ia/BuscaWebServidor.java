@@ -1,5 +1,8 @@
 package dev.jarvis.ia;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
@@ -20,14 +23,27 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class BuscaWebServidor {
 
+    private static final Logger log = LoggerFactory.getLogger(BuscaWebServidor.class);
+
     /** Nome fixo da ferramenta na API — não é escolha nossa. */
     private static final String NOME = "web_search";
 
     private final ObjectNode definicao;
     private final int maxUsos;
 
+    /**
+     * Anotado de propósito: a classe tem dois construtores, e entre vários o Spring escolhe o sem
+     * argumentos — o da fábrica {@link #desligada()}, mesmo sendo privado. Sem esta anotação o bean
+     * sobe desligado em silêncio e o modelo responde que não tem busca na web.
+     */
+    @Autowired
     public BuscaWebServidor(JarvisProperties props, JsonMapper json) {
         if (!props.buscaWebAtiva()) {
+            // Dizer no log por que ela está desligada: sem isso, config que não casou e desligar de
+            // propósito ficam idênticos de fora, e o modelo responde "não tenho busca" nos dois casos.
+            log.info("Busca na web: desligada ({})",
+                    props.buscaWeb() == null ? "bloco jarvis.busca-web ausente na configuração"
+                            : "BUSCA_WEB_ATIVA=false");
             this.definicao = null;
             this.maxUsos = 0;
             return;
@@ -48,6 +64,7 @@ public class BuscaWebServidor {
         onde.put("country", "BR");
         onde.put("timezone", props.zona().getId());
         this.definicao = def;
+        log.info("Busca na web: ligada (tipo={}, até {} busca(s) por pedido)", config.tipo(), maxUsos);
     }
 
     private BuscaWebServidor() {

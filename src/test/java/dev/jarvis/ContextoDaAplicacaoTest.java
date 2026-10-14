@@ -1,7 +1,9 @@
 package dev.jarvis;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,8 +12,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import dev.jarvis.agenda.ResumoDiario;
+import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ferramentas.Ferramentas;
 import dev.jarvis.ia.Assistente;
+import dev.jarvis.ia.BuscaWebServidor;
 import dev.jarvis.ia.PersonalidadeService;
 import dev.jarvis.telegram.TelegramPoller;
 
@@ -47,6 +51,10 @@ class ContextoDaAplicacaoTest {
     ResumoDiario resumoDiario;
     @Autowired
     Ferramentas ferramentas;
+    @Autowired
+    JarvisProperties props;
+    @Autowired
+    BuscaWebServidor buscaWeb;
 
     @Test
     @DisplayName("o contexto sobe com todos os beans ligados")
@@ -54,6 +62,19 @@ class ContextoDaAplicacaoTest {
         assertNotNull(personalidade);
         assertNotNull(assistente);
         assertNotNull(resumoDiario);
+    }
+
+    @Test
+    @DisplayName("a busca na web casa com o application.yml e chega ligada ao Assistente")
+    void buscaNaWebLigada() {
+        // O bloco jarvis.busca-web do application.yml tem que casar com o record: se não casar,
+        // props.buscaWeb() vem null, a busca fica desligada em silêncio e o modelo responde que
+        // não tem pesquisa na web — sem nenhum erro no caminho.
+        assertNotNull(props.buscaWeb(), "jarvis.busca-web não casou com JarvisProperties");
+        assertTrue(props.buscaWebAtiva(), "a busca vem ligada por padrão");
+        assertTrue(buscaWeb.ativa(), "o bean subiu desligado");
+        assertEquals("web_search", buscaWeb.definicao().path("name").stringValue());
+        assertFalse(buscaWeb.definicao().path("type").stringValue().isBlank());
     }
 
     @Test
