@@ -95,6 +95,17 @@ class ContextoDaAplicacaoTest {
     }
 
     @Test
+    @DisplayName("o bloco do PC casa com o application.yml e o controlar_pc sobe fiado")
+    void pcCasaComOYml() {
+        // Mesmo motivo dos dois testes acima: se jarvis.pc não casar com o record, props.pc() vem
+        // null, /api/pc recusa tudo com 401 e o controle do PC fica desligado em silêncio.
+        assertNotNull(props.pc(), "jarvis.pc não casou com JarvisProperties");
+        assertFalse(props.pcConfigurado(), "sem PC_TOKEN no ambiente, fica desligado");
+        assertTrue(ferramentas.definicoes().toString().contains("controlar_pc"),
+                "ferramenta 'controlar_pc' não foi registrada");
+    }
+
+    @Test
     @DisplayName("as ferramentas de tela sobem fiadas, com os dois HttpClient resolvidos")
     void ferramentasDeTelaRegistradas() {
         // São as que dependem da porta PresencaDaHud (implementada pelo EventosHud) e, no caso do

@@ -27,7 +27,8 @@ public record JarvisProperties(
         Personalidade personalidade,
         Voz voz,
         BuscaWeb buscaWeb,
-        Youtube youtube) {
+        Youtube youtube,
+        Pc pc) {
 
     public record Telegram(String token, long usuarioPermitido) {
     }
@@ -89,9 +90,31 @@ public record JarvisProperties(
     public record Youtube(String apiKey) {
     }
 
+    /**
+     * Agente que roda no PC Windows e busca comandos por long polling.
+     *
+     * O token é separado do {@code HUD_TOKEN} de propósito: quem tem a HUD não manda na máquina, e
+     * um token vazado numa tela aberta não vira desligamento de PC. A lista de programas liberados
+     * <b>não</b> mora aqui — ela é do {@code config.properties} do agente, que a reporta no
+     * cabeçalho {@code X-Pc-Apps} de cada consulta. Assim o enum de {@code abrir_app} tem uma
+     * única fonte de verdade, no PC.
+     */
+    public record Pc(String token) {
+    }
+
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
     public boolean youtubeConfigurado() {
         return youtube != null && youtube.apiKey() != null && !youtube.apiKey().isBlank();
+    }
+
+    /** Token do agente do PC. Vazio = /api/pc recusa tudo com 401 (em dúvida, fecha). */
+    public String tokenDoPc() {
+        return pc == null || pc.token() == null ? "" : pc.token();
+    }
+
+    /** Se o controle do PC está configurado. Sem token, a rota do agente recusa tudo. */
+    public boolean pcConfigurado() {
+        return !tokenDoPc().isBlank();
     }
 
     public ZoneId zona() {

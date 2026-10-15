@@ -44,7 +44,8 @@ class MonitorDeCotaVozTest {
     private static JarvisProperties props(int reservaPct) {
         return new JarvisProperties("Anderson", "America/Sao_Paulo", "",
                 new JarvisProperties.Telegram("token", CHAT), null, null, null, null, null,
-                new JarvisProperties.Voz("elevenlabs", "chave", "voz-1", "eleven_flash_v2_5", reservaPct), null, null);
+                new JarvisProperties.Voz("elevenlabs", "chave", "voz-1", "eleven_flash_v2_5", reservaPct), null, null,
+                null);
     }
 
     private MonitorDeCotaVoz monitor(int reservaPct) {
@@ -206,7 +207,8 @@ class MonitorDeCotaVozTest {
     void desligadoSemConfiguracao() throws Exception {
         var props = new JarvisProperties("Anderson", "America/Sao_Paulo", "",
                 new JarvisProperties.Telegram("token", CHAT), null, null, null, null, null,
-                new JarvisProperties.Voz("elevenlabs", "", "", "eleven_flash_v2_5", 5), null, null);
+                new JarvisProperties.Voz("elevenlabs", "", "", "eleven_flash_v2_5", 5), null, null,
+                null);
         var monitor = new MonitorDeCotaVoz(elevenLabs, telegram, new DiarioDeVoz(props), props,
                 Clock.systemUTC());
 

@@ -23,7 +23,7 @@ class TelaHttpTest {
 
     private final JarvisProperties props = new JarvisProperties("Anderson", "America/Sao_Paulo", "",
             new JarvisProperties.Telegram("teste", 42), null, null, null,
-            new JarvisProperties.Hud("token-de-teste", ""), null, null, null, null);
+            new JarvisProperties.Hud("token-de-teste", ""), null, null, null, null, null);
 
     private final TelaEstadoService tela = new TelaEstadoService();
 

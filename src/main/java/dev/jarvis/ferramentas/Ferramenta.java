@@ -44,6 +44,7 @@ public interface Ferramenta {
             case "abrir_pagina" -> "preparando a página";
             case "mostrar_na_tela" -> "montando o card";
             case "controlar_tela" -> "ajustando a tela";
+            case "controlar_pc" -> "falando com o PC";
             default -> "executando " + nome().replace('_', ' ');
         };
     }

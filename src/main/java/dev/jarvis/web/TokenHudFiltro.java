@@ -2,8 +2,6 @@ package dev.jarvis.web;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.util.ComparadorDeToken;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,8 +45,11 @@ public class TokenHudFiltro extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest requisicao) {
-        // Fora de /api não há o que proteger aqui.
-        return !requisicao.getRequestURI().startsWith("/api");
+        String uri = requisicao.getRequestURI();
+        // Fora de /api não há o que proteger aqui. E /api/pc é do agente do PC: quem exige o
+        // PC_TOKEN lá é o TokenPcFiltro, com o mesmo predicado, para os dois conjuntos serem
+        // disjuntos por construção (ver o javadoc de TokenPcFiltro.rotaDoPc).
+        return !uri.startsWith("/api") || TokenPcFiltro.rotaDoPc(uri);
     }
 
     @Override
@@ -96,22 +98,10 @@ public class TokenHudFiltro extends OncePerRequestFilter {
     }
 
     /**
-     * Compara em tempo constante. Usamos o SHA-256 dos dois valores antes do MessageDigest.isEqual
-     * porque ele só é constante para arrays do mesmo tamanho — com o hash, o tamanho do token
-     * nunca influencia o tempo da comparação.
+     * Compara em tempo constante. A conta mora no {@link ComparadorDeToken}, que é o único lugar
+     * do projeto com criptografia — o filtro do PC e o código de confirmação usam o mesmo.
      */
     static boolean tokenValido(String fornecido, String esperado) {
-        if (fornecido == null || fornecido.isBlank() || esperado == null || esperado.isBlank()) {
-            return false;
-        }
-        return MessageDigest.isEqual(sha256(fornecido), sha256(esperado));
-    }
-
-    private static byte[] sha256(String valor) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(valor.getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 deveria existir em qualquer JVM", e);
-        }
+        return ComparadorDeToken.igual(fornecido, esperado);
     }
 }

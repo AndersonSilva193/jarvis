@@ -25,7 +25,7 @@ class MostrarNaTelaFerramentaTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private static final JarvisProperties PROPS = new JarvisProperties("Anderson",
-            "America/Sao_Paulo", "", null, null, null, null, null, null, null, null, null);
+            "America/Sao_Paulo", "", null, null, null, null, null, null, null, null, null, null);
 
     private static ObjectNode entrada() {
         ObjectNode entrada = JSON.createObjectNode();

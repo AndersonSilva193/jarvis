@@ -7,7 +7,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,10 @@ public class TelegramClient {
     /** O Telegram aceita até 4096 caracteres por mensagem; deixamos uma folga. */
     private static final int LIMITE_MENSAGEM = 4000;
     private static final int SEGUNDOS_LONG_POLLING = 30;
+    /** O sendPhoto do Telegram aceita até 10 MB de imagem; acima disso ele recusa. */
+    private static final int LIMITE_FOTO = 10 * 1024 * 1024;
+    /** E até 1024 caracteres de legenda. */
+    private static final int LIMITE_LEGENDA = 1024;
 
     private final HttpClient http;
     private final JsonMapper json;
@@ -96,6 +102,55 @@ public class TelegramClient {
             corpo.put("parse_mode", formato);
         }
         chamar("sendMessage", corpo, Duration.ofSeconds(20));
+    }
+
+    /**
+     * Envia uma foto (hoje, o print do PC) por {@code sendPhoto} multipart.
+     *
+     * <p>Não reaproveita o {@link #chamar} de propósito: aquele é {@code application/json} com
+     * corpo de texto, e parametrizá-lo para dois tipos de corpo sairia mais confuso do que repetir
+     * as cinco linhas de conferência do {@code ok}.
+     *
+     * <p>Timeout de 20 s, igual ao do envio de texto e não mais: isto roda dentro do lock do
+     * {@code Assistente}, que atende um pedido por vez.
+     *
+     * @throws java.io.IOException se o Telegram recusar ({@link TelegramRecusouException}), se a
+     *                             imagem estiver vazia ou se passar do limite — quem chama decide
+     *                             como degradar
+     */
+    public void enviarFoto(long chatId, byte[] imagem, String nomeDoArquivo, String legenda)
+            throws IOException, InterruptedException {
+        if (imagem == null || imagem.length == 0) {
+            throw new IOException("imagem vazia");
+        }
+        if (imagem.length > LIMITE_FOTO) {
+            throw new IOException("imagem de " + imagem.length / 1024 + " KB passa do limite do sendPhoto");
+        }
+        String nome = nomeDoArquivo == null || nomeDoArquivo.isBlank() ? "imagem.png" : nomeDoArquivo;
+        String mime = nome.endsWith(".jpg") || nome.endsWith(".jpeg") ? "image/jpeg" : "image/png";
+
+        Map<String, String> campos = new LinkedHashMap<>();
+        campos.put("chat_id", String.valueOf(chatId));
+        if (legenda != null && !legenda.isBlank()) {
+            campos.put("caption", legenda.length() > LIMITE_LEGENDA
+                    ? legenda.substring(0, LIMITE_LEGENDA) : legenda);
+        }
+
+        String boundary = MultipartTelegram.boundary();
+        HttpRequest requisicao = HttpRequest.newBuilder(URI.create(urlBase + "sendPhoto"))
+                .timeout(Duration.ofSeconds(20))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArrays(
+                        MultipartTelegram.corpo(boundary, campos, "photo", nome, mime, imagem)))
+                .build();
+
+        HttpResponse<String> resposta = http.send(requisicao, HttpResponse.BodyHandlers.ofString());
+        JsonNode raiz = json.readTree(resposta.body());
+        JsonNode ok = raiz.path("ok");
+        if (!(ok.isBoolean() && ok.booleanValue())) {
+            throw new TelegramRecusouException("sendPhoto", resposta.statusCode(),
+                    Json.texto(raiz.path("description")));
+        }
     }
 
     /** Mostra "digitando..." no Telegram enquanto o Jarvis pensa. Falhas aqui são ignoradas. */

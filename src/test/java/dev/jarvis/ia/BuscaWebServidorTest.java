@@ -21,7 +21,7 @@ class BuscaWebServidorTest {
         return new JarvisProperties("Anderson", "America/Sao_Paulo", "", null,
                 new JarvisProperties.Anthropic("chave", "claude-haiku-5-5", 1024, 512),
                 new JarvisProperties.Clima("Curitiba", -25.4284, -49.2733),
-                null, null, null, null, busca, null);
+                null, null, null, null, busca, null, null);
     }
 
     @Test

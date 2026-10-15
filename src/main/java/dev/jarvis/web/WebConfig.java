@@ -48,6 +48,12 @@ public class WebConfig {
 
     private CorsConfigurationSource fonteDeCors() {
         UrlBasedCorsConfigurationSource fonte = new UrlBasedCorsConfigurationSource();
+        // O agente do PC não é navegador: /api/pc não leva cabeçalho de CORS nenhum. Config vazia
+        // = nenhuma origem liberada. Vem ANTES da liberação de propósito: a fonte devolve o
+        // primeiro padrão que casa, e sem isto o /api/** daria a uma página na origem da HUD o
+        // direito de ler respostas de /api/pc. Inofensivo sem o PC_TOKEN, mas é defesa em
+        // profundidade de duas linhas.
+        fonte.registerCorsConfiguration("/api/pc/**", new CorsConfiguration());
         if (origens.isEmpty()) {
             log.warn("HUD_ORIGEM não configurado: nenhuma origem de navegador poderá chamar a API "
                     + "(chamadas pelo nginx, no mesmo domínio, continuam funcionando).");

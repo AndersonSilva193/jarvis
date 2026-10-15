@@ -46,8 +46,9 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf` e a porta `PresencaDaHud` |
-| `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
-| `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
+| `dev.jarvis.pc` | O PC Windows: `PcService` (fila de comandos), `ComandoPc`/`ResultadoPc` e `GuardaDeConfirmacao` (o código das ações perigosas) |
+| `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
+| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir) e `ComparadorDeToken` (comparação de segredo em tempo constante) |
 
 ## Personalidade e canais
 
@@ -108,6 +109,42 @@ O id da janela é do servidor (`CardTela.novoId()`: `c` mais quatro caracteres s
 sequencial de propósito — o container reinicia com a HUD aberta, e um contador voltaria a `c1`
 colidindo com janela que ainda está na tela.
 
+## O PC Windows pelo Telegram
+
+O PC roda um agente (projeto irmão `../jarvis-agente-pc`: Java 21, sem Spring, um jar) que
+**busca** comandos na VPS por long polling — `GET /api/pc/comandos` segura a requisição por 25 s.
+Nenhuma porta aberta na máquina, nenhum domínio: toda conexão é de dentro para fora, igual ao
+`TelegramPoller`.
+
+```
+controlar_pc ──► PcService (fila) ──► GET /api/pc/comandos ──► agente no PC
+                     ▲                                             │
+                     └──────── POST /api/pc/resultado ◄────────────┘
+```
+
+- **`PC_TOKEN` é separado do `HUD_TOKEN`**, e quem o exige é o `TokenPcFiltro` — um filtro só
+  para `/api/pc`. O `TokenHudFiltro` desiste dessa rota pelo **mesmo predicado**
+  (`TokenPcFiltro.rotaDoPc`), para os dois conjuntos serem disjuntos por construção; um
+  `startsWith("/api/pc")` solto em cada lado deixaria `/api/pcalgo` sem token nenhum. O
+  `?token=` da query, que existe para `EventSource` e `<audio>`, **não vale em `/api/pc`**.
+- **O long poll bloqueia a thread da requisição**, sem `DeferredResult`: há um agente só. Nenhum
+  método do `PcService` é `synchronized` — segurar monitor por 25 s travaria o `enfileirar`, que
+  roda dentro do lock do `Assistente`, e congelaria o bot a cada pedido.
+- **A lista de apps liberados mora só no PC.** O agente a reporta no cabeçalho `X-Pc-Apps` de
+  cada consulta, higienizada antes de entrar no schema (ela vai para o prompt do modelo). O
+  caminho do `.exe` nunca sai do `config.properties`: o modelo escolhe um nome da lista, ou nada.
+- **PC offline responde na hora** (`PcService.online()`, 90 s sem contato), antes de enfileirar:
+  travar o turno 30 s para no fim dizer "offline" seria o pior dos mundos. Com o PC online, a
+  ferramenta espera até 30 s pelo resultado; o comando segue valendo 60 s na fila.
+- **`desligar` e `reiniciar` pedem código de 4 dígitos** (`GuardaDeConfirmacao`): uso único,
+  2 minutos, amarrado a ação e argumento, e **tentativa errada queima a confirmação** — é isso
+  que torna 10.000 possibilidades suficientes. O agente ainda espera 60 s (`shutdown /t 60`),
+  então dá para desistir com `cancelar_desligamento`.
+- **`captura_tela` vai aos dois destinos**: `sendPhoto` multipart no Telegram (o único POST da Bot
+  API que não é JSON, montado pelo `MultipartTelegram`) e um `Artefato` no `ResultadoFerramenta`,
+  que o `AnexosService` publica para a HUD. O mime é farejado dos bytes no `PcDto`, nunca aceito
+  do agente — um `image/svg+xml` declarado chegaria à tela como imagem, e SVG é scriptável.
+
 ## Convenções
 
 - **Tudo em português do Brasil**: nomes de classes, métodos, variáveis, comentários e
@@ -148,8 +185,8 @@ Toda configuração entra nos **três** lugares, na mesma ordem:
 3. `.env.example`, com um comentário curto explicando para que serve.
 
 Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. O último exemplo é
-a `YOUTUBE_API_KEY` (`jarvis.youtube.api-key`), usada pelo `tocar_youtube`: vazia, a ferramenta
-avisa o modelo e nada mais quebra.
+o `PC_TOKEN` (`jarvis.pc.token`), usado pelo `TokenPcFiltro`: vazio, `/api/pc` recusa tudo com 401
+e o controle do PC fica desligado.
 
 Atenção ao `JarvisProperties`: é um record construído por posição em vários testes, então
 acrescente componente **no fim** e atualize essas chamadas.
@@ -175,6 +212,16 @@ acrescente componente **no fim** e atualize essas chamadas.
   resolução — por isso da página só voltam quatro metadados `og:`, nunca o HTML cru.
 - As URLs das fontes do `mostrar_na_tela` também são validadas (`MontadorDeCardDePesquisa`):
   elas viram link clicável na HUD, e um `javascript:` ali seria script rodando na tela.
+- **O agente do PC nunca monta linha de shell.** Toda execução é `ProcessBuilder` com argumentos
+  fixos, e onde o PowerShell é inevitável (teclas de mídia e bateria) o `-Command` é uma
+  constante escolhida por `switch`. Concatenar ali o que a VPS mandou seria injeção de comando —
+  e a VPS manda o que um modelo de linguagem escreveu.
+- **O agente revalida o que a VPS validou** (https do `abrir_url`, app na lista). Os dois lados
+  conferem de propósito: é o processo no PC que tem poder na máquina, e confiar na checagem do
+  outro lado transforma um bug de lá num problema aqui. O `abrir_url` **não** passa pelo
+  `GuardaSsrf`: ele protege a VPS de buscar endereço interno, mas aqui a página abre no navegador
+  do usuário, onde `192.168.0.1` é o roteador da casa. O risco real é esquema que executa código,
+  e o controle é a lista branca de esquema.
 - O `.env` tem segredos e está no `.gitignore` e no `.dockerignore`. Mantenha assim.
 - A `config/personalidade.md` é versionada (o repositório é privado), mas **não é lugar de segredo**:
   token, chave e senha ficam só no `.env`. Ela fica fora da imagem e chega ao container por volume
@@ -203,6 +250,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 
 ## Limitações conhecidas
 
+- **A fila de comandos do PC também é em memória**, com o código de confirmação: depois de um
+  restart o Jarvis espera o agente reaparecer (até 25 s) e qualquer confirmação pendente se perde.
 - **Lembretes e histórico ficam em memória**: somem quando o container reinicia. O cache de
   voz, não: ele vive no volume `/data/voz` e sobrevive ao restart.
 - O retrato da tela e o cache de buscas no YouTube também são em memória: depois de um restart o

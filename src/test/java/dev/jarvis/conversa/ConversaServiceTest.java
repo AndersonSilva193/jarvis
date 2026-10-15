@@ -31,7 +31,7 @@ class ConversaServiceTest {
     });
     private final JarvisProperties props = new JarvisProperties("Anderson", "America/Sao_Paulo", "",
             new JarvisProperties.Telegram("teste", 42), new JarvisProperties.Anthropic("teste", "modelo", 1000, 1000),
-            null, null, new JarvisProperties.Hud("teste", ""), null, null, null, null);
+            null, null, new JarvisProperties.Hud("teste", ""), null, null, null, null, null);
     private final AnexosService anexos = new AnexosService();
     private final Assistente assistente = new Assistente(claude, new Ferramentas(List.of(), json),
             new SistemaDoJarvis(new PersonalidadeService(props), json, props),
