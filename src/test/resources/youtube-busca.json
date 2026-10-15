@@ -1,0 +1,79 @@
+{
+  "kind": "youtube#searchListResponse",
+  "etag": "etag-de-exemplo",
+  "regionCode": "BR",
+  "pageInfo": { "totalResults": 1000000, "resultsPerPage": 5 },
+  "items": [
+    {
+      "kind": "youtube#searchResult",
+      "id": { "kind": "youtube#video", "videoId": "jfKfPfyJRdk" },
+      "snippet": {
+        "publishedAt": "2026-02-10T12:00:00Z",
+        "channelId": "UCSJ4gkVC6NrvII8umztf0Ow",
+        "title": "lofi hip hop radio - beats para estudar e relaxar",
+        "description": "Som ambiente para estudo e trabalho.",
+        "thumbnails": {
+          "default": { "url": "https://i.ytimg.com/vi/jfKfPfyJRdk/default.jpg", "width": 120, "height": 90 },
+          "medium": { "url": "https://i.ytimg.com/vi/jfKfPfyJRdk/mqdefault.jpg", "width": 320, "height": 180 },
+          "high": { "url": "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg", "width": 480, "height": 360 }
+        },
+        "channelTitle": "Lofi Girl",
+        "liveBroadcastContent": "live"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "id": { "kind": "youtube#video", "videoId": "5qap5aO4i9A" },
+      "snippet": {
+        "publishedAt": "2025-11-02T09:30:00Z",
+        "title": "Lo-fi para estudar — 3 horas sem interrupção",
+        "description": "Playlist longa.",
+        "thumbnails": {
+          "default": { "url": "https://i.ytimg.com/vi/5qap5aO4i9A/default.jpg" },
+          "medium": { "url": "https://i.ytimg.com/vi/5qap5aO4i9A/mqdefault.jpg" }
+        },
+        "channelTitle": "Chillhop Music"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "id": { "kind": "youtube#video", "videoId": "CURTO12345" },
+      "snippet": {
+        "title": "Este id tem 10 caracteres e não pode ir para a tela",
+        "thumbnails": { "medium": { "url": "https://i.ytimg.com/vi/CURTO12345/mqdefault.jpg" } },
+        "channelTitle": "Canal Suspeito"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "id": { "kind": "youtube#video", "videoId": "DWcJFNfaw9c" },
+      "snippet": {
+        "title": "Jazz suave para trabalhar",
+        "thumbnails": {
+          "default": { "url": "https://i.ytimg.com/vi/DWcJFNfaw9c/default.jpg" }
+        },
+        "channelTitle": "Cafe Music BGM"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "id": { "kind": "youtube#channel", "channelId": "UCnaoDeveEntrar" },
+      "snippet": {
+        "title": "Um canal, não um vídeo",
+        "thumbnails": { "medium": { "url": "https://i.ytimg.com/canal.jpg" } },
+        "channelTitle": "Canal Qualquer"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "id": { "kind": "youtube#video", "videoId": "n61ULEU7CO0" },
+      "snippet": {
+        "title": "Piano relaxante para foco profundo",
+        "thumbnails": {
+          "medium": { "url": "https://i.ytimg.com/vi/n61ULEU7CO0/mqdefault.jpg" }
+        },
+        "channelTitle": "Relaxing Piano"
+      }
+    }
+  ]
+}

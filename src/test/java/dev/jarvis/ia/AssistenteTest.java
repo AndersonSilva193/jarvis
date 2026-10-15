@@ -47,7 +47,7 @@ class AssistenteTest {
     private static JarvisProperties props() {
         return new JarvisProperties("Anderson", "America/Sao_Paulo", "", null,
                 new JarvisProperties.Anthropic("chave", "claude-haiku-5-5", 1024, 512),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /** Resposta com um bloco de pensamento assinado antes do texto, como o modelo devolve. */

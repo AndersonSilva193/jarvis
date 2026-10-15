@@ -31,7 +31,7 @@ class ConversaServiceTest {
     });
     private final JarvisProperties props = new JarvisProperties("Anderson", "America/Sao_Paulo", "",
             new JarvisProperties.Telegram("teste", 42), new JarvisProperties.Anthropic("teste", "modelo", 1000, 1000),
-            null, null, new JarvisProperties.Hud("teste", ""), null, null, null);
+            null, null, new JarvisProperties.Hud("teste", ""), null, null, null, null);
     private final AnexosService anexos = new AnexosService();
     private final Assistente assistente = new Assistente(claude, new Ferramentas(List.of(), json),
             new SistemaDoJarvis(new PersonalidadeService(props), json, props),
@@ -183,7 +183,8 @@ class ConversaServiceTest {
                 return new dev.jarvis.ferramentas.ResultadoFerramenta("resultado interno", List.of(
                         new dev.jarvis.ferramentas.ResultadoFerramenta.Artefato(arquivo, "teste.txt", "text/plain")),
                         List.of(new dev.jarvis.ferramentas.ResultadoFerramenta.Referencia("Fonte", "https://example.org/fonte")),
-                        new Confirmacao("1234", "Apenas teste", "2026-10-14T23:00:00Z"));
+                        new Confirmacao("1234", "Apenas teste", "2026-10-14T23:00:00Z"),
+                        List.of(), List.of());
             }
         };
         var executar = json.createObjectNode().put("stop_reason", "tool_use");

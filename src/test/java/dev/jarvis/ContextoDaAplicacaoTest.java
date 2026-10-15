@@ -83,4 +83,27 @@ class ContextoDaAplicacaoTest {
         // Ferramenta nova é só uma classe @Component: registro vazio significa injeção quebrada.
         assertFalse(ferramentas.definicoes().isEmpty(), "o registro de ferramentas subiu vazio");
     }
+
+    @Test
+    @DisplayName("o bloco do YouTube casa com o application.yml")
+    void youtubeCasaComOYml() {
+        // Mesmo motivo do teste da busca na web: se o bloco jarvis.youtube não casar com o record,
+        // props.youtube() vem null, o tocar_youtube diz "não está configurada" para sempre e
+        // nenhum erro aparece no caminho.
+        assertNotNull(props.youtube(), "jarvis.youtube não casou com JarvisProperties");
+        assertFalse(props.youtubeConfigurado(), "sem YOUTUBE_API_KEY no ambiente, fica desligado");
+    }
+
+    @Test
+    @DisplayName("as ferramentas de tela sobem fiadas, com os dois HttpClient resolvidos")
+    void ferramentasDeTelaRegistradas() {
+        // São as que dependem da porta PresencaDaHud (implementada pelo EventosHud) e, no caso do
+        // abrir_pagina, do segundo HttpClient. Fiação errada aí só apareceria na partida.
+        String nomes = ferramentas.definicoes().toString();
+
+        for (String nome : new String[] {
+                "mostrar_na_tela", "tocar_youtube", "abrir_pagina", "controlar_tela" }) {
+            assertTrue(nomes.contains(nome), "ferramenta '" + nome + "' não foi registrada");
+        }
+    }
 }

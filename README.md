@@ -11,6 +11,10 @@ linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um c
 | "como está o servidor?" | `status_servidor` |
 | "me lembra de mandar o currículo amanhã às 9h" | `criar_lembrete` |
 | "quais lembretes eu tenho?" / "cancela o 2" | `listar_lembretes` / `cancelar_lembrete` |
+| "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
+| "põe um lo-fi para estudar" | `tocar_youtube` |
+| "abre essa página na tela" | `abrir_pagina` |
+| "fecha aquele card" / "limpa a tela" | `controlar_tela` |
 
 Além disso, todo dia útil às 8h ele manda um resumo de bom dia (clima, lembretes, sites e notícias).
 
@@ -149,6 +153,7 @@ alimentar uma tela de HUD.
 | `GET /api/conversa/historico` | Dez trocas públicas compartilhadas, sessão, revisão, pedido HUD pendente e última resposta |
 | `POST /api/conversa/limpar` | Limpa histórico dos dois canais e última resposta HUD; `204`, ou `409` durante pedido HUD |
 | `GET /api/anexos/{id}` | Arquivo registrado por ferramenta; exige token, expira em uma hora; ausente/expirado retorna `404` |
+| `POST /api/tela/estado` | A HUD informa o que está aberto na tela: `{janelas:[{id, tipo, titulo, estado, fixado, emFoco, tocando}], historicoAberto, briefingNaTela}`. `204`, ou `400` com o motivo |
 | `GET /api/saude` | `{"status":"ok"}`. Único endpoint sem token |
 
 ### Autenticação
@@ -309,12 +314,63 @@ location /api/ {
 }
 ```
 
+### A tela dirigida pelo Jarvis
+
+Além de mostrar o briefing, a HUD agora é dirigida pelo Jarvis: ele abre cards e comanda os que já
+estão abertos. Funciona para pedido feito na própria HUD **e** no Telegram — "mostra na tela o
+vídeo X" pelo celular abre a janela na tela de casa.
+
+Cinco tipos de card: `pesquisa` (ranking, ficha, lista, linha do tempo ou destaque), `video`,
+`musica`, `pagina` e `noticia`. Dois eventos novos no SSE:
+
+| Evento | Carga |
+|---|---|
+| `tela.card` | `{id, tipo, titulo, dados, origem, criadoEm}` — abre uma janela |
+| `tela.comando` | `{acao, alvo, valor}` — mexe no que já está aberto |
+
+As ações de `tela.comando`: `limpar`, `fechar`, `fechar_tudo`, `minimizar`, `maximizar`,
+`restaurar`, `focar`, `fixar`, `desafixar`, `abrir_historico`, `fechar_historico`,
+`mostrar_briefing`, `repetir_briefing`, `abrir_noticia`, `pausar`, `continuar`, `volume_mais`,
+`volume_menos`, `avancar` e `voltar`. As que mexem em uma janela levam o id dela em `alvo`.
+
+**O que a HUD precisa fazer**, e sem isso nada funciona:
+
+1. Ouvir `tela.card` e `tela.comando` no `GET /api/eventos`.
+2. Criar a janela **com o `id` que veio no card** — o id é do servidor, sorteado (`c7k2`), e é por
+   ele que o Jarvis acha o alvo depois.
+3. Repostar `POST /api/tela/estado` a cada mudança: abrir, fechar, minimizar, maximizar, fixar,
+   focar, tocar e pausar.
+
+O servidor guarda só o último retrato, por 10 minutos, e dele monta até 12 linhas no prompt —
+`[c7k2] vídeo 'Lo-fi para estudar' (tocando)`. É isso que permite ao Jarvis dizer "fechei o
+vídeo" em vez de chutar um id. Sem o POST, `controlar_tela` nunca encontra alvo.
+
+Com nenhuma HUD conectada ao SSE, as ferramentas de tela respondem "a tela não está aberta" ao
+modelo e não publicam nada — nem pelo Telegram.
+
+A fala, nesses casos, é curta de propósito ("Aqui está, senhor.", "Tela limpa."): o card já mostra
+os dados, e repetir em voz alta o que está na tela é ruído. Essa regra vive no `Canal.HUD`.
+
 ## Segurança
 
 - O bot **só responde ao seu ID**; mensagens de outras pessoas são ignoradas e registradas no log.
 - **Não existe ferramenta de "executar comando"** no servidor, e não crie uma. Cada ação deve ser específica
   e limitada (ex.: `verificar_site` só acessa as URLs da lista, nunca uma URL qualquer).
 - Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar.
+- **A VPS só busca endereço que ela provou ser público.** O `abrir_pagina` é a única ferramenta que
+  acessa uma URL ditada pelo modelo, e ela passa pela trava de SSRF (`GuardaSsrf`): apenas http e
+  https, DNS resolvido e recusado se apontar para loopback, faixa privada, link-local (inclusive o
+  `169.254.169.254` dos metadados de nuvem) ou para um endereço das interfaces da própria máquina;
+  no máximo 3 redirecionamentos, cada um revalidado antes de ser seguido; 8 s de timeout, 1 MB de
+  leitura, e nenhum cookie ou cabeçalho de autenticação.
+
+  Sobra um risco, e vale dizer com clareza: o `HttpClient` do Java não tem gancho de resolução de
+  nome, então entre a nossa checagem e a conexão dele existe uma janela de *DNS rebinding* — um
+  domínio hostil pode devolver IP público na checagem e `127.0.0.1` na conexão. Fechar isso
+  exigiria fixar o IP no socket (quebrando o SNI e o certificado) ou uma dependência nova. O que
+  se faz é limitar o dano: da página só voltam quatro metadados `og:`, nunca o HTML cru.
+- As URLs das fontes do `mostrar_na_tela` também são validadas: elas viram link clicável na tela,
+  e um `javascript:` ali seria script rodando na HUD.
 - O `.env` tem segredos: ele está no `.gitignore` e no `.dockerignore`; mantenha assim.
 - A `config/personalidade.md` é versionada (repositório privado) e **não é lugar de segredo**: token,
   chave de API e senha ficam só no `.env`. Ela entra no container por volume somente leitura.
@@ -335,6 +391,10 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 - Lembretes e histórico ficam **em memória**: somem se o container reiniciar.
 - No Telegram, recebe somente texto. Na HUD, o navegador converte voz em texto e sintetiza a resposta.
 - Atende uma mensagem por vez.
+- O retrato da tela e o cache de buscas no YouTube ficam **em memória**: depois de um restart o
+  Jarvis fica cego para a tela até a HUD repostar o estado.
+- A cota da YouTube Data API é de 10.000 unidades por dia e cada busca custa 100, ou seja umas
+  100 buscas diárias. O cache de 24 h por consulta estica isso; estourando, o Jarvis avisa.
 - A formatação do Telegram cobre o básico (negrito, código e listas); itálico, links e citações ainda saem
   como texto comum.
 
@@ -355,3 +415,10 @@ anexos e metadados de confirmação simulados.
 Quando for publicar, disponibilize primeiro este backend (mantém o alias da HUD antiga) e depois
 a nova HUD. Não são necessárias dependências nem variáveis de ambiente adicionais. A validação
 com microfone físico deve ser feita no navegador, seguindo o roteiro do README da HUD.
+
+### Compatibilidade com janelas da HUD
+
+O estado aceita também `resposta` e todas as janelas minimizadas, sem o antigo teto de 24.
+A HUD envia primeiro o foco e a mídia em reprodução; o contexto continua limitado a 12 linhas.
+`limpar` preserva cards fixados; `fechar_tudo` fecha inclusive os fixados.
+Instale esta versão da API antes da HUD com janelas. O formato dos eventos SSE permanece igual.

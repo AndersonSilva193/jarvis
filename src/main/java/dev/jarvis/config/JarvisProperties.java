@@ -26,7 +26,8 @@ public record JarvisProperties(
         Hud hud,
         Personalidade personalidade,
         Voz voz,
-        BuscaWeb buscaWeb) {
+        BuscaWeb buscaWeb,
+        Youtube youtube) {
 
     public record Telegram(String token, long usuarioPermitido) {
     }
@@ -77,6 +78,20 @@ public record JarvisProperties(
 
     /** Arquivo markdown com a personalidade do Jarvis, lido em tempo de execução (sem rebuild). */
     public record Personalidade(String arquivo) {
+    }
+
+    /**
+     * Chave da YouTube Data API v3, usada pela ferramenta que toca vídeo e música na HUD.
+     *
+     * Cada {@code search.list} custa 100 das 10.000 unidades diárias de cota — daí o cache de
+     * 24 horas por consulta no {@code YoutubeService}. Sem chave, a ferramenta diz isso ao modelo.
+     */
+    public record Youtube(String apiKey) {
+    }
+
+    /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
+    public boolean youtubeConfigurado() {
+        return youtube != null && youtube.apiKey() != null && !youtube.apiKey().isBlank();
     }
 
     public ZoneId zona() {

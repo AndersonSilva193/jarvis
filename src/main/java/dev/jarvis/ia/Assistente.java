@@ -199,6 +199,9 @@ public class Assistente {
                 JsonNode bloco = conteudo.get(i);
                 if ("tool_use".equals(Json.texto(bloco.path("type")))) {
                     OuvinteProgresso seguro = new OuvinteProgresso() {
+                        // O canal vem daqui porque a ferramenta não recebe o Canal: é por ele que
+                        // o card da tela sabe se o pedido veio do celular ou da própria HUD.
+                        @Override public String canal() { return canal.nome(); }
                         @Override public void ferramenta(String nome, String descricao, Integer atual, Integer total) {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }

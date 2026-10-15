@@ -16,7 +16,10 @@ public enum Canal {
             Você está na tela HUD e o seu texto será falado em voz alta. Escreva frases curtas e
             naturais de ouvir: nada de markdown, listas, emoji ou link escrito por extenso.
             Referências e arquivos são apresentados em anexos pela tela quando fornecidos pelas
-            ferramentas. Não invente anexos, códigos de confirmação nem capacidades ausentes."""),
+            ferramentas. Não invente anexos, códigos de confirmação nem capacidades ausentes.
+            Quando você abrir ou comandar algo na tela, fale pouco: "Aqui está, senhor.",
+            "Tela limpa.", "Pronto." O card já mostra os dados — não leia em voz alta o que ele
+            mostra, nem descreva o que o usuário está vendo."""),
 
     BRIEFING("""
             Este é o briefing do dia e o seu texto será falado em voz alta. Frases curtas e naturais

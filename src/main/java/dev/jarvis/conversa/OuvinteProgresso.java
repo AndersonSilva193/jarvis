@@ -3,6 +3,8 @@ package dev.jarvis.conversa;
 /** Nenhum ouvinte é obrigatório; falhas de observação não interrompem a execução. */
 public interface OuvinteProgresso {
     default String idPedido() { return null; }
+    /** De onde veio o pedido (telegram, hud, briefing, tarefa). É como a ferramenta sabe o canal. */
+    default String canal() { return ""; }
     default void iniciado() { }
     default void ferramenta(String nome, String descricao, Integer passo, Integer total) { }
 

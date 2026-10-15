@@ -45,6 +45,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
+| `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf` e a porta `PresencaDaHud` |
 | `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
 | `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
 
@@ -71,13 +72,52 @@ ferramenta. O bloco dinâmico carrega a hora, e remontá-lo no meio do turno inv
 pensamento que o modelo já devolveu — a API recusa com HTTP 400. Pelo mesmo motivo, o histórico é
 guardado sem os blocos de pensamento.
 
+## A tela dirigida pelo Jarvis
+
+Quatro ferramentas abrem e comandam janelas na HUD: `mostrar_na_tela` (card de pesquisa com
+ranking, ficha, lista, linha do tempo ou destaque), `tocar_youtube`, `abrir_pagina` e
+`controlar_tela` (as 20 ações de `ComandoTela.ACOES`). Valem para pedido vindo da HUD **e** do
+Telegram — "mostra na tela o vídeo X" pelo celular abre o card do mesmo jeito, e é o
+`CardTela.origem` que registra de onde veio.
+
+O caminho é sempre o mesmo:
+
+```
+ferramenta ──► ResultadoFerramenta.cards/comandos ──► Ferramentas publica TelaEvento
+                                                            │
+                                               EventosHud ──┴──► SSE "tela.card" / "tela.comando"
+```
+
+Quem publica é o **registro** `Ferramentas`, logo depois de `executarDetalhado` — não o
+`Assistente`, que só processa anexos no fim do turno. O card aparece na tela enquanto o modelo
+ainda está escrevendo a fala. Ferramenta de tela, então, só devolve `cards`/`comandos` no
+`ResultadoFerramenta`; publicar não é trabalho dela.
+
+Sem HUD conectada (`PresencaDaHud.conectada()` falso) a ferramenta devolve `SEM_TELA` ao modelo e
+**não publica nada** — abrir card para ninguém deixaria o Jarvis prometendo o que não aconteceu.
+A porta `PresencaDaHud` vive em `dev.jarvis.tela` e é implementada pelo `EventosHud`, porque a
+camada web não entra nos serviços.
+
+A HUD conta o que está aberto em `POST /api/tela/estado`, e o `TelaEstadoService` guarda só o
+último retrato (validade de 10 minutos). Daí saem até 12 linhas para o bloco **dinâmico** do
+system — `[c7k2] vídeo 'Lo-fi para estudar' (tocando)` —, que é como o modelo escolhe um alvo
+real em vez de chutar um id. Nunca no bloco fixo: a tela muda a cada pedido e levaria o cache de
+prompt embora.
+
+O id da janela é do servidor (`CardTela.novoId()`: `c` mais quatro caracteres sorteados). Não é
+sequencial de propósito — o container reinicia com a HUD aberta, e um contador voltaria a `c1`
+colidindo com janela que ainda está na tela.
+
 ## Convenções
 
 - **Tudo em português do Brasil**: nomes de classes, métodos, variáveis, comentários e
   Javadoc (`CriarLembreteFerramenta`, `executarLoop`, `esquemaEntrada`). Só ficam em inglês
   as chaves dos JSONs das APIs (`tool_use`, `max_tokens`, `chat_id`) e o que vem do Spring.
-- **HTTP sempre com o `HttpClient` compartilhado do `BeansConfig`**, recebido no construtor.
-  Nunca crie um `HttpClient` novo; defina o `timeout` por requisição no `HttpRequest`.
+- **HTTP sempre com um `HttpClient` do `BeansConfig`**, recebido no construtor. São dois:
+  o `@Primary` (segue redirecionamento), que é o de todo mundo, e o `httpSemRedirecionar`, que
+  existe só para o `PaginaService` — o `abrir_pagina` precisa revalidar cada salto de
+  `Location:` contra o `GuardaSsrf` antes de segui-lo. Nunca crie um `HttpClient` dentro de uma
+  classe; defina o `timeout` por requisição no `HttpRequest`.
 - **JSON sempre com o `JsonMapper` do projeto**, também injetado. Para ler campos vindos de
   fora, use `dev.jarvis.util.Json.texto(...)` / `Json.numero(...)`, que devolvem vazio ou
   zero em vez de estourar exceção.
@@ -107,7 +147,12 @@ Toda configuração entra nos **três** lugares, na mesma ordem:
 2. `src/main/resources/application.yml`, lendo a variável com default: `${MINHA_VAR:valor}`;
 3. `.env.example`, com um comentário curto explicando para que serve.
 
-Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto.
+Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. O último exemplo é
+a `YOUTUBE_API_KEY` (`jarvis.youtube.api-key`), usada pelo `tocar_youtube`: vazia, a ferramenta
+avisa o modelo e nada mais quebra.
+
+Atenção ao `JarvisProperties`: é um record construído por posição em vários testes, então
+acrescente componente **no fim** e atualize essas chamadas.
 
 ## Segurança
 
@@ -121,6 +166,15 @@ Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto.
 - O bot **só atende ao `TELEGRAM_USUARIO_PERMITIDO`**; mensagem de outro ID é ignorada e só
   o ID aparece no log.
 - Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar.
+- **A VPS só busca URL que ela provou ser pública.** O `abrir_pagina` é a única ferramenta que
+  acessa um endereço ditado pelo modelo, e ele passa pelo `GuardaSsrf`: só http/https, DNS
+  resolvido e conferido contra loopback, faixas privadas, link-local (inclusive o
+  `169.254.169.254` dos metadados de nuvem) e os endereços das interfaces da máquina; no máximo
+  3 redirecionamentos, cada um revalidado; 8 s, 1 MB, e nenhum cookie ou cabeçalho de
+  autenticação. Resta a janela de DNS rebinding, porque o `HttpClient` do Java não tem gancho de
+  resolução — por isso da página só voltam quatro metadados `og:`, nunca o HTML cru.
+- As URLs das fontes do `mostrar_na_tela` também são validadas (`MontadorDeCardDePesquisa`):
+  elas viram link clicável na HUD, e um `javascript:` ali seria script rodando na tela.
 - O `.env` tem segredos e está no `.gitignore` e no `.dockerignore`. Mantenha assim.
 - A `config/personalidade.md` é versionada (o repositório é privado), mas **não é lugar de segredo**:
   token, chave e senha ficam só no `.env`. Ela fica fora da imagem e chega ao container por volume
@@ -151,5 +205,7 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 
 - **Lembretes e histórico ficam em memória**: somem quando o container reinicia. O cache de
   voz, não: ele vive no volume `/data/voz` e sobrevive ao restart.
+- O retrato da tela e o cache de buscas no YouTube também são em memória: depois de um restart o
+  Jarvis fica cego para a tela até a HUD repostar o estado.
 - Só entende texto (nada de áudio ou foto).
 - Atende **uma mensagem por vez** — `Assistente.responder` é `synchronized`.

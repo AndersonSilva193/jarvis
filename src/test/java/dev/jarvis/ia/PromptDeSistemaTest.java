@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,7 +31,13 @@ class PromptDeSistemaTest {
     }
 
     private static ArrayNode montar(Canal canal, boolean cachear, boolean buscaAtiva) {
-        return PromptDeSistema.montar(JSON, PERSONALIDADE, cachear, canal, "Anderson", AGORA, buscaAtiva);
+        return montar(canal, cachear, buscaAtiva, List.of());
+    }
+
+    private static ArrayNode montar(Canal canal, boolean cachear, boolean buscaAtiva,
+            List<String> naTela) {
+        return PromptDeSistema.montar(JSON, PERSONALIDADE, cachear, canal, "Anderson", AGORA,
+                buscaAtiva, naTela);
     }
 
     private static String texto(JsonNode bloco) {
@@ -83,6 +90,8 @@ class PromptDeSistemaTest {
         String hud = texto(montar(Canal.HUD, true).get(1));
         assertTrue(hud.contains("falado em voz alta"), hud);
         assertTrue(hud.contains("nada de markdown"), hud);
+        assertTrue(hud.contains("Tela limpa."), hud);
+        assertTrue(hud.contains("não leia em voz alta o que ele"), hud);
 
         String briefing = texto(montar(Canal.BRIEFING, true).get(1));
         assertTrue(briefing.contains("não altere nenhum número"), briefing);
@@ -97,6 +106,43 @@ class PromptDeSistemaTest {
         String telegram = texto(montar(Canal.TELEGRAM, true).get(1));
 
         assertFalse(telegram.contains("nada de markdown"), telegram);
+    }
+
+    @Test
+    @DisplayName("o que está na tela entra só no bloco dinâmico, nunca no fixo")
+    void estadoDaTelaSoNoDinamico() {
+        ArrayNode system = montar(Canal.HUD, true, false, List.of(
+                "[c7k2] vídeo 'Lo-fi para estudar' (tocando)",
+                "[cf09] pesquisa 'Eleição 2026' (fixada)"));
+
+        assertEquals(PERSONALIDADE, texto(system.get(0)),
+                "o bloco fixo é o cacheado: um caractere a mais aqui e o cache de prompt se perde");
+        assertFalse(texto(system.get(0)).contains("Na tela agora"), texto(system.get(0)));
+
+        String dinamico = texto(system.get(1));
+        assertTrue(dinamico.contains("Na tela agora"), dinamico);
+        assertTrue(dinamico.contains("[c7k2] vídeo 'Lo-fi para estudar' (tocando)"), dinamico);
+        assertTrue(dinamico.contains("[cf09] pesquisa 'Eleição 2026' (fixada)"), dinamico);
+        assertTrue(dinamico.contains("controlar_tela"), dinamico);
+    }
+
+    @Test
+    @DisplayName("sem HUD conectada, nada de tela aparece em bloco nenhum")
+    void semTelaNaoAparece() {
+        ArrayNode system = montar(Canal.TELEGRAM, true, false, List.of());
+
+        assertFalse(texto(system.get(0)).contains("Na tela agora"));
+        assertFalse(texto(system.get(1)).contains("Na tela agora"),
+                "a ausência destas linhas é o sinal, para o modelo, de que não há tela para abrir nada");
+    }
+
+    @Test
+    @DisplayName("o estado da tela vale em qualquer canal: pelo Telegram também se manda card")
+    void telaValeNoTelegram() {
+        String dinamico = texto(montar(Canal.TELEGRAM, true, false,
+                List.of("[c1] música 'Jazz' (tocando)")).get(1));
+
+        assertTrue(dinamico.contains("[c1] música 'Jazz' (tocando)"), dinamico);
     }
 
     @Test

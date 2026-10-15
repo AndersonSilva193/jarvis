@@ -20,12 +20,17 @@ import dev.jarvis.briefing.BriefingIniciadoEvento;
 import dev.jarvis.conversa.EventoConversa;
 import dev.jarvis.conversa.RespostaConversa;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.tela.PresencaDaHud;
+import dev.jarvis.tela.TelaEvento;
 
 /**
- * Traduz eventos de domínio de briefing e conversa para as conexões SSE da HUD.
+ * Traduz eventos de domínio de briefing, conversa e tela para as conexões SSE da HUD.
+ *
+ * Também é quem responde "tem HUD ouvindo?" ao resto do sistema, pela porta
+ * {@link PresencaDaHud} — é assim que as ferramentas de tela sabem disso sem conhecer a camada web.
  */
 @Component
-public class EventosHud {
+public class EventosHud implements PresencaDaHud {
 
     private static final Logger log = LoggerFactory.getLogger(EventosHud.class);
     /** Sem expirar: quem controla a vida da conexão é o cliente (e o keep-alive abaixo). */
@@ -62,6 +67,17 @@ public class EventosHud {
         conectados.add(emissor);
         log.info("HUD conectada ao SSE ({} conexão(ões) aberta(s))", conectados.size());
         return emissor;
+    }
+
+    /**
+     * Card novo ou ordem para a tela. Vai pelo mesmo executor da conversa: isto é disparado de
+     * dentro do laço de ferramentas do assistente, e uma HUD lenta não pode segurar o pedido.
+     */
+    @EventListener
+    public void aoTela(TelaEvento evento) {
+        List<SseEmitter> destinatarios = List.copyOf(conectados);
+        transmissao.submit(() -> destinatarios.stream().filter(conectados::contains)
+                .forEach(emissor -> enviarPara(emissor, evento.nome(), evento.dados())));
     }
 
     @EventListener
@@ -105,7 +121,8 @@ public class EventosHud {
         }
     }
 
-    /** Quantas HUDs estão ouvindo agora (usado no log e no teste de fumaça). */
+    /** Quantas HUDs estão ouvindo agora (usado no log, nas ferramentas de tela e no teste). */
+    @Override
     public int conexoesAbertas() {
         return conectados.size();
     }

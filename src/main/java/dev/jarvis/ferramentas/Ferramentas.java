@@ -6,8 +6,13 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
+import dev.jarvis.tela.CardTela;
+import dev.jarvis.tela.ComandoTela;
+import dev.jarvis.tela.TelaEvento;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -22,9 +27,18 @@ public class Ferramentas {
 
     private final Map<String, Ferramenta> porNome = new LinkedHashMap<>();
     private final JsonMapper json;
+    private final ApplicationEventPublisher eventos;
 
+    /** Sem barramento de eventos: o que vai para a tela simplesmente não sai daqui. */
     public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json) {
+        this(ferramentas, json, evento -> { });
+    }
+
+    @Autowired
+    public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json,
+            ApplicationEventPublisher eventos) {
         this.json = json;
+        this.eventos = eventos;
         for (Ferramenta f : ferramentas) {
             porNome.put(f.nome(), f);
         }
@@ -68,6 +82,9 @@ public class Ferramentas {
         dev.jarvis.conversa.OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, ferramenta.progresso(), null, null));
         try {
             ResultadoFerramenta detalhado = ferramenta.executarDetalhado(entrada, progresso);
+            // Ponto único: nenhuma ferramenta precisa lembrar de publicar, e o card chega à tela
+            // já agora, enquanto o modelo ainda está escrevendo a resposta deste turno.
+            publicarNaTela(detalhado);
             receber.accept(detalhado);
             String saida = detalhado.texto();
             resultado.put("content", saida == null || saida.isBlank() ? "(sem resultado)" : saida);
@@ -77,5 +94,17 @@ public class Ferramentas {
             resultado.put("is_error", true);
         }
         return resultado;
+    }
+
+    /** Uma HUD que caiu não pode derrubar o pedido, por isso cada aviso vai dentro do avisar(). */
+    private void publicarNaTela(ResultadoFerramenta resultado) {
+        for (CardTela card : resultado.cards()) {
+            dev.jarvis.conversa.OuvinteProgresso.avisar(
+                    () -> eventos.publishEvent(TelaEvento.deCard(card)));
+        }
+        for (ComandoTela comando : resultado.comandos()) {
+            dev.jarvis.conversa.OuvinteProgresso.avisar(
+                    () -> eventos.publishEvent(TelaEvento.deComando(comando)));
+        }
     }
 }

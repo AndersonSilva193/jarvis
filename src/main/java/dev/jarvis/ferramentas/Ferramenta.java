@@ -40,6 +40,10 @@ public interface Ferramenta {
             case "listar_lembretes" -> "consultando os lembretes";
             case "briefing_do_dia" -> "preparando o briefing";
             case "status_voz" -> "consultando a cota de voz";
+            case "tocar_youtube" -> "procurando no YouTube";
+            case "abrir_pagina" -> "preparando a página";
+            case "mostrar_na_tela" -> "montando o card";
+            case "controlar_tela" -> "ajustando a tela";
             default -> "executando " + nome().replace('_', ' ');
         };
     }

@@ -44,6 +44,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Codex (Messages
 | `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
+| `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf` e a porta `PresencaDaHud` |
 | `dev.jarvis.web` | API da HUD: controllers, SSE (`EventosHud`), filtro de token e CORS |
 | `dev.jarvis.conversa` | Execução assíncrona HUD, retratos públicos do histórico, progresso e registro temporário de anexos |
 | `dev.jarvis.util` | `Json`: leitura defensiva de campos que podem não existir |
@@ -71,13 +72,31 @@ ferramenta. O bloco dinâmico carrega a hora, e remontá-lo no meio do turno inv
 pensamento que o modelo já devolveu — a API recusa com HTTP 400. Pelo mesmo motivo, o histórico é
 guardado sem os blocos de pensamento.
 
+## A tela dirigida pelo Jarvis
+
+Quatro ferramentas abrem e comandam janelas na HUD: `mostrar_na_tela`, `tocar_youtube`,
+`abrir_pagina` e `controlar_tela`. Valem para pedido da HUD **e** do Telegram; o
+`CardTela.origem` registra de onde veio.
+
+A ferramenta só devolve `cards`/`comandos` no `ResultadoFerramenta`; quem publica o `TelaEvento`
+é o registro `Ferramentas`, logo após `executarDetalhado`, e o `EventosHud` transmite no SSE como
+`tela.card` e `tela.comando`. Sem HUD conectada (`PresencaDaHud`) a ferramenta devolve
+`SEM_TELA` e não publica nada.
+
+A HUD manda o que está aberto em `POST /api/tela/estado`; o `TelaEstadoService` guarda só o
+último retrato e rende até 12 linhas para o bloco **dinâmico** do system (`[c7k2] vídeo '...'`).
+Nunca no bloco fixo, que é o cacheado. O id da janela é sorteado pelo servidor
+(`CardTela.novoId()`), não sequencial: restart com a HUD aberta colidiria.
+
 ## Convenções
 
 - **Tudo em português do Brasil**: nomes de classes, métodos, variáveis, comentários e
   Javadoc (`CriarLembreteFerramenta`, `executarLoop`, `esquemaEntrada`). Só ficam em inglês
   as chaves dos JSONs das APIs (`tool_use`, `max_tokens`, `chat_id`) e o que vem do Spring.
-- **HTTP sempre com o `HttpClient` compartilhado do `BeansConfig`**, recebido no construtor.
-  Nunca crie um `HttpClient` novo; defina o `timeout` por requisição no `HttpRequest`.
+- **HTTP sempre com um `HttpClient` do `BeansConfig`**, recebido no construtor. São dois: o
+  `@Primary` (segue redirecionamento), que é o de todo mundo, e o `httpSemRedirecionar`, só para
+  o `PaginaService` — o `abrir_pagina` revalida cada salto de `Location:` contra o `GuardaSsrf`.
+  Nunca crie um `HttpClient` dentro de uma classe; defina o `timeout` no `HttpRequest`.
 - **JSON sempre com o `JsonMapper` do projeto**, também injetado. Para ler campos vindos de
   fora, use `dev.jarvis.util.Json.texto(...)` / `Json.numero(...)`, que devolvem vazio ou
   zero em vez de estourar exceção.

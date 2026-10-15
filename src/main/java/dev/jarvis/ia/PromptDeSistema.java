@@ -2,6 +2,7 @@ package dev.jarvis.ia;
 
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Locale;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -34,9 +35,12 @@ final class PromptDeSistema {
      * @param personalidade texto do arquivo de personalidade, usado sem nenhuma substituição
      * @param cachear       se o bloco fixo é grande o bastante para o modelo aceitar cachear
      * @param buscaAtiva    se a busca na web está ligada; só então o modelo é instruído a usá-la
+     * @param naTela        uma linha por janela aberta na HUD, já pronta e com o teto aplicado.
+     *                      Vazia quando não há HUD conectada — e aí nada disso vai para o prompt.
      */
     static ArrayNode montar(JsonMapper json, String personalidade, boolean cachear,
-            Canal canal, String nomeUsuario, ZonedDateTime agora, boolean buscaAtiva) {
+            Canal canal, String nomeUsuario, ZonedDateTime agora, boolean buscaAtiva,
+            List<String> naTela) {
         ArrayNode blocos = json.createArrayNode();
 
         ObjectNode fixo = blocos.addObject();
@@ -48,12 +52,12 @@ final class PromptDeSistema {
 
         ObjectNode dinamico = blocos.addObject();
         dinamico.put("type", "text");
-        dinamico.put("text", parteDinamica(canal, nomeUsuario, agora, buscaAtiva));
+        dinamico.put("text", parteDinamica(canal, nomeUsuario, agora, buscaAtiva, naTela));
         return blocos;
     }
 
     private static String parteDinamica(Canal canal, String nomeUsuario, ZonedDateTime agora,
-            boolean buscaAtiva) {
+            boolean buscaAtiva, List<String> naTela) {
         return """
                 Agora são %s (fuso %s). Use isso para interpretar "hoje", "amanhã", "às 15h" etc.
                 Você está atendendo %s pelo canal: %s.
@@ -63,11 +67,31 @@ final class PromptDeSistema {
                   uma ferramenta.
                 - Se não existir ferramenta para o que foi pedido, diga com clareza que ainda não
                   consegue fazer isso.
-                %s
+                %s%s
                 Formato para este canal:
                 %s
                 """.formatted(agora.format(FORMATO_DATA), agora.getZone(), nomeUsuario, canal.nome(),
-                regrasDeBusca(canal, buscaAtiva), canal.regrasDeFormato());
+                regrasDeBusca(canal, buscaAtiva), oQueEstaNaTela(naTela), canal.regrasDeFormato());
+    }
+
+    /**
+     * O que está aberto na HUD agora, uma linha por janela.
+     *
+     * <p>Vai <b>só</b> neste bloco dinâmico, nunca no fixo: a tela muda a cada pedido e um
+     * caractere diferente no bloco fixo perde o cache de prompt inteiro. Vazio quando não há HUD
+     * conectada — e a ausência destas linhas é o sinal, para o modelo, de que não há tela para
+     * abrir nada.
+     */
+    private static String oQueEstaNaTela(List<String> naTela) {
+        if (naTela == null || naTela.isEmpty()) {
+            return "";
+        }
+        StringBuilder trecho = new StringBuilder("\nNa tela agora:\n");
+        for (String linha : naTela) {
+            trecho.append("- ").append(linha).append('\n');
+        }
+        trecho.append("Use o id entre colchetes no controlar_tela; não invente id que não esteja aí.\n");
+        return trecho.toString();
     }
 
     /**

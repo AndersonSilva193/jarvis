@@ -56,6 +56,9 @@ jarvis:
     modelo: ${VOZ_MODELO:eleven_flash_v2_5}
     # Por cento da cota que o Jarvis se recusa a gastar. Chegando aí, volta à voz do navegador.
     reserva-pct: ${VOZ_RESERVA_PCT:5}
+  youtube:
+    # Chave da YouTube Data API v3. Vazia desliga a ferramenta tocar_youtube.
+    api-key: ${YOUTUBE_API_KEY:}
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}
