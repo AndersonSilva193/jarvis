@@ -404,6 +404,23 @@ class ControlarPcFerramentaTest {
     }
 
     @Test
+    @DisplayName("as ações do despertar chegam ao agente sem confirmação e sem argumento")
+    void acoesDoDespertar() {
+        pcOnline("chrome");
+
+        // Nenhuma das duas é perigosa nem leva argumento: vão direto para a fila.
+        assertTrue(comAgente(entrada("modo_repouso", null, null), true, "voltei a escutar", null)
+                .texto().contains("voltei a escutar"));
+        assertTrue(comAgente(entrada("falso_positivo", null, null), true, "3 alarmes falsos", null)
+                .texto().contains("3 alarmes falsos"));
+
+        // E o modelo precisa saber quando usar cada uma.
+        assertTrue(ferramenta.descricao().contains("modo_repouso"), ferramenta.descricao());
+        assertTrue(ferramenta.descricao().contains("falso_positivo"), ferramenta.descricao());
+        assertTrue(ferramenta.esquemaEntrada().toString().contains("modo_repouso"));
+    }
+
+    @Test
     @DisplayName("o tempo sem contato é falado em segundos, minutos ou horas")
     void tempoFalado() {
         assertEquals(List.of("8 s", "4 min", "3 h"), List.of(

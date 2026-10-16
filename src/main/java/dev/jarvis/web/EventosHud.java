@@ -70,8 +70,12 @@ public class EventosHud implements PresencaDaHud {
     }
 
     /**
-     * Card novo ou ordem para a tela. Vai pelo mesmo executor da conversa: isto é disparado de
-     * dentro do laço de ferramentas do assistente, e uma HUD lenta não pode segurar o pedido.
+     * Card novo, ordem para a tela ou frase para ela falar. Vai pelo mesmo executor da conversa:
+     * isto é disparado de dentro do laço de ferramentas do assistente, e uma HUD lenta não pode
+     * segurar o pedido.
+     *
+     * <p>Repassa pelo {@code nome} do evento, então um tipo novo de {@code TelaEvento} chega à HUD
+     * sem fiação nova aqui — foi assim que o {@code voz.falar} do despertar entrou.
      */
     @EventListener
     public void aoTela(TelaEvento evento) {

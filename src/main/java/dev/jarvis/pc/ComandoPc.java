@@ -23,7 +23,8 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
     /** As ações que o agente entende. O schema da ferramenta expõe exatamente esta lista. */
     public static final List<String> ACOES = List.of(
             "abrir_app", "abrir_url", "abrir_hud", "bloquear_tela", "volume", "captura_tela",
-            "status_pc", "desligar", "reiniciar", "cancelar_desligamento");
+            "status_pc", "desligar", "reiniciar", "cancelar_desligamento",
+            "modo_repouso", "falso_positivo");
 
     /** As irreversíveis, que exigem o código de confirmação do {@link GuardaDeConfirmacao}. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

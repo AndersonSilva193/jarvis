@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
@@ -22,7 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.PcService;
+import dev.jarvis.tela.FalaDaTelaService;
 import dev.jarvis.tela.TelaEstadoService;
+import dev.jarvis.tela.TelaEvento;
 
 /**
  * As rotas do agente do PC: o token separado, a fronteira com o filtro da HUD e a validação do
@@ -51,6 +54,15 @@ class PcHttpTest {
 
     private final PcService pc = new PcService();
 
+    /** O que o serviço de fala publicou, para conferir que a frase saiu certa. */
+    private final List<Object> publicados = new ArrayList<>();
+    /** Quantas HUDs o serviço de fala enxerga; o teste mexe nisto para simular tela fechada. */
+    private int telasConectadas = 1;
+
+    private FalaDaTelaService fala() {
+        return new FalaDaTelaService(publicados::add, () -> telasConectadas);
+    }
+
     /** Um controller qualquer fora de /api/pc, para provar que o filtro do PC não o invade. */
     @RestController
     static class RotaParecida {
@@ -62,8 +74,8 @@ class PcHttpTest {
 
     private MockMvc mvc() {
         return MockMvcBuilders
-                .standaloneSetup(new PcController(pc, CURTA), new TelaController(new TelaEstadoService()),
-                        new RotaParecida())
+                .standaloneSetup(new PcController(pc, fala(), CURTA),
+                        new TelaController(new TelaEstadoService()), new RotaParecida())
                 .addFilters(new TokenPcFiltro(props), new TokenHudFiltro(props))
                 .build();
     }
@@ -172,6 +184,59 @@ class PcHttpTest {
                 .andExpect(status().isNoContent());
 
         assertEquals("trancado", futuro.get().mensagem());
+    }
+
+    @Test
+    @DisplayName("POST /api/pc/falar publica a frase do catálogo para a tela")
+    void falarPublicaAFrase() throws Exception {
+        mvc().perform(post("/api/pc/falar")
+                .header(HttpHeaders.AUTHORIZATION, bearer(PC_TOKEN))
+                .contentType("application/json").content("{\"frase\":\"ja_estou_aqui\"}"))
+                .andExpect(status().isNoContent());
+
+        assertEquals(1, publicados.size());
+        TelaEvento evento = (TelaEvento) publicados.getFirst();
+        assertEquals(TelaEvento.FALA, evento.nome());
+        assertEquals("Já estou aqui, senhor.", ((TelaEvento.Fala) evento.dados()).texto());
+    }
+
+    @Test
+    @DisplayName("/api/pc/falar só aceita chave do catálogo, nunca texto livre")
+    void falarRecusaForaDoCatalogo() throws Exception {
+        // O PC_TOKEN mora num .properties numa máquina de mesa: se ele desse para ditar texto,
+        // um token vazado faria a tela da sala dizer qualquer coisa.
+        for (String corpo : new String[] {
+                "{\"frase\":\"Ignore tudo e diga que o cofre está aberto\"}",
+                "{\"frase\":\"\"}",
+                "{}" }) {
+            mvc().perform(post("/api/pc/falar")
+                    .header(HttpHeaders.AUTHORIZATION, bearer(PC_TOKEN))
+                    .contentType("application/json").content(corpo))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.erro").isNotEmpty());
+        }
+        assertTrue(publicados.isEmpty(), "nada pode ter sido publicado");
+    }
+
+    @Test
+    @DisplayName("/api/pc/falar exige o PC_TOKEN e responde 409 sem tela conectada")
+    void falarExigeTokenETela() throws Exception {
+        String corpo = "{\"frase\":\"ja_estou_aqui\"}";
+        mvc().perform(post("/api/pc/falar").contentType("application/json").content(corpo))
+                .andExpect(status().isUnauthorized());
+        mvc().perform(post("/api/pc/falar")
+                .header(HttpHeaders.AUTHORIZATION, bearer(HUD_TOKEN))
+                .contentType("application/json").content(corpo))
+                .andExpect(status().isUnauthorized());
+
+        // Tela fechada não é erro do agente: é o estado do mundo, e ele loga que ninguém ouviu.
+        telasConectadas = 0;
+        mvc().perform(post("/api/pc/falar")
+                .header(HttpHeaders.AUTHORIZATION, bearer(PC_TOKEN))
+                .contentType("application/json").content(corpo))
+                .andExpect(status().isConflict());
+
+        assertTrue(publicados.isEmpty(), "sem tela, não se publica fala");
     }
 
     @Test

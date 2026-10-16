@@ -100,6 +100,12 @@ public class ControlarPcFerramenta implements Ferramenta {
                 PC está: processador, memória, disco e bateria. cancelar_desligamento aborta um \
                 desligamento já agendado.
 
+                Duas ações são do despertar por palmas, e só valem com o agente escutando: \
+                modo_repouso faz o PC voltar a ouvir o gatilho (use em "modo repouso", "pode \
+                descansar"), e falso_positivo registra que o último despertar foi engano (use em \
+                "foi engano", "não te chamei") — esta devolve quantos alarmes falsos já houve, \
+                número que ajuda o usuário a ajustar a sensibilidade.
+
                 desligar e reiniciar são irreversíveis e pedem confirmação em dois passos: chame \
                 sem 'codigo_confirmacao' e a ferramenta devolve um código de 4 dígitos. Diga esse \
                 código ao usuário e ESPERE ele repetir — não chame a ferramenta de novo por conta \

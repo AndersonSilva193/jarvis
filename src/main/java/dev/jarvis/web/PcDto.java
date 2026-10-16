@@ -33,6 +33,15 @@ public final class PcDto {
     }
 
     /**
+     * O pedido de fala do agente.
+     *
+     * @param frase a <b>chave</b> de uma frase do {@code FalaDaTela}, nunca o texto: o que a tela
+     *              diz é decidido aqui na VPS, não na máquina de mesa
+     */
+    public record Fala(String frase) {
+    }
+
+    /**
      * O resultado como o agente o posta.
      *
      * @param ok            {@code Boolean} e não {@code boolean} de propósito: "mandou false" e

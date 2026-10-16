@@ -40,12 +40,13 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
+| `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
 | `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
-| `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf` e a porta `PresencaDaHud` |
+| `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` (fila de comandos), `ComandoPc`/`ResultadoPc` e `GuardaDeConfirmacao` (o código das ações perigosas) |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir) e `ComparadorDeToken` (comparação de segredo em tempo constante) |
@@ -140,10 +141,49 @@ controlar_pc ──► PcService (fila) ──► GET /api/pc/comandos ──►
   2 minutos, amarrado a ação e argumento, e **tentativa errada queima a confirmação** — é isso
   que torna 10.000 possibilidades suficientes. O agente ainda espera 60 s (`shutdown /t 60`),
   então dá para desistir com `cancelar_desligamento`.
+- **O despertar é a única coisa que o PC inicia.** Duas palmas ou "Jarvis, iniciar" abrem a tela
+  **sem** passar pela VPS: o agente abre o Chrome em `<urlHud>?inicio=1` e é a HUD que pede a
+  introdução. A VPS só entra quando a tela **já** estava aberta: aí o agente chama
+  `POST /api/pc/falar` e o Jarvis responde "Já estou aqui, senhor.". Esse é o único endpoint em
+  que o agente fala sem ter recebido comando — e mesmo nele ele manda a **chave** de uma frase do
+  `FalaDaTela`, nunca o texto. O `PC_TOKEN` mora num `.properties` numa máquina de mesa; aceitar
+  texto livre ali o transformaria num megafone para a tela da sala.
+- **`modo_repouso` e `falso_positivo`** são as ações do despertar: a primeira fecha a tela e faz o
+  agente voltar a escutar o gatilho, a segunda conta um alarme falso. Nenhuma leva argumento.
 - **`captura_tela` vai aos dois destinos**: `sendPhoto` multipart no Telegram (o único POST da Bot
   API que não é JSON, montado pelo `MultipartTelegram`) e um `Artefato` no `ResultadoFerramenta`,
   que o `AnexosService` publica para a HUD. O mime é farejado dos bytes no `PcDto`, nunca aceito
   do agente — um `image/svg+xml` declarado chegaria à tela como imagem, e SVG é scriptável.
+
+## A abertura falada da HUD
+
+`POST /api/inicializacao` é o que a tela pede no instante em que acende, e devolve as três frases
+que o Jarvis fala mais os números que a sequência de abertura mostra (`sitesOk`/`sitesTotal`).
+
+O `InicializacaoService` espelha o `BriefingService` — várias fontes, uma chamada ao Claude, fonte
+que falha fica de fora —, com duas diferenças de propósito:
+
+- **Fala com o `ClaudeClient` direto, não pelo `Assistente`.** Valem os dois motivos do
+  `NarradorDeBriefing` (o ciclo pelas Ferramentas e o risco de o modelo chamar ferramenta no meio
+  de uma apresentação), mais um que é só daqui: `Assistente.responder` segura um lock justo pelo
+  turno inteiro, e quem bateu palmas na frente do PC não pode esperar uma conversa do celular
+  terminar.
+- **Reúne as fontes em paralelo**, com prazo compartilhado de 3 s, num executor de threads
+  virtuais próprio (o desenho do `ConversaService` — não há executor compartilhado no projeto).
+  Em sequência não dá: `ClimaService.hoje()` é `synchronized` e `SitesService.checarTodos()`
+  percorre os sites um a um com 10 s cada, e o despertar ficaria refém do site mais lento.
+
+Cache de **2 minutos**, com `Duration.between` e não com `Saudacao.reutilizavel` (que também exige
+mesmo dia e mesma saudação): é o que impede palmas repetidas de gerarem duas chamadas ao Claude.
+Prazo e validade são constantes na classe, como em `BriefingService` e `PcService` — não valia o
+14º componente de `JarvisProperties`, que é construído por posição em dez arquivos de teste.
+
+Claude falhando, a introdução é montada em Java com o que chegou. A tela acabou de acender sozinha:
+ficar muda seria pior que uma frase sem charme.
+
+**A fala avulsa** (`TelaEvento.deFala`) usa o nome de evento `voz.falar` e pega carona no
+`@EventListener aoTela` que já existe no `EventosHud`, que repassa pelo `nome` — tipo novo de
+`TelaEvento` chega à HUD sem fiação nova de SSE.
 
 ## Convenções
 

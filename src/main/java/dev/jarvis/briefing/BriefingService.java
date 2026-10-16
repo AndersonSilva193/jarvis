@@ -269,8 +269,13 @@ public class BriefingService {
         return new Conteudo(linhas.toString(), new DadosSecao.Lembretes(itens));
     }
 
-    /** Só os lembretes que caem na data de hoje, no fuso configurado. */
-    static List<Lembrete> lembretesDeHoje(List<Lembrete> pendentes, ZonedDateTime agora) {
+    /**
+     * Só os lembretes que caem na data de hoje, no fuso configurado.
+     *
+     * <p>Pública porque o {@code InicializacaoService} conta os mesmos lembretes para a abertura
+     * falada da HUD — a regra de fuso tem de ser uma só.
+     */
+    public static List<Lembrete> lembretesDeHoje(List<Lembrete> pendentes, ZonedDateTime agora) {
         LocalDate hoje = agora.toLocalDate();
         return pendentes.stream()
                 .filter(l -> l.quando().withZoneSameInstant(agora.getZone()).toLocalDate().equals(hoje))

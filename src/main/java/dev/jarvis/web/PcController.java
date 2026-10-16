@@ -14,13 +14,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import dev.jarvis.pc.PcService;
+import dev.jarvis.tela.FalaDaTela;
+import dev.jarvis.tela.FalaDaTelaService;
 
 /**
- * Os dois endpoints do agente que roda no PC Windows, protegidos pelo {@link TokenPcFiltro}.
+ * Os endpoints do agente que roda no PC Windows, protegidos pelo {@link TokenPcFiltro}.
  *
  * O PC nunca recebe conexão: ele pergunta se tem comando (long poll de 25 s) e posta o resultado.
  * Nenhuma porta aberta na máquina, nenhum domínio, nada de webhook — o mesmo desenho do
  * {@code TelegramPoller}, só do outro lado.
+ *
+ * O {@code /falar} é a única rota em que o agente <b>inicia</b> alguma coisa, em vez de responder
+ * a um comando: é o despertar por palmas encontrando a tela já aberta. Mesmo assim ele não manda
+ * texto, só a chave de uma frase do {@link FalaDaTela} — ver o javadoc de lá.
  */
 @RestController
 @RequestMapping("/api/pc")
@@ -36,17 +42,19 @@ public class PcController {
     private static final Duration ESPERA_PADRAO = Duration.ofSeconds(25);
 
     private final PcService pc;
+    private final FalaDaTelaService fala;
     private final Duration espera;
 
     // Com dois construtores e nenhum anotado o Spring procuraria um sem argumentos.
     @Autowired
-    public PcController(PcService pc) {
-        this(pc, ESPERA_PADRAO);
+    public PcController(PcService pc, FalaDaTelaService fala) {
+        this(pc, fala, ESPERA_PADRAO);
     }
 
     /** A espera curta é só para o teste não ficar 25 segundos parado. */
-    PcController(PcService pc, Duration espera) {
+    PcController(PcService pc, FalaDaTelaService fala, Duration espera) {
         this.pc = pc;
+        this.fala = fala;
         this.espera = espera;
     }
 
@@ -84,5 +92,27 @@ public class PcController {
         return pc.concluir(corpo.paraDominio())
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.status(404).body(Map.of("erro", "comando desconhecido ou ja expirado"));
+    }
+
+    /**
+     * Faz a tela aberta dizer uma frase do catálogo.
+     *
+     * <p>O agente chama isto quando o gatilho disparou mas a HUD já estava na frente do usuário:
+     * em vez de abrir outra janela, o Jarvis só responde "Já estou aqui, senhor.".
+     *
+     * <p>409 quando não há HUD conectada — não é erro do agente, é o estado do mundo, e ele usa
+     * isso para registrar no log que a fala não chegou a ninguém.
+     */
+    @PostMapping("/falar")
+    public ResponseEntity<?> falar(@RequestBody PcDto.Fala corpo) {
+        if (corpo == null || corpo.frase() == null || corpo.frase().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("erro", "Informe a frase."));
+        }
+        return switch (fala.pedir(corpo.frase())) {
+            case FALADA -> ResponseEntity.noContent().build();
+            case SEM_TELA -> ResponseEntity.status(409).body(Map.of("erro", "nenhuma tela conectada"));
+            case DESCONHECIDA -> ResponseEntity.badRequest()
+                    .body(Map.of("erro", "frase desconhecida; aceito " + FalaDaTela.chaves()));
+        };
     }
 }
