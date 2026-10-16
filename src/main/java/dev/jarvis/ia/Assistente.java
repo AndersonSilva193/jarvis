@@ -90,7 +90,17 @@ public class Assistente {
             turno.add(mensagemDoUsuario(texto));
 
             List<ResultadoFerramenta> resultados = new ArrayList<>();
-            String resposta = executarLoop(historico, turno, canal, progresso, resultados);
+            String resposta;
+            if (ComandoDeRepouso.reconhece(texto)) {
+                ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
+                        .put("id", "repouso_" + id).put("name", "controlar_pc");
+                chamada.putObject("input").put("acao", "modo_repouso");
+                ObjectNode resultado = ferramentas.executar(chamada, progresso, resultados::add);
+                resposta = Json.texto(resultado.path("content"));
+                turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
+            } else {
+                resposta = executarLoop(historico, turno, canal, progresso, resultados);
+            }
             List<Anexo> publicados = new ArrayList<>();
             Confirmacao confirmacao = null;
             for (ResultadoFerramenta resultado : resultados) {

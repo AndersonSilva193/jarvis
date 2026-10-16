@@ -88,8 +88,8 @@ public class ControlarPcFerramenta implements Ferramenta {
         String liberados = apps.isEmpty() ? "nenhum (o agente não reportou nenhum)" : String.join(", ", apps);
         return """
                 Controla o PC Windows do usuário pelo agente que roda nele. Use quando o pedido for \
-                sobre "o PC", "o computador", "a máquina" — nunca para mexer na tela do Jarvis, que \
-                é o controlar_tela.
+                sobre "o PC", "o computador", "a máquina" — fechar o aplicativo HUD usa modo_repouso; mexer nos cards da tela \
+                usa controlar_tela.
 
                 As ações: abrir_app abre um programa (ponha o nome em 'argumento'; os liberados são \
                 %s, e essa lista mora no PC — só ele decide o que aceita). abrir_url abre um \
@@ -101,7 +101,7 @@ public class ControlarPcFerramenta implements Ferramenta {
                 desligamento já agendado.
 
                 Duas ações são do despertar por palmas, e só valem com o agente escutando: \
-                modo_repouso faz o PC voltar a ouvir o gatilho (use em "modo repouso", "pode \
+                modo_repouso faz o PC voltar a ouvir o gatilho (use em "fechar HUD", "modo repouso", "pode \
                 descansar"), e falso_positivo registra que o último despertar foi engano (use em \
                 "foi engano", "não te chamei") — esta devolve quantos alarmes falsos já houve, \
                 número que ajuda o usuário a ajustar a sensibilidade.
