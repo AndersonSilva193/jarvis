@@ -130,6 +130,20 @@ class AssistenteTest {
         return resposta;
     }
 
+    @Test void erroDeCriacaoRepetidoEncerraLoopComMotivo() throws Exception {
+        Ferramenta arquivo = new Ferramenta() {
+            public String nome() { return "criar_arquivo"; }
+            public String descricao() { return "Cria arquivo"; }
+            public ObjectNode esquemaEntrada() { return JSON.createObjectNode().put("type", "object"); }
+            public String executar(JsonNode entrada) { return "Nome inválido: informe somente o nome."; }
+        };
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()));
+        var resposta = comFerramentas(arquivo).responder(1L, "crie um arquivo", Canal.HUD, null);
+        assertTrue(resposta.texto().contains("Nome inválido"));
+        verify(claude, times(2)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+    }
+
     @Test void escutaDaFerramentaChegaARespostaHudEUsaUltimaNaoNula() throws Exception {
         var entrada = JSON.createObjectNode().put("tempo", 12).put("motivo", "confirmar o horário");
         entrada.putArray("opcoes").add("sim").add("não");

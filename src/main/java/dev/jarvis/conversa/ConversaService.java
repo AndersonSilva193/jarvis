@@ -2,6 +2,8 @@ package dev.jarvis.conversa;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.PreDestroy;
 import dev.jarvis.config.JarvisProperties;
@@ -11,6 +13,7 @@ import dev.jarvis.ia.Canal;
 /** Aceitação rápida na HUD; o trabalho ocorre numa virtual thread, sem chamar o Telegram. */
 @Service
 public class ConversaService {
+    private static final Logger log = LoggerFactory.getLogger(ConversaService.class);
     private final Assistente assistente;
     private final RegistroConversas registro;
     private final long chatId;
@@ -37,7 +40,9 @@ public class ConversaService {
                     });
                 } catch (Exception e) {
                     if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-                    registro.falhar(chatId, pedido.id());
+                    String motivo = motivoDaFalha(e);
+                    log.warn("Pedido HUD {} falhou: {} ({})", pedido.id(), e.getClass().getSimpleName(), motivo);
+                    registro.falhar(chatId, pedido.id(), motivo);
                 }
             });
         } catch (RuntimeException e) {
@@ -48,6 +53,18 @@ public class ConversaService {
     }
 
     public RegistroConversas.Historico historico() { return registro.historico(chatId); }
+
+    static String motivoDaFalha(Exception e) {
+        String mensagem = e.getMessage() == null ? "" : e.getMessage();
+        if (e instanceof IllegalStateException && mensagem.startsWith("precisei de passos demais"))
+            return mensagem;
+        if (e instanceof java.io.IOException && mensagem.startsWith("API do Claude respondeu HTTP ")) {
+            var codigo = java.util.regex.Pattern.compile("HTTP (\\d{3})").matcher(mensagem);
+            return "A API do modelo recusou o pedido" + (codigo.find() ? " (HTTP " + codigo.group(1) + ")" : "")
+                    + ". Verifique o log do Jarvis na VPS.";
+        }
+        return "Não consegui concluir este pedido. Tente novamente.";
+    }
     public void limpar() {
         registro.reservarLimpeza(chatId);
         assistente.limparHistorico(chatId);

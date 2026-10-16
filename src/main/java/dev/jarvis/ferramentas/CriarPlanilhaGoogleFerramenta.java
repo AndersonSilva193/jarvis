@@ -16,15 +16,22 @@ public class CriarPlanilhaGoogleFerramenta implements Ferramenta {
         this.google = google; this.json = json;
     }
     @Override public String nome() { return "criar_planilha_google"; }
-    @Override public String descricao() { return "Cria uma NOVA planilha nativa na conta Google autorizada. "
-            + "Recebe nome, formato xlsx e abas estruturadas como criar_arquivo. "
-            + "Sem autorização Google, explique que só é possível entregar XLSX para importação. "
-            + "Nunca diga que criou planilha na conta se a ferramenta não retornou link."; }
+    @Override public String descricao() {
+        if (!google.autorizado()) return "Google Sheets nativo indisponível nesta instalação. "
+                + "Para pedido de planilha na conta Google, informe que não foi criada e ofereça XLSX local.";
+        return "Cria uma NOVA planilha nativa na conta Google autorizada. "
+                + "Recebe nome, formato xlsx e abas estruturadas como criar_arquivo. "
+                + "Nunca diga que criou planilha na conta se a ferramenta não retornou link.";
+    }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         ObjectNode props = raiz.putObject("properties");
         props.putObject("nome").put("type", "string");
-        props.putObject("formato").put("type", "string").put("const", "xlsx");
+        if (!google.autorizado()) {
+            raiz.putArray("required").add("nome");
+            return raiz;
+        }
+        props.putObject("formato").put("type", "string").putArray("enum").add("xlsx");
         EsquemaArquivo.planilha(props);
         EsquemaArquivo.fontes(props);
         props.putObject("pesquisaAtual").put("type", "boolean");

@@ -20,6 +20,14 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 
 class ConversaServiceTest {
+    @Test void hudExplicaFalhasDeModeloEDeCriacaoSemExporCorpoDaApi() {
+        assertEquals("A API do modelo recusou o pedido (HTTP 400). Verifique o log do Jarvis na VPS.",
+                ConversaService.motivoDaFalha(new java.io.IOException(
+                        "API do Claude respondeu HTTP 400: segredo do provedor")));
+        assertTrue(ConversaService.motivoDaFalha(new IllegalStateException(
+                "precisei de passos demais para resolver isso. Nome inválido."))
+                .contains("Nome inválido"));
+    }
     private final JsonMapper json = JsonMapper.builder().build();
     private final ClaudeClient claude = mock(ClaudeClient.class);
     private final List<EventoConversa> eventos = new CopyOnWriteArrayList<>();

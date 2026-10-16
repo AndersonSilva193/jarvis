@@ -14,8 +14,9 @@ final class EsquemaArquivo {
         propriedadesAba.putObject("nome").put("type", "string").put("maxLength", 31);
         ObjectNode colunas = propriedadesAba.putObject("colunas").put("type", "array")
                 .put("minItems", 1).put("maxItems", 30);
-        colunas.putObject("items").put("type", "object").putObject("properties")
-                .putObject("nome").put("type", "string").put("maxLength", 100);
+        ObjectNode coluna = colunas.putObject("items").put("type", "object");
+        coluna.putObject("properties").putObject("nome").put("type", "string").put("maxLength", 100);
+        coluna.putArray("required").add("nome");
         ObjectNode linhas = propriedadesAba.putObject("linhas").put("type", "array")
                 .put("maxItems", 2000);
         ObjectNode linha = linhas.putObject("items").put("type", "array").put("maxItems", 30);
@@ -25,7 +26,9 @@ final class EsquemaArquivo {
         var tipos = tipo.putArray("enum");
         for (String nome : new String[] {"texto", "numero", "moeda", "data", "booleano", "formula"})
             tipos.add(nome);
-        propriedadesCelula.putObject("valor").put("description", "Valor da célula; datas em yyyy-MM-dd. Fórmulas somente no tipo formula.");
+        propriedadesCelula.putObject("valor").put("type", "string")
+                .put("maxLength", 4096)
+                .put("description", "Valor como texto; datas em yyyy-MM-dd. Fórmulas somente no tipo formula.");
         celula.putArray("required").add("tipo").add("valor");
         aba.putArray("required").add("nome").add("colunas").add("linhas");
     }

@@ -84,12 +84,16 @@ public class RegistroConversas {
     }
 
     public void falhar(long chatId, String id) {
+        falhar(chatId, id, "Não consegui concluir este pedido. Tente novamente.");
+    }
+
+    public void falhar(long chatId, String id, String motivo) {
         RespostaConversa resposta;
         synchronized (this) {
             if (!pendente(chatId, id)) return;
             Conversa c = conversa(chatId);
             resposta = new RespostaConversa(id, "hud", "", List.of(), null,
-                    Instant.now().toString(), "Não consegui concluir este pedido. Tente novamente.");
+                    Instant.now().toString(), motivo);
             c.ultima = resposta;
             c.pendente = null;
             c.revisao++;

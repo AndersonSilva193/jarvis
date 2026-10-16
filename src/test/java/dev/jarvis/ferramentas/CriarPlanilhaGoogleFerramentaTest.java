@@ -27,6 +27,7 @@ class CriarPlanilhaGoogleFerramentaTest {
                 """);
 
         assertFalse(google.configurado());
+        assertTrue(ferramenta.esquemaEntrada().path("properties").path("abas").isMissingNode());
         assertEquals("", PedidoArquivo.validar(planilha));
         assertTrue(ferramenta.executarDetalhado(planilha, new OuvinteProgresso() { })
                 .texto().contains("integração Google Sheets não configurada"));

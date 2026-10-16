@@ -186,6 +186,8 @@ public class Assistente {
             definicoes.add(buscaWeb.definicao());
         }
         int buscas = 0;
+        String ultimoErroDeArquivo = "";
+        String ultimaFalhaDeArquivo = "";
 
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
@@ -226,6 +228,7 @@ public class Assistente {
 
             // O modelo pediu uma ou mais ferramentas: executamos e devolvemos os resultados.
             ArrayNode resultados = json.createArrayNode();
+            String erroRepetidoDeArquivo = "";
             boolean pesquisaFeita = buscas > 0;
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
@@ -239,7 +242,21 @@ public class Assistente {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }
                     };
-                    resultados.add(ferramentas.executar(bloco, seguro, detalhados::add));
+                    ObjectNode resultado = ferramentas.executar(bloco, seguro, detalhados::add);
+                    resultados.add(resultado);
+                    String nomeFerramenta = Json.texto(bloco.path("name"));
+                    if ("criar_arquivo".equals(nomeFerramenta)
+                            || "criar_planilha_google".equals(nomeFerramenta)) {
+                        String textoResultado = Json.texto(resultado.path("content"));
+                        ultimoErroDeArquivo = textoResultado.startsWith("Arquivo criado:")
+                                || textoResultado.startsWith("Planilha criada:") ? ""
+                                : textoResultado.substring(0, Math.min(240, textoResultado.length()));
+                        if (!ultimoErroDeArquivo.isBlank()) {
+                            String assinatura = nomeFerramenta + ":" + bloco.path("input") + ":" + ultimoErroDeArquivo;
+                            if (assinatura.equals(ultimaFalhaDeArquivo)) erroRepetidoDeArquivo = ultimoErroDeArquivo;
+                            ultimaFalhaDeArquivo = assinatura;
+                        } else ultimaFalhaDeArquivo = "";
+                    }
                 }
             }
             // Os blocos server_tool_use e web_search_tool_result já vêm resolvidos pelo servidor da
@@ -253,9 +270,13 @@ public class Assistente {
             comResultados.put("role", "user");
             comResultados.set("content", resultados);
             turno.add(comResultados);
+            // Repetir a mesma entrada recusada desperdiça chamadas do modelo e acabava no erro
+            // genérico da HUD. O turno já tem o tool_result, então o histórico continua válido.
+            if (!erroRepetidoDeArquivo.isBlank()) return erroRepetidoDeArquivo;
         }
         registrarBuscas(buscas);
-        throw new IllegalStateException("precisei de passos demais para resolver isso. Tente um pedido mais simples.");
+        throw new IllegalStateException("precisei de passos demais para resolver isso. "
+                + (ultimoErroDeArquivo.isBlank() ? "Tente um pedido mais simples." : ultimoErroDeArquivo));
     }
 
     /**
