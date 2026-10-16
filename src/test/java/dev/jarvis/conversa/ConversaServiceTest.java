@@ -21,6 +21,9 @@ import tools.jackson.databind.node.ArrayNode;
 
 class ConversaServiceTest {
     @Test void hudExplicaFalhasDeModeloEDeCriacaoSemExporCorpoDaApi() {
+        assertEquals("A API do modelo recusou o pedido (HTTP 400): invalid_request_error: messages.3.content inválido",
+                ConversaService.motivoDaFalha(new ErroDaApiDoModelo(400,
+                        "invalid_request_error: messages.3.content inválido")));
         assertEquals("A API do modelo recusou o pedido (HTTP 400). Verifique o log do Jarvis na VPS.",
                 ConversaService.motivoDaFalha(new java.io.IOException(
                         "API do Claude respondeu HTTP 400: segredo do provedor")));

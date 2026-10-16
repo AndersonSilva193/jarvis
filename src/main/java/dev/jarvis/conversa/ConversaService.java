@@ -9,6 +9,7 @@ import jakarta.annotation.PreDestroy;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.Assistente;
 import dev.jarvis.ia.Canal;
+import dev.jarvis.ia.ErroDaApiDoModelo;
 
 /** Aceitação rápida na HUD; o trabalho ocorre numa virtual thread, sem chamar o Telegram. */
 @Service
@@ -56,6 +57,8 @@ public class ConversaService {
 
     static String motivoDaFalha(Exception e) {
         String mensagem = e.getMessage() == null ? "" : e.getMessage();
+        if (e instanceof ErroDaApiDoModelo erro)
+            return "A API do modelo recusou o pedido (HTTP " + erro.status() + "): " + erro.detalhe();
         if (e instanceof IllegalStateException && mensagem.startsWith("precisei de passos demais"))
             return mensagem;
         if (e instanceof java.io.IOException && mensagem.startsWith("API do Claude respondeu HTTP ")) {

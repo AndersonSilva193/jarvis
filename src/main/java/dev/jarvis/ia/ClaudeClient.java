@@ -86,7 +86,7 @@ public class ClaudeClient {
                 Thread.sleep(2_000L * tentativa);
                 continue;
             }
-            throw new IOException("API do Claude respondeu HTTP " + status + ": " + resumir(resposta.body()));
+            throw new ErroDaApiDoModelo(status, detalheSeguro(resposta.body()));
         }
     }
 
@@ -103,7 +103,19 @@ public class ClaudeClient {
                 Json.numero(usage.path("cache_read_input_tokens")));
     }
 
-    private static String resumir(String corpo) {
-        return corpo == null ? "" : corpo.length() > 300 ? corpo.substring(0, 300) + "..." : corpo;
+    private String detalheSeguro(String corpo) {
+        try {
+            JsonNode erro = json.readTree(corpo).path("error");
+            String tipo = Json.texto(erro.path("type"));
+            String mensagem = Json.texto(erro.path("message"));
+            if (mensagem.isBlank()) return tipo.isBlank() ? "sem detalhe do provedor" : tipo;
+            mensagem = mensagem.replaceAll("[\\r\\n\\p{Cntrl}]", " ")
+                    .replaceAll("(?i)Bearer\\s+[^\\s]+", "Bearer [oculto]")
+                    .replaceAll("(?i)sk-[a-z0-9_-]+", "[chave oculta]");
+            if (mensagem.length() > 240) mensagem = mensagem.substring(0, 240) + "…";
+            return (tipo.isBlank() ? "" : tipo + ": ") + mensagem;
+        } catch (RuntimeException e) {
+            return "resposta de erro sem detalhe legível";
+        }
     }
 }
