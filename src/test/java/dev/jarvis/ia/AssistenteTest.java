@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,6 +23,12 @@ import org.mockito.ArgumentCaptor;
 
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ferramentas.Ferramentas;
+import dev.jarvis.ferramentas.Ferramenta;
+import dev.jarvis.ferramentas.OuvirRespostaFerramenta;
+import dev.jarvis.ferramentas.ResultadoFerramenta;
+import dev.jarvis.conversa.Confirmacao;
+import dev.jarvis.conversa.EscutaResposta;
+import dev.jarvis.conversa.OuvinteProgresso;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -108,6 +116,89 @@ class AssistenteTest {
         resposta.put("stop_reason", "pause_turn");
         blocosDeBusca(resposta.putArray("content"));
         return resposta;
+    }
+
+    private Assistente comFerramentas(Ferramenta... lista) {
+        return new Assistente(claude, new Ferramentas(List.of(lista), JSON),
+                new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"), JSON, props()), JSON);
+    }
+
+    private JsonNode chamada(String nome, ObjectNode entrada) {
+        var resposta = JSON.createObjectNode().put("stop_reason", "tool_use");
+        resposta.putArray("content").addObject().put("type", "tool_use").put("id", "tu_1")
+                .put("name", nome).set("input", entrada);
+        return resposta;
+    }
+
+    @Test void escutaDaFerramentaChegaARespostaHudEUsaUltimaNaoNula() throws Exception {
+        var entrada = JSON.createObjectNode().put("tempo", 12).put("motivo", "confirmar o horário");
+        entrada.putArray("opcoes").add("sim").add("não");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("ouvir_resposta", JSON.createObjectNode().put("motivo", "primeira pergunta")))
+                .thenReturn(chamada("ouvir_resposta", entrada))
+                .thenReturn(chamada("inexistente", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Pode ser às oito?"));
+        var resposta = comFerramentas(new OuvirRespostaFerramenta(JSON)).responder(1L, "agende", Canal.HUD, null);
+        assertEquals(new EscutaResposta(12, List.of("sim", "não"), "confirmar o horário"), resposta.escuta());
+        assertEquals("Pode ser às oito?", resposta.texto());
+        var captor = ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude, times(4)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), captor.capture());
+        for (var definicoes : captor.getAllValues()) assertSame(captor.getValue(), definicoes);
+        assertEquals("ouvir_resposta", captor.getValue().get(0).path("name").stringValue());
+    }
+
+    private Ferramenta ferramentaDeConfirmacao(Confirmacao confirmacao, EscutaResposta escuta) {
+        return new Ferramenta() {
+            public String nome() { return "confirmar_teste"; }
+            public String descricao() { return "Teste de confirmação"; }
+            public ObjectNode esquemaEntrada() { return JSON.createObjectNode(); }
+            public String executar(JsonNode entrada) { return "Confirme"; }
+            public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso) {
+                return new ResultadoFerramenta("Confirme", List.of(), List.of(), confirmacao,
+                        List.of(), List.of(), escuta);
+            }
+        };
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = { false, true })
+    void confirmacaoHudGanhaEscutaAutomaticaMesmoSemFerramentaDeEscuta(boolean temEscutaExplicita) throws Exception {
+        var confirmacao = new Confirmacao("1234", "reiniciar o PC", Instant.now().plusSeconds(120).toString());
+        var explicita = new EscutaResposta(8, List.of("sim"), "outra pergunta");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("confirmar_teste", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Qual é o código?"));
+        var resposta = comFerramentas(ferramentaDeConfirmacao(confirmacao, temEscutaExplicita ? explicita : null))
+                .responder(1L, "reinicie", Canal.HUD, null);
+        assertEquals(confirmacao, resposta.confirmacao());
+        assertEquals(new EscutaResposta(20, List.of("1234", "cancelar"), "reiniciar o PC"), resposta.escuta());
+    }
+
+    @Test void telegramNaoRecebeEscutaNemOfereceAFerramenta() throws Exception {
+        var confirmacao = new Confirmacao("1234", "reiniciar", Instant.now().plusSeconds(120).toString());
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("confirmar_teste", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Confirme"));
+        var resposta = comFerramentas(new OuvirRespostaFerramenta(JSON),
+                ferramentaDeConfirmacao(confirmacao, new EscutaResposta(8, null, "confirmar")))
+                .responder(1L, "reinicie", Canal.TELEGRAM, null);
+        assertNull(resposta.escuta());
+        var captor = ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude, times(2)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), captor.capture());
+        assertFalse(captor.getValue().toString().contains("ouvir_resposta"));
+    }
+
+    @Test void tempoDaConfirmacaoRespeitaPrazoSemMinimoDeCincoSegundos() {
+        var agora = Instant.parse("2026-10-16T12:00:00Z");
+        assertEquals(20, Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar",
+                agora.plusSeconds(120).toString()), agora).tempoSegundos());
+        assertEquals(3, Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar",
+                agora.plusMillis(3900).toString()), agora).tempoSegundos());
+        for (String prazo : new String[] { agora.minusSeconds(1).toString(), agora.toString(), "inválido", null }) {
+            var escuta = Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar", prazo), agora);
+            assertEquals(0, escuta.tempoSegundos());
+            assertEquals(List.of("1234", "cancelar"), escuta.opcoes());
+        }
     }
 
     private List<ArrayNode> mensagensEnviadas() throws Exception {

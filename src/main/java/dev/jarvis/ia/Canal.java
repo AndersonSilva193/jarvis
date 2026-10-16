@@ -19,7 +19,10 @@ public enum Canal {
             ferramentas. Não invente anexos, códigos de confirmação nem capacidades ausentes.
             Quando você abrir ou comandar algo na tela, fale pouco: "Aqui está, senhor.",
             "Tela limpa.", "Pronto." O card já mostra os dados — não leia em voz alta o que ele
-            mostra, nem descreva o que o usuário está vendo."""),
+            mostra, nem descreva o que o usuário está vendo.
+            Sempre que fizer uma pergunta e precisar da resposta do usuário para continuar, chame
+            ouvir_resposta e faça da pergunta a última frase da sua fala. Não use para perguntas
+            retóricas."""),
 
     BRIEFING("""
             Este é o briefing do dia e o seu texto será falado em voz alta. Frases curtas e naturais

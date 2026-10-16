@@ -14,6 +14,7 @@ import dev.jarvis.tela.CardTela;
 import dev.jarvis.tela.ComandoTela;
 import dev.jarvis.tela.TelaEvento;
 import dev.jarvis.util.Json;
+import dev.jarvis.ia.Canal;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -47,8 +48,14 @@ public class Ferramentas {
 
     /** Lista no formato "tools" da Messages API. */
     public ArrayNode definicoes() {
+        return definicoes(null);
+    }
+
+    /** Ferramentas oferecidas para o canal, mantendo a lista estável dentro do turno. */
+    public ArrayNode definicoes(Canal canal) {
         ArrayNode lista = json.createArrayNode();
         for (Ferramenta f : porNome.values()) {
+            if (canal == Canal.TELEGRAM && "ouvir_resposta".equals(f.nome())) continue;
             ObjectNode def = lista.addObject();
             def.put("name", f.nome());
             def.put("description", f.descricao());
@@ -79,7 +86,10 @@ public class Ferramentas {
         }
 
         log.info("Executando ferramenta {}", nome);
-        dev.jarvis.conversa.OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, ferramenta.progresso(), null, null));
+        String descricao = ferramenta.progresso();
+        if (descricao != null && !descricao.isBlank()) {
+            dev.jarvis.conversa.OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, null, null));
+        }
         try {
             ResultadoFerramenta detalhado = ferramenta.executarDetalhado(entrada, progresso);
             // Ponto único: nenhuma ferramenta precisa lembrar de publicar, e o card chega à tela

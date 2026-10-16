@@ -64,16 +64,50 @@ class ConversaHttpTest {
                     .andExpect(request().asyncStarted()).andReturn();
             assertEquals(2, eventos.conexoesAbertas());
             eventos.aoConversar(new EventoConversa(99, "conversa.resposta", "segredo"));
-            var resposta = new RespostaConversa("id", "hud", "Olá", List.of(), null, "2026-10-14T10:00:00Z", null);
+            var resposta = new RespostaConversa("id", "hud", "Pode ser?", List.of(), null,
+                    "2026-10-14T10:00:00Z", null, new EscutaResposta(8, List.of("sim", "não"), "confirmar"));
             eventos.aoConversar(new EventoConversa(42, "conversa.resposta", resposta));
             assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
                 while (!antigo.getResponse().getContentAsString().contains("conversa.resposta")) Thread.sleep(5);
             });
             assertTrue(novo.getResponse().getContentAsString().contains("\"id\":\"id\""));
+            String dados = novo.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+            assertTrue(dados.contains("\"escuta\":{\"tempoSegundos\":8"));
+            assertTrue(dados.contains("\"opcoes\":[\"sim\",\"não\"]"));
+            assertTrue(dados.contains("\"motivo\":\"confirmar\""));
             assertFalse(novo.getResponse().getContentAsString().contains("segredo"));
             mvc.perform(get("/api/eventos").header("Authorization", "Bearer errado").param("token", "token-de-teste"))
                     .andExpect(status().isUnauthorized());
         } finally { eventos.fechar(); }
+    }
+
+    @Test void escutaChegaPeloHttpNaUltimaENoHistorico() throws Exception {
+        var conversa = mock(ConversaService.class);
+        var escuta = new EscutaResposta(8, List.of("sim", "não"), "confirmar");
+        var resposta = new RespostaConversa("id", "hud", "Pode ser?", List.of(), null,
+                "2026-10-16T10:00:00Z", null, escuta);
+        when(conversa.historico()).thenReturn(new RegistroConversas.Historico("sessao", 1,
+                List.of(new RegistroConversas.Troca("id", "hud", "oi", resposta)), null, resposta));
+        var mvc = MockMvcBuilders.standaloneSetup(new ConversaController(conversa)).build();
+        mvc.perform(get("/api/conversa/ultima"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.escuta.tempoSegundos").value(8))
+                .andExpect(jsonPath("$.escuta.opcoes[0]").value("sim"))
+                .andExpect(jsonPath("$.escuta.motivo").value("confirmar"));
+        mvc.perform(get("/api/conversa/historico"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ultima.escuta.tempoSegundos").value(8))
+                .andExpect(jsonPath("$.trocas[0].resposta.escuta.opcoes[1]").value("não"));
+        assertSame(escuta, ConversaDto.de(resposta).escuta());
+    }
+
+    @Test void construtoresAntigosMantemEscutaNula() {
+        var resultado = new dev.jarvis.ferramentas.ResultadoFerramenta("ok", null, null, null, null, null);
+        var resposta = new RespostaConversa("id", "hud", "ok", List.of(), null, "agora", null);
+        var dto = new ConversaDto.Resposta("id", "hud", "ok", List.of(), null, "agora", null);
+        assertNull(resultado.escuta());
+        assertNull(resposta.escuta());
+        assertNull(dto.escuta());
+        assertNull(ConversaDto.de(resposta).escuta());
     }
 
     @Test void anexoExigeTokenEEntreguaSomenteArquivoRegistrado() throws Exception {

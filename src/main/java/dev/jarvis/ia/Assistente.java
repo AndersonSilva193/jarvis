@@ -7,6 +7,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.time.Instant;
+import java.time.Duration;
+import java.time.format.DateTimeParseException;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,6 +105,7 @@ public class Assistente {
             }
             List<Anexo> publicados = new ArrayList<>();
             Confirmacao confirmacao = null;
+            EscutaResposta escuta = null;
             for (ResultadoFerramenta resultado : resultados) {
                 for (var artefato : resultado.artefatos()) {
                     try { publicados.add(anexos.registrar(artefato)); }
@@ -111,9 +114,13 @@ public class Assistente {
                 for (var referencia : resultado.referencias())
                     anexos.referencia(referencia.nome(), referencia.url()).ifPresent(publicados::add);
                 if (resultado.confirmacao() != null) confirmacao = resultado.confirmacao();
+                if (resultado.escuta() != null) escuta = resultado.escuta();
             }
+            Instant agora = Instant.now();
+            if (canal != Canal.HUD) escuta = null;
+            else if (confirmacao != null) escuta = escutaDaConfirmacao(confirmacao, agora);
             RespostaConversa publica = new RespostaConversa(id, canal.nome(), resposta, publicados,
-                    confirmacao, Instant.now().toString(), null);
+                    confirmacao, agora.toString(), null, escuta);
 
             // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
             historico.addLast(semPensamentos(turno));
@@ -123,6 +130,20 @@ public class Assistente {
             conversas.concluir(chatId, texto, publica);
             return publica;
         } finally { execucao.unlock(); }
+    }
+
+    /** A confirmação determina a janela de escuta, inclusive quando já expirou. */
+    static EscutaResposta escutaDaConfirmacao(Confirmacao confirmacao, Instant agora) {
+        int segundos = 0;
+        if (confirmacao.expiraEm() != null) {
+            try {
+                segundos = (int) Math.clamp(Duration.between(agora,
+                        Instant.parse(confirmacao.expiraEm())).getSeconds(), 0L, 20L);
+            } catch (DateTimeParseException ignorada) {
+                // Prazo inválido não pode abrir uma janela de confirmação sem validade.
+            }
+        }
+        return new EscutaResposta(segundos, List.of(confirmacao.codigo(), "cancelar"), confirmacao.descricao());
     }
 
     /** Executa uma instrução avulsa sem misturar com o histórico da conversa. */
@@ -160,7 +181,7 @@ public class Assistente {
         ArrayNode system = sistema.blocos(canal);
         // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
         // do cache de prompt. A da busca na web é server-side — quem executa é a Anthropic.
-        ArrayNode definicoes = ferramentas.definicoes();
+        ArrayNode definicoes = ferramentas.definicoes(canal);
         if (buscaWeb.ativa()) {
             definicoes.add(buscaWeb.definicao());
         }

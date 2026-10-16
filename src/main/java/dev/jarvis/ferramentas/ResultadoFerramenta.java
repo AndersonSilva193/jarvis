@@ -3,6 +3,7 @@ package dev.jarvis.ferramentas;
 import java.nio.file.Path;
 import java.util.List;
 import dev.jarvis.conversa.Confirmacao;
+import dev.jarvis.conversa.EscutaResposta;
 import dev.jarvis.tela.CardTela;
 import dev.jarvis.tela.ComandoTela;
 
@@ -16,7 +17,12 @@ import dev.jarvis.tela.ComandoTela;
  */
 public record ResultadoFerramenta(String texto, List<Artefato> artefatos,
         List<Referencia> referencias, Confirmacao confirmacao,
-        List<CardTela> cards, List<ComandoTela> comandos) {
+        List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta) {
+    public ResultadoFerramenta(String texto, List<Artefato> artefatos,
+            List<Referencia> referencias, Confirmacao confirmacao,
+            List<CardTela> cards, List<ComandoTela> comandos) {
+        this(texto, artefatos, referencias, confirmacao, cards, comandos, null);
+    }
     public record Artefato(Path arquivo, String nome, String mime) { }
     public record Referencia(String nome, String url) { }
     public ResultadoFerramenta {
