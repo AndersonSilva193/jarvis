@@ -153,6 +153,24 @@ public class TelegramClient {
         }
     }
 
+    /** Entrega um arquivo gerado, sem converter seus bytes em base64 no JSON. */
+    public void enviarDocumento(long chatId, byte[] bytes, String nome) throws IOException, InterruptedException {
+        if (bytes == null || bytes.length == 0 || bytes.length > 8 * 1024 * 1024)
+            throw new IOException("documento vazio ou grande demais");
+        String boundary = MultipartTelegram.boundary();
+        HttpRequest requisicao = HttpRequest.newBuilder(URI.create(urlBase + "sendDocument"))
+                .timeout(Duration.ofSeconds(45))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArrays(MultipartTelegram.corpo(boundary,
+                        Map.of("chat_id", String.valueOf(chatId)), "document", nome,
+                        "application/octet-stream", bytes))).build();
+        HttpResponse<String> resposta = http.send(requisicao, HttpResponse.BodyHandlers.ofString());
+        JsonNode raiz = json.readTree(resposta.body());
+        if (!raiz.path("ok").asBoolean(false))
+            throw new TelegramRecusouException("sendDocument", resposta.statusCode(),
+                    Json.texto(raiz.path("description")));
+    }
+
     /** Mostra "digitando..." no Telegram enquanto o Jarvis pensa. Falhas aqui são ignoradas. */
     public void mostrarDigitando(long chatId) {
         ObjectNode corpo = json.createObjectNode();

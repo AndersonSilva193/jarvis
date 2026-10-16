@@ -78,6 +78,8 @@ public class TokenHudFiltro extends OncePerRequestFilter {
      */
     private static boolean liberado(HttpServletRequest requisicao) {
         return ROTA_SAUDE.equals(requisicao.getRequestURI())
+                || ("/api/google/oauth/callback".equals(requisicao.getRequestURI())
+                    && HttpMethod.GET.matches(requisicao.getMethod()))
                 || HttpMethod.OPTIONS.matches(requisicao.getMethod());
     }
 

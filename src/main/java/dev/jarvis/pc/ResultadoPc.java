@@ -10,7 +10,11 @@ package dev.jarvis.pc;
  * @param imagem os bytes já decodificados do PNG/JPEG da captura, ou nulo. O base64 morre no DTO
  *               da camada web: nem a ferramenta nem o {@code TelegramClient} precisam saber dele.
  */
-public record ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] imagem, String mime) {
+public record ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] imagem, String mime,
+        boolean arquivo) {
+    public ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] imagem, String mime) {
+        this(comandoId, ok, mensagem, imagem, mime, false);
+    }
 
     /** Teto da mensagem que volta ao modelo. Tudo que a ferramenta devolve vira token. */
     public static final int MAX_MENSAGEM = 300;

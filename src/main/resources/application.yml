@@ -63,6 +63,12 @@ jarvis:
     # Token do agente que roda no PC Windows. Separado do HUD_TOKEN de propósito: a HUD não manda
     # na máquina. Vazio = /api/pc recusa tudo com 401 e o controle do PC fica desligado.
     token: ${PC_TOKEN:}
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    redirect-uri: ${GOOGLE_REDIRECT_URI:}
+    chave-cofre: ${GOOGLE_CHAVE_COFRE:}
+    pasta-credenciais: ${GOOGLE_PASTA_CREDENCIAIS:/data/google}
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}

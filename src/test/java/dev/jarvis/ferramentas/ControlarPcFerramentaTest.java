@@ -371,6 +371,7 @@ class ControlarPcFerramentaTest {
         assertTrue(ferramenta.descricao().contains("chrome, spotify"));
 
         for (String acao : ComandoPc.ACOES) {
+            if ("criar_arquivo".equals(acao)) continue; // ferramenta própria com dados estruturados
             assertTrue(comApps.contains(acao), "ação '" + acao + "' fora do enum");
         }
     }

@@ -1,5 +1,23 @@
 # Jarvis
 
+## Criação de arquivos e Google Sheets
+
+`criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX e CSV no agente do PC, dentro da pasta
+`pastaArquivos` (padrão: Documentos/Jarvis). O comando leva dados estruturados, sem caminhos
+nem código executável. O agente faz upload binário em `/api/pc/arquivos/{id}` com `PC_TOKEN`;
+o resultado JSON apenas indica o ID e o estado. O limite do arquivo é 8 MiB. O arquivo é
+enviado por `sendDocument` no Telegram e aparece como anexo temporário na HUD.
+
+`criar_planilha_google` cria uma planilha online nova somente após autorização OAuth pela HUD.
+Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` e uma
+`GOOGLE_CHAVE_COFRE` de 32 bytes em base64. Cadastre a URL de callback no Google Cloud,
+habilite Drive API e Sheets API e mantenha o volume `google` para o refresh token cifrado.
+O escopo solicitado é `drive.file`; a ferramenta não altera planilhas existentes nem habilita
+compartilhamento público. Sem configuração ou autorização Google, o Jarvis continua iniciando
+normalmente. Só `criar_planilha_google` retorna um erro para a planilha online solicitada e
+oferece XLSX local para importação; `criar_arquivo` continua disponível.
+
+
 Assistente pessoal no Telegram, feito em Java 21 + Spring Boot 4, que usa o Claude para entender pedidos em
 linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um container Docker.
 

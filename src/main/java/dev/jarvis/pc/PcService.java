@@ -86,7 +86,8 @@ public class PcService {
      * contra POST repetido por retry de rede.
      */
     public CompletableFuture<ResultadoPc> enfileirar(ComandoPc comando) {
-        Pendente pendente = new Pendente(comando, relogio.instant().plus(VALIDADE),
+        Pendente pendente = new Pendente(comando, relogio.instant().plus(
+                "criar_arquivo".equals(comando.acao()) ? Duration.ofMinutes(3) : VALIDADE),
                 new CompletableFuture<>());
         emAberto.put(comando.id(), pendente);
         fila.add(pendente);
@@ -141,9 +142,25 @@ public class PcService {
         if (pendente == null) {
             return false;
         }
+        if (!relogio.instant().isBefore(pendente.expira())) {
+            pendente.resposta().complete(ResultadoPc.expirado(pendente.comando().id()));
+            return false;
+        }
         log.info("Comando {} ({}) respondido pelo PC: ok={}", pendente.comando().id(),
                 pendente.comando().acao(), resultado.ok());
         return pendente.resposta().complete(resultado);
+    }
+
+    public boolean aguardandoArquivo(String id) {
+        Pendente pendente = emAberto.get(id);
+        return pendente != null && "criar_arquivo".equals(pendente.comando().acao())
+                && relogio.instant().isBefore(pendente.expira());
+    }
+
+    /** Cancela a espera quando a ferramenta já devolveu resposta ao usuário. */
+    public void cancelar(String id) {
+        Pendente pendente = emAberto.get(id);
+        if (pendente != null) vencer(pendente);
     }
 
     /**

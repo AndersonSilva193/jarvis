@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.pc.ComandoPc;
+import dev.jarvis.pc.ArquivosPcService;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.tela.FalaDaTelaService;
 import dev.jarvis.tela.TelaEstadoService;
@@ -53,6 +54,9 @@ class PcHttpTest {
             new JarvisProperties.Pc(PC_TOKEN));
 
     private final PcService pc = new PcService();
+    private final ArquivosPcService arquivos = new ArquivosPcService(pc);
+
+    @org.junit.jupiter.api.AfterEach void fecharArquivos() { arquivos.fechar(); }
 
     /** O que o serviço de fala publicou, para conferir que a frase saiu certa. */
     private final List<Object> publicados = new ArrayList<>();
@@ -74,7 +78,7 @@ class PcHttpTest {
 
     private MockMvc mvc() {
         return MockMvcBuilders
-                .standaloneSetup(new PcController(pc, fala(), CURTA),
+                .standaloneSetup(new PcController(pc, fala(), CURTA), new ArquivosPcController(arquivos),
                         new TelaController(new TelaEstadoService()), new RotaParecida())
                 .addFilters(new TokenPcFiltro(props), new TokenHudFiltro(props))
                 .build();
@@ -82,6 +86,23 @@ class PcHttpTest {
 
     private static String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    @Test void uploadBinarioExigePcTokenEComandoVivo() throws Exception {
+        ComandoPc comando = ComandoPc.nova("criar_arquivo", "", java.time.Instant.now());
+        pc.enfileirar(comando);
+        mvc().perform(post("/api/pc/arquivos/" + comando.id()).content(new byte[] {1, 2}))
+                .andExpect(status().isUnauthorized());
+        mvc().perform(post("/api/pc/arquivos/" + comando.id())
+                .header(HttpHeaders.AUTHORIZATION, bearer(HUD_TOKEN)).content(new byte[] {1, 2}))
+                .andExpect(status().isUnauthorized());
+        mvc().perform(post("/api/pc/arquivos/" + comando.id())
+                .header(HttpHeaders.AUTHORIZATION, bearer(PC_TOKEN)).content(new byte[] {1, 2}))
+                .andExpect(status().isNoContent());
+        pc.cancelar(comando.id());
+        mvc().perform(post("/api/pc/arquivos/" + comando.id())
+                .header(HttpHeaders.AUTHORIZATION, bearer(PC_TOKEN)).content(new byte[] {1, 3}))
+                .andExpect(status().isConflict());
     }
 
     @Test

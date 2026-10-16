@@ -25,11 +25,12 @@ public final class PcDto {
     }
 
     /** O comando como o agente o recebe. */
-    public record Comando(String id, String acao, String argumento, String criadoEm) {
+    public record Comando(String id, String acao, String argumento, String criadoEm,
+            tools.jackson.databind.JsonNode dados) {
     }
 
     public static Comando de(ComandoPc comando) {
-        return new Comando(comando.id(), comando.acao(), comando.argumento(), comando.criadoEm());
+        return new Comando(comando.id(), comando.acao(), comando.argumento(), comando.criadoEm(), comando.dados());
     }
 
     /**
@@ -50,7 +51,11 @@ public final class PcDto {
      *                      vez de num 400 cru do Jackson 3, que recusa primitivo ausente.
      * @param imagemBase64  o PNG/JPEG da captura, só em {@code captura_tela}
      */
-    public record Resultado(String comandoId, Boolean ok, String mensagem, String imagemBase64) {
+    public record Resultado(String comandoId, Boolean ok, String mensagem, String imagemBase64,
+            Boolean arquivo) {
+        public Resultado(String comandoId, Boolean ok, String mensagem, String imagemBase64) {
+            this(comandoId, ok, mensagem, imagemBase64, false);
+        }
 
         /**
          * Os problemas encontrados, em texto. Lista vazia significa que o corpo está bom.
@@ -94,7 +99,7 @@ public final class PcDto {
                     ? null
                     : Base64.getDecoder().decode(imagemBase64);
             return new ResultadoPc(comandoId.trim(), Boolean.TRUE.equals(ok), mensagem,
-                    bytes, bytes == null ? null : mimeDe(bytes));
+                    bytes, bytes == null ? null : mimeDe(bytes), Boolean.TRUE.equals(arquivo));
         }
     }
 

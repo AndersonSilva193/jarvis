@@ -226,6 +226,7 @@ public class Assistente {
 
             // O modelo pediu uma ou mais ferramentas: executamos e devolvemos os resultados.
             ArrayNode resultados = json.createArrayNode();
+            boolean pesquisaFeita = buscas > 0;
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
                 if ("tool_use".equals(Json.texto(bloco.path("type")))) {
@@ -233,6 +234,7 @@ public class Assistente {
                         // O canal vem daqui porque a ferramenta não recebe o Canal: é por ele que
                         // o card da tela sabe se o pedido veio do celular ou da própria HUD.
                         @Override public String canal() { return canal.nome(); }
+                        @Override public boolean pesquisaFeita() { return pesquisaFeita; }
                         @Override public void ferramenta(String nome, String descricao, Integer atual, Integer total) {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }

@@ -91,7 +91,16 @@ public class Ferramentas {
             dev.jarvis.conversa.OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, null, null));
         }
         try {
-            ResultadoFerramenta detalhado = ferramenta.executarDetalhado(entrada, progresso);
+            dev.jarvis.conversa.OuvinteProgresso contexto = new dev.jarvis.conversa.OuvinteProgresso() {
+                @Override public String idPedido() { return progresso.idPedido(); }
+                @Override public String canal() { return progresso.canal(); }
+                @Override public boolean pesquisaFeita() { return progresso.pesquisaFeita(); }
+                @Override public String idFerramenta() { return Json.texto(blocoToolUse.path("id")); }
+                @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
+                    progresso.ferramenta(nome, descricao, passo, total);
+                }
+            };
+            ResultadoFerramenta detalhado = ferramenta.executarDetalhado(entrada, contexto);
             // Ponto único: nenhuma ferramenta precisa lembrar de publicar, e o card chega à tela
             // já agora, enquanto o modelo ainda está escrevendo a resposta deste turno.
             publicarNaTela(detalhado);

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Uma ordem para o agente que roda no PC Windows.
@@ -18,13 +19,16 @@ import java.util.UUID;
  * @param criadoEm  ISO-8601 em texto, e não um {@code Instant}: o {@code JsonMapper} do
  *                  {@code BeansConfig} é cru, então não dependemos de como ele serializaria data.
  */
-public record ComandoPc(String id, String acao, String argumento, String criadoEm) {
+public record ComandoPc(String id, String acao, String argumento, String criadoEm, JsonNode dados) {
+    public ComandoPc(String id, String acao, String argumento, String criadoEm) {
+        this(id, acao, argumento, criadoEm, null);
+    }
 
     /** As ações que o agente entende. O schema da ferramenta expõe exatamente esta lista. */
     public static final List<String> ACOES = List.of(
             "abrir_app", "abrir_url", "abrir_hud", "bloquear_tela", "volume", "captura_tela",
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento",
-            "modo_repouso", "falso_positivo");
+            "modo_repouso", "falso_positivo", "criar_arquivo");
 
     /** As irreversíveis, que exigem o código de confirmação do {@link GuardaDeConfirmacao}. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

@@ -133,6 +133,7 @@ public class ControlarPcFerramenta implements Ferramenta {
         // abrir_app só entra quando o agente reportou algum app: oferecer uma ação que vai
         // recusar tudo só gasta token e faz o modelo tentar à toa.
         ComandoPc.ACOES.stream()
+                .filter(nome -> !"criar_arquivo".equals(nome))
                 .filter(nome -> !"abrir_app".equals(nome) || !apps.isEmpty())
                 .forEach(opcoes::add);
 
@@ -163,6 +164,8 @@ public class ControlarPcFerramenta implements Ferramenta {
             return ResultadoFerramenta.texto("Não conheço a ação '" + acao + "' no PC. As válidas: "
                     + ComandoPc.ACOES + ".");
         }
+        if ("criar_arquivo".equals(acao))
+            return ResultadoFerramenta.texto("Use a ferramenta criar_arquivo para gerar arquivos.");
         // Antes de qualquer outra coisa: travar o turno 30 s para no fim dizer "o PC está
         // offline" é o pior dos mundos.
         if (!pc.online()) {

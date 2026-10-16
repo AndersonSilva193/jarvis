@@ -15,6 +15,7 @@ services:
       # Os MP3s já sintetizados. Volume nomeado para a cota não ser gasta de novo com as
       # mesmas frases toda vez que o container reinicia.
       - voz:/data/voz
+      - google:/data/google
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
     mem_limit: 512m
@@ -26,3 +27,4 @@ services:
 
 volumes:
   voz:
+  google:
