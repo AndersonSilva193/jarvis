@@ -3,6 +3,7 @@ package dev.jarvis.ferramentas;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -44,9 +45,11 @@ class CriarArquivoFluxoTest {
         var json = JsonMapper.builder().build();
         var pc = new PcService();
         var arquivos = new ArquivosPcService(pc);
-        var props = new JarvisProperties("Jarvis", "America/Sao_Paulo", "", null,
+        var props = new JarvisProperties("Jarvis", "America/Sao_Paulo", "",
+                new JarvisProperties.Telegram("token-de-teste", 123L),
                 null, null, null, null, null, null, null, null, null, null);
-        var ferramenta = new CriarArquivoFerramenta(pc, arquivos, mock(TelegramClient.class), json, props);
+        var telegram = mock(TelegramClient.class);
+        var ferramenta = new CriarArquivoFerramenta(pc, arquivos, telegram, json, props);
         var entrada = json.readTree("{\"nome\":\"teste\",\"formato\":\"txt\",\"conteudo\":\"Olá\"}");
         pc.proximoComando(Duration.ofMillis(1), null); // sinal de que o agente está online
         try (var tarefas = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -60,6 +63,7 @@ class CriarArquivoFluxoTest {
             assertEquals("Arquivo criado: teste.txt.", resultado.texto());
             assertEquals(1, resultado.artefatos().size());
             assertEquals("Olá", java.nio.file.Files.readString(resultado.artefatos().get(0).arquivo()));
+            verify(telegram).enviarDocumento(123L, "Olá".getBytes(StandardCharsets.UTF_8), "teste.txt");
         } finally { arquivos.fechar(); }
     }
 }

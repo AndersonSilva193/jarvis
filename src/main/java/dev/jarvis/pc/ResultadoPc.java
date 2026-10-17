@@ -11,9 +11,13 @@ package dev.jarvis.pc;
  *               da camada web: nem a ferramenta nem o {@code TelegramClient} precisam saber dele.
  */
 public record ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] imagem, String mime,
-        boolean arquivo) {
+        boolean arquivo, tools.jackson.databind.JsonNode dados) {
+    public ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] imagem, String mime,
+            boolean arquivo) {
+        this(comandoId, ok, mensagem, imagem, mime, arquivo, null);
+    }
     public ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] imagem, String mime) {
-        this(comandoId, ok, mensagem, imagem, mime, false);
+        this(comandoId, ok, mensagem, imagem, mime, false, null);
     }
 
     /** Teto da mensagem que volta ao modelo. Tudo que a ferramenta devolve vira token. */
@@ -23,7 +27,7 @@ public record ResultadoPc(String comandoId, boolean ok, String mensagem, byte[] 
         mensagem = mensagem == null ? "" : mensagem.replaceAll("[\\r\\n\\p{Cntrl}]", " ")
                 .replaceAll("\\s+", " ").trim();
         if (mensagem.length() > MAX_MENSAGEM) {
-            mensagem = mensagem.substring(0, MAX_MENSAGEM) + "…";
+            mensagem = mensagem.substring(0, MAX_MENSAGEM - 1) + "…";
         }
     }
 

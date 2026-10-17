@@ -130,6 +130,34 @@ class AssistenteTest {
         return resposta;
     }
 
+    @Test void criarLocalizarLerEReceberResumoNoMesmoTurno() throws Exception {
+        Ferramenta criar = ferramentaDeFluxo("criar_arquivo", "Arquivo criado: relatorio.txt.");
+        Ferramenta listar = ferramentaDeFluxo("listar_arquivos",
+                "{\"arquivos\":[{\"id\":\"doc-123\",\"nome\":\"relatorio.txt\"}]}");
+        Ferramenta ler = ferramentaDeFluxo("ler_arquivo",
+                "{\"id\":\"doc-123\",\"conteudo\":\"Receita de outubro: 42\",\"truncado\":false}");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()))
+                .thenReturn(chamada("listar_arquivos", JSON.createObjectNode().put("nome", "relatorio")))
+                .thenReturn(chamada("ler_arquivo", JSON.createObjectNode().put("id", "doc-123")))
+                .thenReturn(respostaComPensamento("O relatório registra receita de outubro de 42."));
+        var resposta = comFerramentas(criar, listar, ler).responder(1L,
+                "Crie o relatório, encontre o arquivo e resuma", Canal.TELEGRAM, null);
+        assertEquals("O relatório registra receita de outubro de 42.", resposta.texto());
+        var mensagens = ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude, times(4)).criarMensagem(any(ArrayNode.class), mensagens.capture(), any(ArrayNode.class));
+        assertTrue(mensagens.getValue().toString().contains("Receita de outubro: 42"));
+    }
+
+    private Ferramenta ferramentaDeFluxo(String nome, String retorno) {
+        return new Ferramenta() {
+            public String nome() { return nome; }
+            public String descricao() { return nome; }
+            public ObjectNode esquemaEntrada() { return JSON.createObjectNode().put("type", "object"); }
+            public String executar(JsonNode entrada) { return retorno; }
+        };
+    }
+
     @Test void erroDeCriacaoRepetidoEncerraLoopComMotivo() throws Exception {
         Ferramenta arquivo = new Ferramenta() {
             public String nome() { return "criar_arquivo"; }

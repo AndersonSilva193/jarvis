@@ -8,6 +8,24 @@ nem código executável. O agente faz upload binário em `/api/pc/arquivos/{id}`
 o resultado JSON apenas indica o ID e o estado. O limite do arquivo é 8 MiB. O arquivo é
 enviado por `sendDocument` no Telegram e aparece como anexo temporário na HUD.
 
+`listar_arquivos` pesquisa os arquivos dessa pasta por nome e formato, com páginas de até 50 itens.
+O agente cadastra arquivos criados e também arquivos suportados que já estavam na pasta após validar
+formato, tamanho e segurança do caminho. O catálogo `.jarvis-catalogo.properties` persiste no PC;
+seu ID estável é diferente do ID temporário do upload. Cada item informa nome, formato, tamanho,
+modificação e estado (`disponivel`, `alterado` ou `removido`). Resultados com nomes parecidos são
+apresentados para escolha.
+
+`ler_arquivo` recebe exclusivamente um ID do catálogo. TXT/MD e DOCX usam `inicio` e
+`maximoCaracteres`; PDF usa `paginaInicial`, `quantidadePaginas` e `inicio` dentro da página;
+XLSX usa `aba` e intervalo de linhas/colunas; CSV usa `delimitador`, `linhaInicial` e
+`quantidadeLinhas`. A resposta traz indicador de truncamento e ponto de continuação. Uma linha
+CSV ou célula XLSX grande usa `inicioLinha` ou `inicioCelula` com o próximo deslocamento retornado;
+`fragmentoLinha` e `fragmentoCelula` transportam partes do JSON do item. A leitura limita o arquivo
+a 8 MiB, o tempo a 12 segundos e o JSON de resultado a 28.000 bytes. Fórmulas
+XLSX são devolvidas como dados com valores em cache possivelmente desatualizados; nada é executado.
+PDF digitalizado sem texto informa que OCR não está implementado. Com o agente offline, os arquivos
+originais locais não estão disponíveis. Google Sheets nativo não faz parte desta consulta.
+
 `criar_planilha_google` cria uma planilha online nova somente após autorização OAuth pela HUD.
 Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` e uma
 `GOOGLE_CHAVE_COFRE` de 32 bytes em base64. Cadastre a URL de callback no Google Cloud,

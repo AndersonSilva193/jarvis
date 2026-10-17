@@ -146,6 +146,12 @@ public class PcService {
             pendente.resposta().complete(ResultadoPc.expirado(pendente.comando().id()));
             return false;
         }
+        if (resultado.dados() != null && !List.of("listar_arquivos", "ler_arquivo")
+                .contains(pendente.comando().acao())) {
+            pendente.resposta().complete(new ResultadoPc(resultado.comandoId(), false,
+                    "dados inesperados para esta ação", null, null));
+            return false;
+        }
         log.info("Comando {} ({}) respondido pelo PC: ok={}", pendente.comando().id(),
                 pendente.comando().acao(), resultado.ok());
         return pendente.resposta().complete(resultado);

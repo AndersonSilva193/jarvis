@@ -3,6 +3,7 @@ package dev.jarvis.web;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 
 import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.ResultadoPc;
@@ -52,9 +53,13 @@ public final class PcDto {
      * @param imagemBase64  o PNG/JPEG da captura, só em {@code captura_tela}
      */
     public record Resultado(String comandoId, Boolean ok, String mensagem, String imagemBase64,
-            Boolean arquivo) {
+            Boolean arquivo, tools.jackson.databind.JsonNode dados) {
+        public Resultado(String comandoId, Boolean ok, String mensagem, String imagemBase64,
+                Boolean arquivo) {
+            this(comandoId, ok, mensagem, imagemBase64, arquivo, null);
+        }
         public Resultado(String comandoId, Boolean ok, String mensagem, String imagemBase64) {
-            this(comandoId, ok, mensagem, imagemBase64, false);
+            this(comandoId, ok, mensagem, imagemBase64, false, null);
         }
 
         /**
@@ -76,6 +81,10 @@ public final class PcDto {
             }
             if (mensagem != null && mensagem.length() > MAX_MENSAGEM) {
                 erros.add("mensagem acima de " + MAX_MENSAGEM + " caracteres");
+            }
+            if (dados != null && (!dados.isObject()
+                    || dados.toString().getBytes(StandardCharsets.UTF_8).length > 32_000)) {
+                erros.add("dados estruturados inválidos ou acima de 32.000 bytes");
             }
             if (imagemBase64 != null && !imagemBase64.isBlank()) {
                 byte[] bytes;
@@ -99,7 +108,7 @@ public final class PcDto {
                     ? null
                     : Base64.getDecoder().decode(imagemBase64);
             return new ResultadoPc(comandoId.trim(), Boolean.TRUE.equals(ok), mensagem,
-                    bytes, bytes == null ? null : mimeDe(bytes), Boolean.TRUE.equals(arquivo));
+                    bytes, bytes == null ? null : mimeDe(bytes), Boolean.TRUE.equals(arquivo), dados);
         }
     }
 
