@@ -72,6 +72,9 @@ jarvis:
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}
+  memoria:
+    pasta: ${MEMORIA_PASTA:/data/jarvis/memoria}
+    pasta-exclusoes: ${MEMORIA_PASTA_EXCLUSOES:/data/jarvis/memoria-exclusoes}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

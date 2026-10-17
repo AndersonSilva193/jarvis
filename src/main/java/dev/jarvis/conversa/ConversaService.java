@@ -33,6 +33,7 @@ public class ConversaService {
                 try {
                     assistente.responder(chatId, texto, Canal.HUD, new OuvinteProgresso() {
                         @Override public String idPedido() { return pedido.id(); }
+                        @Override public long usuarioAutenticado() { return chatId; }
                         @Override public void iniciado() { registro.processando(chatId, pedido.id()); }
                         @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
                             registro.progresso(chatId, new RegistroConversas.Progresso(

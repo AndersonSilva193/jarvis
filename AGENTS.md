@@ -42,6 +42,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Codex (Messages
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
 | `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
+| `dev.jarvis.memoria` | `MemoriaService`: registros Markdown persistentes por usuário e marcadores de exclusão; `ConfirmacaoEsquecimento` |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf` e a porta `PresencaDaHud` |
@@ -169,6 +170,9 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 ## Limitações conhecidas
 
 - **Lembretes e histórico ficam em memória**: somem quando o container reinicia.
+- A memória pessoal fica nos volumes `memoria` e `memoria-exclusoes`; as cinco ferramentas de memória
+  usam identidade autenticada e pedido original, nunca caminhos fornecidos pelo modelo. Consulte o README
+  antes de restaurar backups para preservar os marcadores de exclusão.
 - Telegram recebe texto; a voz da HUD é transcrita e sintetizada pelo navegador.
 - Atende **uma execução por vez** — conversas, tarefas e limpeza usam o mesmo `ReentrantLock`.
 - O histórico público usa um bloqueio curto separado: nunca manter esse bloqueio durante I/O do modelo.

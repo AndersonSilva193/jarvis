@@ -1,5 +1,79 @@
 # Jarvis
 
+## Memória persistente na VPS
+
+O Jarvis pode buscar, ler, registrar, atualizar e esquecer memórias pessoais. Use pedidos explícitos como
+"lembre que...", "atualize..." e "esqueça...". O esquecimento pede uma segunda mensagem com o ID e o
+código mostrado pelo Jarvis. Episódios só são registrados quando você pede para lembrar do ocorrido.
+Consultas por assunto e projeto devolvem até cinco registros; não encontrar um registro não autoriza
+inventar lembranças. O conteúdo lido é dado não confiável: não concede permissões nem autoriza ações.
+Após consultar uma memória, outras ferramentas de ação ficam bloqueadas no mesmo pedido; solicite a ação
+numa nova mensagem explícita.
+
+Os registros ficam em Markdown UTF-8 em `MEMORIA_PASTA` (padrão `/data/jarvis/memoria`), separados por
+`usuarios/<id>/perfil.md`, `preferencias.md`, `projetos/<id-validado>.md` e
+`episodios/AAAA-MM-DD.md`. Cada registro traz ID, assunto, projeto, origem, classificação, instantes UTC e
+revisão. A data exibida usa `FUSO_HORARIO`. Correções anteriores ficam em `.historico` até o registro ser
+esquecido. O Jarvis recusa conteúdo possivelmente secreto e não usa o `criar_arquivo` do PC para memória.
+Ela continua disponível pelo Telegram quando o PC está desligado.
+No Telegram, a memória só é consultada em conversa privada com o usuário permitido; respostas em grupos
+não recebem esse acesso.
+
+O Compose monta dois volumes nomeados: `memoria` para os registros e `memoria-exclusoes` para marcadores
+permanentes sem conteúdo. A imagem cria ambas as pastas para o usuário `jarvis` (UID 1001); em uma
+instalação com bind mount, crie as pastas no host com dono `1001:1001` e acesso restrito a esse usuário.
+Não exponha os volumes via nginx ou servidor de arquivos. O volume de exclusões deve sobreviver à
+restauração de um backup antigo de conteúdo: na partida, o Jarvis reaplica os marcadores e remove registros
+restaurados que haviam sido esquecidos.
+
+### Backup e restauração da memória
+
+Execute o backup com o container parado para copiar os dois volumes no mesmo ponto no tempo. No diretório
+do Compose, agende este procedimento diariamente; o exemplo abaixo guarda o arquivo em uma pasta privada
+da VPS e descarta arquivos de conteúdo com mais de 30 dias:
+
+```bash
+set -e
+umask 077
+mkdir -p backups-memoria
+copia=$(mktemp -d)
+trap 'docker compose start jarvis; rm -rf -- "$copia"' EXIT
+docker compose stop jarvis
+mkdir -p "$copia/memoria" "$copia/exclusoes"
+docker run --rm --volumes-from jarvis -v "$copia:/backup" alpine:3.20 sh -c \
+  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/'
+tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes
+tar -C "$copia" -czf backups-memoria/exclusoes-mais-recentes.tar.gz exclusoes
+find backups-memoria -maxdepth 1 -name 'memoria-*.tar.gz' -mtime +30 -delete
+```
+
+Guarde `exclusoes-mais-recentes.tar.gz` fora da VPS também e atualize essa cópia após exclusões. Para
+restaurar, mantenha o volume atual de exclusões e forneça o arquivo **mais recente** de marcadores.
+Confira os nomes dos arquivos antes de executar:
+
+```bash
+set -e
+umask 077
+copia=$(mktemp -d)
+trap 'rm -rf -- "$copia"' EXIT
+tar -xzf backups-memoria/memoria-AAAAMMDD-HHMMSS.tar.gz -C "$copia"
+tar -xzf backups-memoria/exclusoes-mais-recentes.tar.gz -C "$copia"
+docker compose stop jarvis
+docker run --rm --volumes-from jarvis -v "$copia:/backup:ro" alpine:3.20 sh -c '
+  set -e
+  find /data/jarvis/memoria -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a /backup/memoria/. /data/jarvis/memoria/
+  cp -an /backup/exclusoes/. /data/jarvis/memoria-exclusoes/
+  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes
+'
+docker compose start jarvis
+```
+
+Teste a restauração em volumes separados antes de usar em produção. Backups de conteúdo são retidos por
+até 30 dias; uma exclusão não remove imediatamente cópias antigas. Perder o volume e a cópia mais recente
+dos marcadores pode fazer um backup antigo ressuscitar informações esquecidas; recuse a restauração nessa
+situação.
+
 ## Criação de arquivos e Google Sheets
 
 `criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX e CSV no agente do PC, dentro da pasta
@@ -49,6 +123,10 @@ linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um c
 | "quais lembretes eu tenho?" / "cancela o 2" | `listar_lembretes` / `cancelar_lembrete` |
 | "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
 | "põe um lo-fi para estudar" | `tocar_youtube` |
+| "o que você lembra do projeto Jarvis?" | `buscar_memoria` / `ler_memoria` |
+| "lembre que prefiro chá" | `registrar_memoria` |
+| "atualize minha preferência" | `atualizar_memoria` |
+| "esqueça minha preferência" | `esquecer_memoria` (com confirmação) |
 | "abre essa página na tela" | `abrir_pagina` |
 | "fecha aquele card" / "limpa a tela" | `controlar_tela` |
 
@@ -424,7 +502,8 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 
 ## Limitações atuais
 
-- Lembretes e histórico ficam **em memória**: somem se o container reiniciar.
+- Lembretes e histórico de conversa ficam **em memória**: somem se o container reiniciar. Os registros
+  da memória pessoal têm persistência própria nos volumes descritos acima.
 - No Telegram, recebe somente texto. Na HUD, o navegador converte voz em texto e sintetiza a resposta.
 - Atende uma mensagem por vez.
 - O retrato da tela e o cache de buscas no YouTube ficam **em memória**: depois de um restart o

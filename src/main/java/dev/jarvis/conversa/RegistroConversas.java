@@ -83,6 +83,19 @@ public class RegistroConversas {
         avisarHistorico(chatId);
     }
 
+    /** Confirma exclusão sem reter o texto que pode conter o dado esquecido. */
+    public void concluirSemHistorico(long chatId, RespostaConversa resposta) {
+        synchronized (this) {
+            Conversa c = conversa(chatId);
+            c.trocas = List.of();
+            c.pendente = null;
+            c.ultima = resposta;
+            c.revisao++;
+        }
+        if ("hud".equals(resposta.canal())) publicar(chatId, "conversa.resposta", resposta);
+        avisarHistorico(chatId);
+    }
+
     public void falhar(long chatId, String id) {
         falhar(chatId, id, "Não consegui concluir este pedido. Tente novamente.");
     }

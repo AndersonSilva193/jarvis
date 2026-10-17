@@ -51,6 +51,7 @@ public class Assistente {
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
     private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
+    private final Map<Long, Long> usuarioPorChat = new HashMap<>();
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
         this(claude, ferramentas, sistema, json, new RegistroConversas(evento -> { }), new AnexosService(),
@@ -74,26 +75,72 @@ public class Assistente {
         return responder(chatId, texto, Canal.TELEGRAM);
     }
 
+    /** Entrada autenticada pelo poller; update_id é estável em uma repetição da entrega. */
+    public String responderTelegram(long chatId, long usuario, long updateId, String texto) throws Exception {
+        return responder(chatId, texto, Canal.TELEGRAM, new OuvinteProgresso() {
+            @Override public String idPedido() { return "telegram-" + updateId; }
+            // Em grupo o remetente pode ser autorizado, mas a resposta seria pública.
+            @Override public long usuarioAutenticado() { return chatId == usuario ? usuario : 0; }
+        }).texto();
+    }
+
     /** Responde a uma mensagem da conversa, usando e atualizando o histórico daquele chat. */
     public String responder(long chatId, String texto, Canal canal) throws Exception {
         return responder(chatId, texto, canal, null).texto();
     }
 
     public RespostaConversa responder(long chatId, String texto, Canal canal, OuvinteProgresso ouvinte) throws Exception {
-        OuvinteProgresso progresso = ouvinte == null ? new OuvinteProgresso() { } : ouvinte;
+        OuvinteProgresso origem = ouvinte == null ? new OuvinteProgresso() { } : ouvinte;
+        java.util.concurrent.atomic.AtomicBoolean apagou = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicReference<String> apagadoId = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicLong apagadoRevisao = new java.util.concurrent.atomic.AtomicLong();
+        OuvinteProgresso progresso = new OuvinteProgresso() {
+            @Override public String idPedido() { return origem.idPedido(); }
+            @Override public long usuarioAutenticado() { return origem.usuarioAutenticado(); }
+            @Override public boolean memoriaEsquecida() { return apagou.get(); }
+            @Override public void marcarMemoriaEsquecida() { apagou.set(true); }
+            @Override public void marcarMemoriaEsquecida(String id, long revisao) {
+                apagou.set(true); apagadoId.set(id); apagadoRevisao.set(revisao);
+            }
+            @Override public String idMemoriaEsquecida() { return apagadoId.get(); }
+            @Override public long revisaoMemoriaEsquecida() { return apagadoRevisao.get(); }
+            @Override public void iniciado() { origem.iniciado(); }
+            @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
+                origem.ferramenta(nome, descricao, passo, total);
+            }
+        };
         String id = progresso.idPedido() == null ? UUID.randomUUID().toString() : progresso.idPedido();
         execucao.lockInterruptibly();
         try {
-            if (progresso.idPedido() != null && !conversas.pendente(chatId, id))
+            if (canal == Canal.HUD && progresso.idPedido() != null && !conversas.pendente(chatId, id))
                 throw new IllegalStateException("Pedido encerrado pela limpeza do histórico");
             OuvinteProgresso.avisar(progresso::iniciado);
+            if (progresso.usuarioAutenticado() > 0) usuarioPorChat.put(chatId, progresso.usuarioAutenticado());
             Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
             List<ObjectNode> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(texto));
 
             List<ResultadoFerramenta> resultados = new ArrayList<>();
             String resposta;
-            if (ComandoDeRepouso.reconhece(texto)) {
+            var confirmacaoMemoria = java.util.regex.Pattern.compile(
+                    "(?i)^confirmo esquecer ([0-9a-f-]{36}) ([0-9]{6})$").matcher(texto.trim());
+            if (confirmacaoMemoria.matches() && progresso.usuarioAutenticado() > 0) {
+                ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
+                        .put("id", "esquecer_" + id).put("name", "esquecer_memoria");
+                chamada.putObject("input").put("id", confirmacaoMemoria.group(1))
+                        .put("codigo", confirmacaoMemoria.group(2));
+                OuvinteProgresso autenticado = new OuvinteProgresso() {
+                    @Override public String idPedido() { return id; }
+                    @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
+                    @Override public String canal() { return canal.nome(); }
+                    @Override public String pedidoOriginal() { return texto; }
+                    @Override public void marcarMemoriaEsquecida(String memoriaId, long revisao) {
+                        progresso.marcarMemoriaEsquecida(memoriaId, revisao);
+                    }
+                };
+                resposta = Json.texto(ferramentas.executar(chamada, autenticado, resultados::add).path("content"));
+                turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
+            } else if (ComandoDeRepouso.reconhece(texto)) {
                 ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
                         .put("id", "repouso_" + id).put("name", "controlar_pc");
                 chamada.putObject("input").put("acao", "modo_repouso");
@@ -117,17 +164,27 @@ public class Assistente {
                 if (resultado.escuta() != null) escuta = resultado.escuta();
             }
             Instant agora = Instant.now();
+            if (progresso.memoriaEsquecida()) resposta = "Memória esquecida: id="
+                    + progresso.idMemoriaEsquecida() + " revisão=" + progresso.revisaoMemoriaEsquecida();
             if (canal != Canal.HUD) escuta = null;
             else if (confirmacao != null) escuta = escutaDaConfirmacao(confirmacao, agora);
             RespostaConversa publica = new RespostaConversa(id, canal.nome(), resposta, publicados,
                     confirmacao, agora.toString(), null, escuta);
 
             // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
-            historico.addLast(semPensamentos(turno));
-            while (historico.size() > MAX_TURNOS_HISTORICO) {
-                historico.removeFirst();
+            if (progresso.memoriaEsquecida()) {
+                for (var entrada : new ArrayList<>(usuarioPorChat.entrySet())) {
+                    if (entrada.getValue() == progresso.usuarioAutenticado()) {
+                        historicos.remove(entrada.getKey());
+                        conversas.limpar(entrada.getKey());
+                    }
+                }
+                conversas.concluirSemHistorico(chatId, publica);
+            } else {
+                historico.addLast(semPensamentos(turno));
+                while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
+                conversas.concluir(chatId, texto, publica);
             }
-            conversas.concluir(chatId, texto, publica);
             return publica;
         } finally { execucao.unlock(); }
     }
@@ -186,6 +243,10 @@ public class Assistente {
             definicoes.add(buscaWeb.definicao());
         }
         int buscas = 0;
+        java.util.concurrent.atomic.AtomicInteger restante = new java.util.concurrent.atomic.AtomicInteger(4_000);
+        java.util.concurrent.atomic.AtomicBoolean esqueceu = new java.util.concurrent.atomic.AtomicBoolean();
+        Map<String, String> evidencias = new HashMap<>();
+        boolean memoriaLida = false;
         String ultimoErroDeArquivo = "";
         String ultimaFalhaDeArquivo = "";
 
@@ -233,18 +294,54 @@ public class Assistente {
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
                 if ("tool_use".equals(Json.texto(bloco.path("type")))) {
+                    String nomeFerramenta = Json.texto(bloco.path("name"));
+                    boolean ferramentaDeMemoria = List.of("buscar_memoria", "ler_memoria",
+                            "registrar_memoria", "atualizar_memoria", "esquecer_memoria").contains(nomeFerramenta);
+                    if (memoriaLida && !ferramentaDeMemoria) {
+                        resultados.add(json.createObjectNode().put("type", "tool_result")
+                                .put("tool_use_id", Json.texto(bloco.path("id")))
+                                .put("content", "Memória lida não autoriza outras ferramentas neste pedido. Faça um novo pedido explícito.")
+                                .put("is_error", true));
+                        continue;
+                    }
                     OuvinteProgresso seguro = new OuvinteProgresso() {
                         // O canal vem daqui porque a ferramenta não recebe o Canal: é por ele que
                         // o card da tela sabe se o pedido veio do celular ou da própria HUD.
                         @Override public String canal() { return canal.nome(); }
+                        @Override public String idPedido() { return progresso.idPedido(); }
+                        @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
+                        @Override public String pedidoOriginal() { return Json.texto(turno.getFirst().path("content")); }
+                        @Override public boolean memoriaEsquecida() { return esqueceu.get(); }
+                        @Override public void marcarMemoriaEsquecida() { esqueceu.set(true); progresso.marcarMemoriaEsquecida(); }
+                        @Override public void marcarMemoriaEsquecida(String id, long revisao) {
+                            esqueceu.set(true); progresso.marcarMemoriaEsquecida(id, revisao);
+                        }
+                        @Override public boolean consumirContexto(int caracteres) {
+                            if (caracteres < 0) return false;
+                            while (true) {
+                                int atual = restante.get();
+                                if (atual < caracteres) return false;
+                                if (restante.compareAndSet(atual, atual - caracteres)) return true;
+                            }
+                        }
+                        @Override public boolean evidenciaVerificada(String texto) {
+                            return !origemDaEvidencia(texto).isEmpty();
+                        }
+                        @Override public String origemDaEvidencia(String texto) {
+                            return evidencias.entrySet().stream().filter(e -> e.getKey().contains(texto))
+                                    .map(e -> "ferramenta:" + e.getValue()).findFirst().orElse("");
+                        }
                         @Override public boolean pesquisaFeita() { return pesquisaFeita; }
                         @Override public void ferramenta(String nome, String descricao, Integer atual, Integer total) {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }
                     };
                     ObjectNode resultado = ferramentas.executar(bloco, seguro, detalhados::add);
+                    if (List.of("buscar_memoria", "ler_memoria").contains(nomeFerramenta)) memoriaLida = true;
+                    if (List.of("verificar_site", "status_servidor", "clima").contains(Json.texto(bloco.path("name")))
+                            && !resultado.path("is_error").asBoolean(false))
+                        evidencias.put(Json.texto(resultado.path("content")), nomeFerramenta);
                     resultados.add(resultado);
-                    String nomeFerramenta = Json.texto(bloco.path("name"));
                     if ("criar_arquivo".equals(nomeFerramenta)
                             || "criar_planilha_google".equals(nomeFerramenta)) {
                         String textoResultado = Json.texto(resultado.path("content"));
@@ -270,6 +367,7 @@ public class Assistente {
             comResultados.put("role", "user");
             comResultados.set("content", resultados);
             turno.add(comResultados);
+            if (esqueceu.get()) return "Memória esquecida.";
             // Repetir a mesma entrada recusada desperdiça chamadas do modelo e acabava no erro
             // genérico da HUD. O turno já tem o tool_result, então o histórico continua válido.
             if (!erroRepetidoDeArquivo.isBlank()) return erroRepetidoDeArquivo;

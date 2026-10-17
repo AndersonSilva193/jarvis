@@ -70,7 +70,7 @@ public class TelegramPoller implements SmartLifecycle {
                 for (JsonNode atualizacao : atualizacoes) {
                     // Avançamos o offset antes de processar: se der erro, a mensagem não volta em loop.
                     offset = Json.numero(atualizacao.path("update_id")) + 1;
-                    tratar(atualizacao.path("message"));
+                    tratar(atualizacao.path("message"), Json.numero(atualizacao.path("update_id")));
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -82,7 +82,7 @@ public class TelegramPoller implements SmartLifecycle {
         }
     }
 
-    private void tratar(JsonNode mensagem) {
+    private void tratar(JsonNode mensagem, long updateId) {
         if (mensagem.isMissingNode()) {
             return;
         }
@@ -123,7 +123,8 @@ public class TelegramPoller implements SmartLifecycle {
                 }
                 default -> {
                     telegram.mostrarDigitando(chatId);
-                    telegram.enviarMensagem(chatId, assistente.responder(chatId, texto));
+                    telegram.enviarMensagem(chatId, assistente.responderTelegram(chatId, usuario,
+                            updateId, texto));
                 }
             }
         } catch (Exception e) {

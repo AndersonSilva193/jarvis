@@ -93,6 +93,20 @@ public class Ferramentas {
         try {
             dev.jarvis.conversa.OuvinteProgresso contexto = new dev.jarvis.conversa.OuvinteProgresso() {
                 @Override public String idPedido() { return progresso.idPedido(); }
+                @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
+                @Override public String pedidoOriginal() { return progresso.pedidoOriginal(); }
+                @Override public boolean memoriaEsquecida() { return progresso.memoriaEsquecida(); }
+                @Override public void marcarMemoriaEsquecida() { progresso.marcarMemoriaEsquecida(); }
+                @Override public void marcarMemoriaEsquecida(String id, long revisao) {
+                    progresso.marcarMemoriaEsquecida(id, revisao);
+                }
+                @Override public String idMemoriaEsquecida() { return progresso.idMemoriaEsquecida(); }
+                @Override public long revisaoMemoriaEsquecida() { return progresso.revisaoMemoriaEsquecida(); }
+                @Override public boolean consumirContexto(int caracteres) { return progresso.consumirContexto(caracteres); }
+                @Override public boolean evidenciaVerificada(String conteudo) { return progresso.evidenciaVerificada(conteudo); }
+                @Override public String origemDaEvidencia(String conteudo) {
+                    return progresso.origemDaEvidencia(conteudo);
+                }
                 @Override public String canal() { return progresso.canal(); }
                 @Override public boolean pesquisaFeita() { return progresso.pesquisaFeita(); }
                 @Override public String idFerramenta() { return Json.texto(blocoToolUse.path("id")); }

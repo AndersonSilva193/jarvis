@@ -29,7 +29,8 @@ public record JarvisProperties(
         BuscaWeb buscaWeb,
         Youtube youtube,
         Pc pc,
-        Google google) {
+        Google google,
+        Memoria memoria) {
 
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public JarvisProperties { }
@@ -38,7 +39,15 @@ public record JarvisProperties(
             Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, null);
+    }
+
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            Google google) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, google, null);
     }
 
     public record Telegram(String token, long usuarioPermitido) {
@@ -116,6 +125,9 @@ public record JarvisProperties(
     /** Credenciais OAuth da integração opcional com uma conta Google. */
     public record Google(String clientId, String clientSecret, String redirectUri,
             String chaveCofre, String pastaCredenciais) { }
+
+    /** Volumes separados para registros e marcadores permanentes de exclusão. */
+    public record Memoria(String pasta, String pastaExclusoes) { }
 
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
     public boolean youtubeConfigurado() {
