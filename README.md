@@ -572,6 +572,8 @@ Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`
 cadastrada ou ação fixa não resolver. A ferramenta guarda objetivo, usuário e pedido de origem;
 para um pedido interativo que possa ser feito visualmente no PC, o Jarvis deve oferecer esse caminho
 antes de alegar falta de ferramenta. Se o recurso estiver desativado ou o agente offline, deve dizer isso.
+O cadastro `app.<nome>` restringe somente `controlar_pc/abrir_app`; no computer use visual, o agente
+pode clicar no menu Iniciar para abrir outro aplicativo após a confirmação, sem comprar nem fazer login.
 Uma **nova** mensagem como `confirmo`, `confirmo a tarefa` ou `pode prosseguir` (Telegram ou HUD) inicia a tarefa sem
 devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e `rodar_rotina`
 na produção. `cancelar` encerra a intenção pendente. A confirmação vale dois minutos e serve uma vez;

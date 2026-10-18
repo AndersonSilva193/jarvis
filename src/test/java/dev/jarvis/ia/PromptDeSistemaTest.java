@@ -81,6 +81,7 @@ class PromptDeSistemaTest {
         assertTrue(dinamico.contains("nunca invente o resultado"), dinamico);
         assertTrue(dinamico.contains("use tarefa_no_pc para pedir"), dinamico);
         assertTrue(dinamico.contains("Não diga que falta"), dinamico);
+        assertTrue(dinamico.contains("não limita tarefa_no_pc"), dinamico);
     }
 
     @Test

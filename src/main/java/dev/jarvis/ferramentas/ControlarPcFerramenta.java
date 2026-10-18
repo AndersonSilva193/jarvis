@@ -100,7 +100,9 @@ public class ControlarPcFerramenta implements Ferramenta {
                 usa controlar_tela.
 
                 As ações: abrir_app abre um programa (ponha o nome em 'argumento'; os liberados são \
-                %s, e essa lista mora no PC — só ele decide o que aceita). abrir_url abre um \
+                %s, e essa lista mora no PC — só ele decide o que aceita). Essa lista restringe \
+                apenas abrir_app; tarefa_no_pc pode usar visualmente o menu Iniciar após confirmação. \
+                abrir_url abre um \
                 endereço no navegador do PC e só aceita https (URL completa em 'argumento'). \
                 abrir_hud abre a tela do Jarvis no PC, em tela cheia. bloquear_tela tranca a \
                 sessão. volume pede 'argumento' igual a subir, baixar ou mudo (mudo alterna). \

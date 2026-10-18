@@ -85,5 +85,47 @@ class TarefasPcSemIdTest {
         assertTrue(disponivel.contains("Ultimo recurso"));
         assertTrue(disponivel.contains("Nao diga que falta ferramenta"));
         assertTrue(disponivel.contains("pedir confirmacao"));
+        assertTrue(disponivel.contains("menu Iniciar"));
+    }
+
+    @Test void abrirBattleNetPeloMenuIniciarPedeConfirmacaoMesmoComLoja() {
+        when(tarefas.disponivel()).thenReturn(true);
+        var contexto = new OuvinteProgresso() {
+            @Override public long usuarioAutenticado() { return 42; }
+            @Override public String idPedido() { return "pedido-battle"; }
+            @Override public String canal() { return "hud"; }
+            @Override public String pedidoOriginal() {
+                return "Jarvis, abra o Battle.net no meu computador pelo menu Iniciar";
+            }
+        };
+        var ferramenta = new TarefaNoPcFerramenta(tarefas, intencoes, json);
+        var entrada = json.createObjectNode().put("objetivo",
+                "Abrir Battle.net pelo menu Iniciar, sem realizar compras e sem digitar senha");
+        var resposta = ferramenta.executarDetalhado(entrada, contexto);
+        assertTrue(resposta.texto().contains("Confirme em NOVA mensagem"));
+        assertTrue(resposta.confirmacao() != null);
+    }
+
+    @Test void compraPagamentoESenhaComoAcaoContinuamBloqueados() {
+        assertTrue(TarefaNoPcFerramenta.acaoSensivel("Comprar um jogo no Battle.net"));
+        assertTrue(TarefaNoPcFerramenta.acaoSensivel("Pagar a fatura"));
+        assertTrue(TarefaNoPcFerramenta.acaoSensivel("Digitar minha senha"));
+        assertTrue(TarefaNoPcFerramenta.acaoSensivel("Usar o cartão de crédito"));
+        assertFalse(TarefaNoPcFerramenta.acaoSensivel("Abrir a loja do Battle.net"));
+        assertFalse(TarefaNoPcFerramenta.acaoSensivel("Abrir sem fazer compras"));
+        assertFalse(TarefaNoPcFerramenta.acaoSensivel("Não pagar nem digitar senha"));
+    }
+
+    @Test void pedidoOriginalDeCompraNaoPodeSerDisfarcadoNoObjetivo() {
+        when(tarefas.disponivel()).thenReturn(true);
+        var contexto = new OuvinteProgresso() {
+            @Override public long usuarioAutenticado() { return 42; }
+            @Override public String idPedido() { return "pedido-compra"; }
+            @Override public String pedidoOriginal() { return "Compre um jogo no Battle.net"; }
+        };
+        var ferramenta = new TarefaNoPcFerramenta(tarefas, intencoes, json);
+        var resposta = ferramenta.executarDetalhado(
+                json.createObjectNode().put("objetivo", "Abrir o Battle.net"), contexto);
+        assertEquals("Tarefa sensivel proibida no computer use.", resposta.texto());
     }
 }
