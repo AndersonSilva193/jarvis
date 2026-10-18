@@ -44,6 +44,12 @@ class ProtocolosComputerUseTest {
     }
 
     @Test void recusaAcoesForaDoContrato() throws Exception {
+        assertDoesNotThrow(() -> TarefasComputerUse.validar(
+                new ProvedorComputerUse.Chamada("x", "wait", json.readTree("{\"duration\":10}"))));
+        assertThrows(IllegalArgumentException.class, () -> TarefasComputerUse.validar(
+                new ProvedorComputerUse.Chamada("x", "wait", json.readTree("{\"duration\":10.1}"))));
+        assertThrows(IllegalArgumentException.class, () -> TarefasComputerUse.validar(
+                new ProvedorComputerUse.Chamada("x", "wait", json.readTree("{\"duration\":-1}"))));
         assertThrows(IllegalArgumentException.class, () -> TarefasComputerUse.validar(
                 new ProvedorComputerUse.Chamada("x", "bash", json.readTree("{}"))));
         assertThrows(IllegalArgumentException.class, () -> TarefasComputerUse.validar(

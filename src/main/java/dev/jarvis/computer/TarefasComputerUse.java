@@ -44,6 +44,7 @@ public class TarefasComputerUse {
             + "tenha loja; isso nao autoriza login, compra ou pagamento. A lista de apps do comando "
             + "abrir_app nao restringe cliques visuais neste fluxo. "
             + "Se surgir uma acao sensivel fora do escopo, pare e informe o motivo. "
+            + "Para telas lentas, use wait de ate 10 segundos por vez. "
             + "Observe o resultado na tela antes de afirmar sucesso.";
 
     private final Map<String, Tarefa> tarefas = new ConcurrentHashMap<>();
@@ -270,9 +271,9 @@ public class TarefasComputerUse {
         if ("type".equals(n) && (!e.path("text").isTextual()
                 || Json.texto(e.path("text")).length() > 1000))
             throw new IllegalArgumentException("texto invalido ou longo demais");
-        if ("wait".equals(n) && (e.path("duration").asDouble(0) > 3
+        if ("wait".equals(n) && (e.path("duration").asDouble(0) > 10
                 || e.path("duration").asDouble(0) < 0))
-            throw new IllegalArgumentException("espera acima de tres segundos");
+            throw new IllegalArgumentException("espera acima de dez segundos");
         if (List.of("left_click", "right_click", "double_click", "mouse_move", "click",
                 "move").contains(n)) {
             JsonNode xy = e.path("coordinate");
