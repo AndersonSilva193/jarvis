@@ -213,7 +213,7 @@ class AssistenteTest {
         var resposta = comFerramentas(ferramentaDeConfirmacao(confirmacao, temEscutaExplicita ? explicita : null))
                 .responder(1L, "reinicie", Canal.HUD, null);
         assertEquals(confirmacao, resposta.confirmacao());
-        assertEquals(new EscutaResposta(20, List.of("1234", "cancelar"), "reiniciar o PC"), resposta.escuta());
+        assertEquals(new EscutaResposta(20, List.of("confirmo", "cancelar"), "reiniciar o PC"), resposta.escuta());
     }
 
     @Test void telegramNaoRecebeEscutaNemOfereceAFerramenta() throws Exception {
@@ -239,7 +239,7 @@ class AssistenteTest {
         for (String prazo : new String[] { agora.minusSeconds(1).toString(), agora.toString(), "inválido", null }) {
             var escuta = Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar", prazo), agora);
             assertEquals(0, escuta.tempoSegundos());
-            assertEquals(List.of("1234", "cancelar"), escuta.opcoes());
+            assertEquals(List.of("confirmo", "cancelar"), escuta.opcoes());
         }
     }
 

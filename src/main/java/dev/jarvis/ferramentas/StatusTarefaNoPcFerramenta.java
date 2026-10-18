@@ -16,17 +16,19 @@ public class StatusTarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.json = json;
     }
     @Override public String nome() { return "status_tarefa_no_pc"; }
-    @Override public String descricao() { return "Consulta pelo ID o estado e progresso de uma tarefa visual do PC."; }
+    @Override public String descricao() { return "Consulta o estado da ultima tarefa visual do usuario no PC; ID opcional para tarefa especifica."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         raiz.putObject("properties").putObject("id").put("type", "string");
-        raiz.putArray("required").add("id"); return raiz;
+        return raiz;
     }
     @Override public String executar(JsonNode entrada) { return "Pedido autenticado necessario."; }
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso contexto) {
-        var estado = tarefas.estado(Json.texto(entrada.path("id")), contexto.usuarioAutenticado());
+        String id = Json.texto(entrada.path("id"));
+        var estado = id.isBlank() ? tarefas.ultima(contexto.usuarioAutenticado())
+                : tarefas.estado(id, contexto.usuarioAutenticado());
         return ResultadoFerramenta.texto(estado == null ? "Tarefa nao encontrada." :
-                "Tarefa " + estado.id() + ": " + estado.estado() + "; ciclos " + estado.ciclos()
+                "Tarefa \"" + estado.nome() + "\": " + estado.estado() + "; ciclos " + estado.ciclos()
                 + "; acoes " + estado.acoes() + ". " + estado.motivo());
     }
 }

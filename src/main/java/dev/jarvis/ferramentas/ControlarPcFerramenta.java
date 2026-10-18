@@ -115,7 +115,7 @@ public class ControlarPcFerramenta implements Ferramenta {
                 número que ajuda o usuário a ajustar a sensibilidade.
 
                 desligar e reiniciar exigem NOVA mensagem autenticada do usuário. Chame uma vez \
-                sem codigo_confirmacao; o servidor guarda a ação, mostra o código e consome a \
+                sem codigo_confirmacao; o servidor guarda a ação e consome a \
                 confirmação diretamente. O modelo não deve chamar a ferramenta para confirmar. \
                 O PC avisa e espera 60 segundos antes de desligar de verdade, então ainda \
                 dá para desistir com cancelar_desligamento.
@@ -203,8 +203,8 @@ public class ControlarPcFerramenta implements Ferramenta {
                             pc.pedirAviso(ordem.id());
                             return "Acao confirmada. Operacao " + ordem.id() + " enviada ao PC.";
                         });
-                return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo pc "
-                        + confirmacao.codigo(), List.of(), List.of(), confirmacao, List.of(), List.of());
+                return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
+                        List.of(), List.of(), confirmacao, List.of(), List.of());
             } catch (IllegalArgumentException | IllegalStateException falhaConfirmacao) {
                 return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());
             }

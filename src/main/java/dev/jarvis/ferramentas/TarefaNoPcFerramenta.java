@@ -50,8 +50,8 @@ public class TarefaNoPcFerramenta implements Ferramenta {
             String canal = contexto.canal();
             var confirmacao = intencoes.pedir("computer", "Tarefa no monitor principal: " + objetivo,
                     usuario, contexto.idPedido(), () -> tarefas.iniciar(objetivo, canal, usuario));
-            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo pc "
-                    + confirmacao.codigo(), List.of(), List.of(), confirmacao, List.of(), List.of());
+            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
+                    List.of(), List.of(), confirmacao, List.of(), List.of());
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             return ResultadoFerramenta.texto(recusa.getMessage());
         }

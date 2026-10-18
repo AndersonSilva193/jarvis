@@ -33,7 +33,7 @@ import tools.jackson.databind.node.ObjectNode;
 /** Orquestra uma tarefa por vez, fora do lock da conversa, com teto de custo e tempo. */
 @Service
 public class TarefasComputerUse {
-    public record Retrato(String id, String estado, String provedor, String modelo,
+    public record Retrato(String id, String nome, String estado, String provedor, String modelo,
             int ciclos, int acoes, long tokensEntrada, long tokensSaida,
             String motivo, String iniciadoEm) { }
     private static final Logger log = LoggerFactory.getLogger(TarefasComputerUse.class);
@@ -57,7 +57,7 @@ public class TarefasComputerUse {
     private final ApplicationEventPublisher eventos;
 
     private static final class Tarefa {
-        final String id, objetivo, canal, inicio;
+        final String id, nome, objetivo, canal, inicio;
         final long usuario;
         final AtomicBoolean cancelar = new AtomicBoolean();
         volatile String estado = "pendente", motivo = "", comandoAtual;
@@ -68,10 +68,11 @@ public class TarefasComputerUse {
         final java.util.concurrent.ConcurrentLinkedQueue<String> imagens =
                 new java.util.concurrent.ConcurrentLinkedQueue<>();
         Tarefa(String id, String objetivo, String canal, long usuario) {
-            this.id = id; this.objetivo = objetivo; this.canal = canal; this.usuario = usuario;
+            this.id = id; this.nome = nomeCurto(objetivo); this.objetivo = objetivo;
+            this.canal = canal; this.usuario = usuario;
             this.inicio = Instant.now().toString();
         }
-        Retrato retrato() { return new Retrato(id, estado, provedor, modelo, ciclos, acoes,
+        Retrato retrato() { return new Retrato(id, nome, estado, provedor, modelo, ciclos, acoes,
                 tokensEntrada, tokensSaida, motivo, inicio); }
     }
 
@@ -91,7 +92,7 @@ public class TarefasComputerUse {
         Tarefa tarefa = new Tarefa(id, objetivo, canal, usuario);
         tarefas.put(id, tarefa);
         executor.submit(() -> executar(tarefa));
-        return "Tarefa " + id + " iniciada. Use status_tarefa_no_pc ou cancelar_tarefa_no_pc.";
+        return avisoInicio(tarefa.nome);
     }
     public Retrato estado(String id, long usuario) {
         Tarefa t = tarefas.get(id);
@@ -206,7 +207,7 @@ public class TarefasComputerUse {
                     Duration.between(Instant.parse(t.inicio), Instant.now()).toSeconds(),
                     t.ciclos, t.acoes, t.tokensEntrada, t.tokensSaida);
             publicar(t);
-            String aviso = "Tarefa no PC " + t.id + ": " + t.estado + ". " + t.motivo;
+            String aviso = avisoFim(t.nome, t.estado, t.motivo);
             try {
                 if ("telegram".equals(t.canal)) telegram.enviarMensagem(t.usuario, aviso);
                 else conversas.registrarResultadoTardio(t.usuario, t.id, aviso);
@@ -227,6 +228,32 @@ public class TarefasComputerUse {
     }
     private static boolean finalizada(String estado) {
         return List.of("concluido", "cancelado", "resultado_incerto", "falhou").contains(estado);
+    }
+    static String avisoInicio(String nome) {
+        return "Tarefa \"" + nome + "\" iniciada. Posso informar o status ou cancelar se pedir.";
+    }
+    static String avisoFim(String nome, String estado, String motivo) {
+        return "Tarefa \"" + nome + "\": " + estado + ". " + motivo;
+    }
+    static String nomeCurto(String objetivo) {
+        if (objetivo == null || objetivo.isBlank()) return "tarefa no computador";
+        String primeiraFrase = objetivo.strip().split("[.!?\\r\\n]", 2)[0];
+        StringBuilder nome = new StringBuilder();
+        int quantidade = 0;
+        for (String trecho : primeiraFrase.split("\\s+")) {
+            String palavra = trecho.replaceAll("^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$", "");
+            if (palavra.isBlank()) continue;
+            if (quantidade == 6) break;
+            if (!nome.isEmpty()) nome.append(' ');
+            int disponivel = 60 - nome.length();
+            if (disponivel <= 0) break;
+            nome.append(palavra, 0, Math.min(palavra.length(), disponivel));
+            quantidade++;
+            if (nome.length() == 60) break;
+        }
+        if (nome.isEmpty()) return "tarefa no computador";
+        nome.setCharAt(0, Character.toLowerCase(nome.charAt(0)));
+        return nome.toString();
     }
     private void publicar(Tarefa t) {
         eventos.publishEvent(new EventoConversa(t.usuario, "computer.progresso", t.retrato()));

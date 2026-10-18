@@ -1,9 +1,11 @@
 package dev.jarvis.pc;
 
 import java.security.SecureRandom;
+import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
@@ -36,8 +38,15 @@ public class IntencoesPc {
 
     /** Vazio = mensagem comum; presente = resposta deterministica sem passar pelo modelo. */
     public Optional<String> tratar(String texto, long usuario, String pedidoAtual) {
-        String recebido = texto == null ? "" : texto.trim();
-        if (!recebido.matches("(?i)(confirmo(?: pc| rotina)? [0-9]{6}|cancelar|cancelo [0-9]{6})"))
+        String recebido = normalizar(texto);
+        boolean fraseDeConfirmacao = switch (recebido) {
+            case "confirmo", "confirmo a tarefa", "confirmo a operacao", "pode prosseguir",
+                    "pode proceguir", "pode continuar", "pode seguir", "pode executar",
+                    "sim pode prosseguir" -> true;
+            default -> false;
+        };
+        if (!fraseDeConfirmacao && !recebido.matches(
+                "confirmo(?: pc| rotina)? [0-9]{6}|cancelar|cancelo [0-9]{6}"))
             return Optional.empty();
         Pendente executar = null;
         synchronized (this) {
@@ -50,17 +59,27 @@ public class IntencoesPc {
                 pendente = null;
                 return Optional.of("A confirmacao expirou; faca um novo pedido.");
             }
-            if (recebido.equalsIgnoreCase("cancelar") || recebido.equalsIgnoreCase("cancelo " + p.codigo())) {
+            if (recebido.equals("cancelar") || recebido.equals("cancelo " + p.codigo())) {
                 pendente = null;
                 return Optional.of("Operacao do PC cancelada.");
             }
             String esperado = p.tipo().equals("rotina") ? "confirmo rotina " + p.codigo()
                     : "confirmo pc " + p.codigo();
-            if (!recebido.equalsIgnoreCase(esperado) && !recebido.equalsIgnoreCase("confirmo " + p.codigo()))
+            if (!fraseDeConfirmacao && !recebido.equals(esperado)
+                    && !recebido.equals("confirmo " + p.codigo()))
                 return Optional.of("Codigo incorreto; a operacao continua pendente ate expirar ou ser cancelada.");
             pendente = null;
             executar = p;
         }
         return Optional.of(executar.executar().get());
+    }
+
+    private static String normalizar(String texto) {
+        if (texto == null) return "";
+        String semAcentos = Normalizer.normalize(texto, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
+        return semAcentos.toLowerCase(Locale.ROOT).trim()
+                .replaceAll("[.!?]+$", "").replace(',', ' ')
+                .replaceAll("\\s+", " ").trim();
     }
 }

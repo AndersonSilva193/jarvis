@@ -55,8 +55,8 @@ public class RodarRotinaFerramenta implements Ferramenta {
             var confirmacao = intencoes.pedir("rotina", "Executar rotina " + nome,
                     contexto.usuarioAutenticado(), contexto.idPedido(), () ->
                             iniciar(nome, pedidoConfirmado, contexto));
-            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo rotina "
-                    + confirmacao.codigo(), java.util.List.of(), java.util.List.of(),
+            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
+                    java.util.List.of(), java.util.List.of(),
                     confirmacao, java.util.List.of(), java.util.List.of());
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             return ResultadoFerramenta.texto(recusa.getMessage());

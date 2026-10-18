@@ -16,15 +16,20 @@ public class CancelarTarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.json = json;
     }
     @Override public String nome() { return "cancelar_tarefa_no_pc"; }
-    @Override public String descricao() { return "Pede parada remota de uma tarefa visual do PC pelo ID."; }
+    @Override public String descricao() { return "Pede parada da ultima tarefa visual do usuario no PC; ID opcional para tarefa especifica."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         raiz.putObject("properties").putObject("id").put("type", "string");
-        raiz.putArray("required").add("id"); return raiz;
+        return raiz;
     }
     @Override public String executar(JsonNode entrada) { return "Pedido autenticado necessario."; }
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso contexto) {
-        return ResultadoFerramenta.texto(tarefas.cancelar(Json.texto(entrada.path("id")),
+        String id = Json.texto(entrada.path("id"));
+        if (id.isBlank()) {
+            var ultima = tarefas.ultima(contexto.usuarioAutenticado());
+            id = ultima == null ? "" : ultima.id();
+        }
+        return ResultadoFerramenta.texto(tarefas.cancelar(id,
                 contexto.usuarioAutenticado()) ? "Cancelamento solicitado." : "Tarefa nao encontrada ou encerrada.");
     }
 }

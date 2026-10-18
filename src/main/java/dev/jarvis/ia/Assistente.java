@@ -213,7 +213,7 @@ public class Assistente {
                 // Prazo inválido não pode abrir uma janela de confirmação sem validade.
             }
         }
-        return new EscutaResposta(segundos, List.of(confirmacao.codigo(), "cancelar"), confirmacao.descricao());
+        return new EscutaResposta(segundos, List.of("confirmo", "cancelar"), confirmacao.descricao());
     }
 
     /** Executa uma instrução avulsa sem misturar com o histórico da conversa. */

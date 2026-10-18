@@ -53,4 +53,44 @@ class IntencoesPcTest {
                 .contains("expirou"));
         assertEquals(0, execucoes.get());
     }
+
+    @Test void frasesNaturaisConfirmamTodosOsTipos() {
+        for (String tipo : new String[] { "computer", "rotina", "pc" }) {
+            for (String frase : new String[] { "confirmo", "CONFIRMO A TAREFA!",
+                    " Confirmo   a operação. ", "Pode prosseguir?", "pode proceguir",
+                    "pode continuar", "pode seguir", "pode executar", "Sim, pode prosseguir." }) {
+                IntencoesPc guarda = new IntencoesPc(new Relogio());
+                AtomicInteger execucoes = new AtomicInteger();
+                guarda.pedir(tipo, "acao", 42, "origem", () -> "feito " + execucoes.incrementAndGet());
+                assertEquals("feito 1", guarda.tratar(frase, 42, "novo").orElseThrow(), tipo + ": " + frase);
+                assertEquals(1, execucoes.get());
+                assertTrue(guarda.tratar(frase, 42, "outro").orElseThrow().contains("Nao ha"));
+            }
+        }
+    }
+
+    @Test void fraseCurtaAindaExigeUsuarioPedidoNovoEPrazo() {
+        Relogio relogio = new Relogio();
+        IntencoesPc guarda = new IntencoesPc(relogio);
+        AtomicInteger execucoes = new AtomicInteger();
+        guarda.pedir("computer", "acao", 42, "origem", () -> "feito " + execucoes.incrementAndGet());
+        assertTrue(guarda.tratar("confirmo", 42, "origem").orElseThrow().contains("recusada"));
+        assertTrue(guarda.tratar("confirmo", 7, "novo").orElseThrow().contains("recusada"));
+        assertTrue(guarda.tratar("confirmo qualquer coisa", 42, "novo").isEmpty());
+        assertEquals("Operacao do PC cancelada.", guarda.tratar("CANCELAR!", 42, "novo").orElseThrow());
+        assertEquals(0, execucoes.get());
+        guarda.pedir("computer", "acao", 42, "origem-2", () -> "feito " + execucoes.incrementAndGet());
+        relogio.agora.set(relogio.agora.get().plusSeconds(121));
+        assertTrue(guarda.tratar("confirmo", 42, "novo-2").orElseThrow().contains("expirou"));
+        assertEquals(0, execucoes.get());
+    }
+
+    @Test void mensagensAntigasComCodigoContinuamValidas() {
+        for (String tipo : new String[] { "computer", "rotina", "pc" }) {
+            IntencoesPc guarda = new IntencoesPc(new Relogio());
+            String codigo = guarda.pedir(tipo, "acao", 42, "origem", () -> "feito").codigo();
+            String frase = tipo.equals("rotina") ? "confirmo rotina " : "confirmo pc ";
+            assertEquals("feito", guarda.tratar(frase + codigo, 42, "novo").orElseThrow());
+        }
+    }
 }

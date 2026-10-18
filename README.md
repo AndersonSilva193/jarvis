@@ -541,8 +541,8 @@ Instale esta versão da API antes da HUD com janelas. O formato dos eventos SSE 
 ## Operações E2 do PC e rotinas
 
 `rodar_rotina` oferece ao modelo somente nomes, descrições e capacidades anunciados pelo agente.
-O cadastro real fica em `rotinas.properties` no PC. Toda rotina exige uma nova mensagem do usuário
-com `confirmo rotina <código>`; o agente valida sua própria política local. A confirmação é consumida em
+O cadastro real fica em `rotinas.properties` no PC. Toda rotina exige uma nova mensagem do usuário:
+`confirmo` ou `pode prosseguir`, por exemplo. O agente valida sua própria política local. A confirmação é consumida em
 até dois minutos e fica vinculada ao nome e ao pedido original; o modelo não pode confirmá-la
 no mesmo turno. O texto original segue ao agente para uso por stdin na rotina Claude.
 
@@ -570,9 +570,12 @@ Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`
 
 `tarefa_no_pc` é último recurso: use somente quando resposta direta, busca, arquivo, rotina
 cadastrada ou ação fixa não resolver. A ferramenta guarda objetivo, usuário e pedido de origem;
-uma **nova** mensagem `confirmo pc <código>` (Telegram ou botão da HUD) inicia a tarefa sem
+uma **nova** mensagem como `confirmo`, `confirmo a tarefa` ou `pode prosseguir` (Telegram ou HUD) inicia a tarefa sem
 devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e `rodar_rotina`
-na produção. `cancelar` encerra a intenção pendente. O código vale dois minutos e serve uma vez.
+na produção. `cancelar` encerra a intenção pendente. A confirmação vale dois minutos e serve uma vez;
+as mensagens antigas com código ainda são aceitas. Os avisos usam um nome curto derivado do objetivo,
+enquanto o ID permanece na API para consultas específicas. Pelo Telegram, status e cancelamento usam
+a última tarefa do usuário quando nenhum ID é informado.
 
 Por padrão `COMPUTER_USE_ATIVO=false`. Para ativar após homologação, configure também
 `computer.use.ativo=true` no `config.properties` do agente. O provedor padrão é Anthropic;
@@ -585,7 +588,7 @@ imagens de resultado não entregue expiram após cinco minutos.
 
 A HUD consulta `GET /api/computer/ultima`, acompanha `computer.progresso` e pode pedir parada em
 `POST /api/computer/{id}/cancelar`. O Telegram usa `status_tarefa_no_pc` e
-`cancelar_tarefa_no_pc` pelo ID. O atalho local **Ctrl+Alt+Shift+F12** e o ícone da bandeja param
+`cancelar_tarefa_no_pc` sem ID para a última tarefa, ou com ID para uma tarefa específica. O atalho local **Ctrl+Alt+Shift+F12** e o ícone da bandeja param
 novas ações sem rede. A ação já iniciada pode terminar antes da parada; nesse caso o estado é
 `resultado_incerto`. O cancelamento remoto interrompe a espera do servidor e bloqueia a próxima
 ação; sua latência depende da ação em curso e da rede. Com rede indisponível, use a parada local.
