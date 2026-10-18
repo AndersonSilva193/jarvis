@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.ferramentas.Ferramentas;
+import dev.jarvis.pc.IntencoesPc;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,6 +48,7 @@ public class Assistente {
     private final RegistroConversas conversas;
     private final AnexosService anexos;
     private final BuscaWebServidor buscaWeb;
+    private final IntencoesPc intencoesPc;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
@@ -55,12 +57,18 @@ public class Assistente {
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
         this(claude, ferramentas, sistema, json, new RegistroConversas(evento -> { }), new AnexosService(),
-                BuscaWebServidor.desligada());
+                BuscaWebServidor.desligada(), new IntencoesPc());
+    }
+
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, new IntencoesPc());
     }
 
     @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
-            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb) {
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            IntencoesPc intencoesPc) {
         this.claude = claude;
         this.ferramentas = ferramentas;
         this.sistema = sistema;
@@ -68,6 +76,7 @@ public class Assistente {
         this.conversas = conversas;
         this.anexos = anexos;
         this.buscaWeb = buscaWeb;
+        this.intencoesPc = intencoesPc;
     }
 
     /** Responde a uma mensagem vinda do Telegram. */
@@ -124,7 +133,11 @@ public class Assistente {
             String resposta;
             var confirmacaoMemoria = java.util.regex.Pattern.compile(
                     "(?i)^confirmo esquecer ([0-9a-f-]{36}) ([0-9]{6})$").matcher(texto.trim());
-            if (confirmacaoMemoria.matches() && progresso.usuarioAutenticado() > 0) {
+            var decisaoPc = intencoesPc.tratar(texto, progresso.usuarioAutenticado(), id);
+            if (decisaoPc.isPresent()) {
+                resposta = decisaoPc.get();
+                turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
+            } else if (confirmacaoMemoria.matches() && progresso.usuarioAutenticado() > 0) {
                 ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
                         .put("id", "esquecer_" + id).put("name", "esquecer_memoria");
                 chamada.putObject("input").put("id", confirmacaoMemoria.group(1))

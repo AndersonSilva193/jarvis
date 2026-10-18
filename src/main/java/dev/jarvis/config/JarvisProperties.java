@@ -29,6 +29,7 @@ public record JarvisProperties(
         BuscaWeb buscaWeb,
         Youtube youtube,
         Pc pc,
+        ComputerUse computerUse,
         Google google,
         Memoria memoria) {
 
@@ -39,7 +40,7 @@ public record JarvisProperties(
             Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, null, null);
     }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -47,8 +48,21 @@ public record JarvisProperties(
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
             Google google) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, google, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, google, null);
     }
+
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            Google google, Memoria memoria) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, null, google, memoria);
+    }
+
+    /** Computer use fica desligado ate ser configurado e homologado no Windows. */
+    public record ComputerUse(boolean ativo, String provedor, String modeloAnthropic,
+            String modeloOpenai, String openaiApiKey, int maxCiclos, int maxAcoes,
+            int duracaoSegundos) { }
 
     public record Telegram(String token, long usuarioPermitido) {
     }

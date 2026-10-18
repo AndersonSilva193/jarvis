@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.ComandoPc;
-import dev.jarvis.pc.GuardaDeRotina;
+import dev.jarvis.pc.IntencoesPc;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -17,10 +17,10 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class RodarRotinaFerramenta implements Ferramenta {
     private final OperacoesPcService e2;
-    private final GuardaDeRotina guarda;
+    private final IntencoesPc intencoes;
     private final JsonMapper json;
-    public RodarRotinaFerramenta(OperacoesPcService e2, GuardaDeRotina guarda, JsonMapper json) {
-        this.e2 = e2; this.guarda = guarda; this.json = json;
+    public RodarRotinaFerramenta(OperacoesPcService e2, IntencoesPc intencoes, JsonMapper json) {
+        this.e2 = e2; this.intencoes = intencoes; this.json = json;
     }
     @Override public String nome() { return "rodar_rotina"; }
     @Override public String descricao() {
@@ -50,17 +50,22 @@ public class RodarRotinaFerramenta implements Ferramenta {
         String pedido = contexto.pedidoOriginal();
         if (pedido == null || pedido.isBlank() || pedido.length() > 8000)
             return ResultadoFerramenta.texto("Pedido original ausente ou acima do limite.");
-        if (guarda.haPendente(nome)) {
-            String original = guarda.consumir(nome, pedido);
-            if (original == null) return ResultadoFerramenta.texto(
-                    "Aguarde a confirmação do usuário em uma nova mensagem com o código solicitado.");
-            pedido = original;
-        } else {
-            String codigo = guarda.pedir(nome, pedido);
-            return ResultadoFerramenta.texto("Confirmação necessária para a rotina " + nome
-                    + ". Mostre ao usuário o código " + codigo
-                    + " e espere uma NOVA mensagem exatamente: confirmo rotina " + codigo);
+        String pedidoConfirmado = pedido;
+        try {
+            var confirmacao = intencoes.pedir("rotina", "Executar rotina " + nome,
+                    contexto.usuarioAutenticado(), contexto.idPedido(), () ->
+                            iniciar(nome, pedidoConfirmado, contexto));
+            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo rotina "
+                    + confirmacao.codigo(), java.util.List.of(), java.util.List.of(),
+                    confirmacao, java.util.List.of(), java.util.List.of());
+        } catch (IllegalArgumentException | IllegalStateException recusa) {
+            return ResultadoFerramenta.texto(recusa.getMessage());
         }
+    }
+
+    private String iniciar(String nome, String pedido, OuvinteProgresso contexto) {
+        if (!e2.online() || e2.rotinas().stream().noneMatch(r -> r.nome().equals(nome)))
+            return "Agente offline ou rotina removida; nao iniciei.";
         ObjectNode dados = json.createObjectNode().put("pedido", pedido)
                 .put("confirmado", true);
         ComandoPc comando = new ComandoPc(java.util.UUID.randomUUID().toString(),
@@ -71,20 +76,20 @@ public class RodarRotinaFerramenta implements Ferramenta {
                     contexto.usuarioAutenticado());
             try {
                 var resultado = futuro.get(30, TimeUnit.SECONDS);
-                return ResultadoFerramenta.texto("Operação " + comando.id() + ": "
-                        + (resultado.ok() ? "concluída" : "falhou") + ". " + resultado.mensagem());
+                return "Operação " + comando.id() + ": "
+                        + (resultado.ok() ? "concluída" : "falhou") + ". " + resultado.mensagem();
             } catch (java.util.concurrent.TimeoutException espera) {
                 e2.pedirAviso(comando.id());
-                return ResultadoFerramenta.texto("Operação " + comando.id() + " em estado "
+                return "Operação " + comando.id() + " em estado "
                         + e2.estado(comando.id()).orElseThrow().estado()
-                        + ". Consulte status_operacao_pc pelo ID; o resultado final será avisado.");
+                        + ". Consulte status_operacao_pc pelo ID; o resultado final será avisado.";
             }
         } catch (InterruptedException interrompida) {
             e2.pedirAviso(comando.id());
             Thread.currentThread().interrupt();
-            return ResultadoFerramenta.texto("Operação " + comando.id() + " enviada; consulte o estado pelo ID.");
+            return "Operação " + comando.id() + " enviada; consulte o estado pelo ID.";
         } catch (Exception falha) {
-            return ResultadoFerramenta.texto("Não iniciei a rotina: " + falha.getMessage());
+            return "Não iniciei a rotina: " + falha.getMessage();
         }
     }
 }

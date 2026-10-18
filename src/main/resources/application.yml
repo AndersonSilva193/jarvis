@@ -64,6 +64,15 @@ jarvis:
     # Token do agente que roda no PC Windows. Separado do HUD_TOKEN de propósito: a HUD não manda
     # na máquina. Vazio = /api/pc recusa tudo com 401 e o controle do PC fica desligado.
     token: ${PC_TOKEN:}
+  computer-use:
+    ativo: ${COMPUTER_USE_ATIVO:false}
+    provedor: ${COMPUTER_USE_PROVEDOR:anthropic}
+    modelo-anthropic: ${COMPUTER_USE_MODELO_ANTHROPIC:claude-haiku-5-5}
+    modelo-openai: ${COMPUTER_USE_MODELO_OPENAI:gpt-6.1-sol}
+    openai-api-key: ${OPENAI_API_KEY:}
+    max-ciclos: ${COMPUTER_USE_MAX_CICLOS:25}
+    max-acoes: ${COMPUTER_USE_MAX_ACOES:75}
+    duracao-segundos: ${COMPUTER_USE_DURACAO_SEGUNDOS:300}
   google:
     client-id: ${GOOGLE_CLIENT_ID:}
     client-secret: ${GOOGLE_CLIENT_SECRET:}

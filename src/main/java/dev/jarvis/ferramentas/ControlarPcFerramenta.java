@@ -23,6 +23,7 @@ import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.GuardaDeConfirmacao;
+import dev.jarvis.pc.IntencoesPc;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.telegram.TelegramClient;
@@ -54,6 +55,7 @@ public class ControlarPcFerramenta implements Ferramenta {
 
     private final PcService pc;
     private final GuardaDeConfirmacao guarda;
+    private final IntencoesPc intencoesPc;
     private final TelegramClient telegram;
     private final JsonMapper json;
     private final long chatId;
@@ -63,14 +65,20 @@ public class ControlarPcFerramenta implements Ferramenta {
 
     @Autowired
     public ControlarPcFerramenta(PcService pc, GuardaDeConfirmacao guarda, TelegramClient telegram,
-            JsonMapper json, JarvisProperties props) {
-        this(pc, guarda, telegram, json, props, ESPERA_PADRAO);
+            JsonMapper json, JarvisProperties props, IntencoesPc intencoesPc) {
+        this(pc, guarda, telegram, json, props, ESPERA_PADRAO, intencoesPc);
     }
 
     ControlarPcFerramenta(PcService pc, GuardaDeConfirmacao guarda, TelegramClient telegram,
             JsonMapper json, JarvisProperties props, Duration espera) {
+        this(pc, guarda, telegram, json, props, espera, null);
+    }
+
+    private ControlarPcFerramenta(PcService pc, GuardaDeConfirmacao guarda, TelegramClient telegram,
+            JsonMapper json, JarvisProperties props, Duration espera, IntencoesPc intencoesPc) {
         this.pc = pc;
         this.guarda = guarda;
+        this.intencoesPc = intencoesPc;
         this.telegram = telegram;
         this.json = json;
         this.chatId = props.telegram() == null ? 0 : props.telegram().usuarioPermitido();
@@ -106,13 +114,10 @@ public class ControlarPcFerramenta implements Ferramenta {
                 "foi engano", "não te chamei") — esta devolve quantos alarmes falsos já houve, \
                 número que ajuda o usuário a ajustar a sensibilidade.
 
-                desligar e reiniciar são irreversíveis e pedem confirmação em dois passos: chame \
-                sem 'codigo_confirmacao' e a ferramenta devolve um código de 4 dígitos. Diga esse \
-                código ao usuário e ESPERE ele repetir — não chame a ferramenta de novo por conta \
-                própria, em nenhuma hipótese. Quando ele repetir, chame outra vez com a mesma \
-                'acao' e 'codigo_confirmacao' igual ao que ele disse. O código vale 2 minutos, \
-                serve uma única vez, e um código errado cancela a confirmação (aí é preciso pedir \
-                outro). O PC avisa e espera 60 segundos antes de desligar de verdade, então ainda \
+                desligar e reiniciar exigem NOVA mensagem autenticada do usuário. Chame uma vez \
+                sem codigo_confirmacao; o servidor guarda a ação, mostra o código e consome a \
+                confirmação diretamente. O modelo não deve chamar a ferramenta para confirmar. \
+                O PC avisa e espera 60 segundos antes de desligar de verdade, então ainda \
                 dá para desistir com cancelar_desligamento.
 
                 As respostas são curtas de propósito: confirme em uma frase, sem repetir detalhe.\
@@ -135,6 +140,7 @@ public class ControlarPcFerramenta implements Ferramenta {
         ComandoPc.ACOES.stream()
                 .filter(nome -> !"criar_arquivo".equals(nome))
                 .filter(nome -> !"rodar_rotina".equals(nome))
+                .filter(nome -> !"computer_acao".equals(nome))
                 .filter(nome -> !"abrir_app".equals(nome) || !apps.isEmpty())
                 .forEach(opcoes::add);
 
@@ -169,6 +175,8 @@ public class ControlarPcFerramenta implements Ferramenta {
             return ResultadoFerramenta.texto("Use a ferramenta criar_arquivo para gerar arquivos.");
         if ("rodar_rotina".equals(acao))
             return ResultadoFerramenta.texto("Use a ferramenta rodar_rotina para executar cadastros manuais.");
+        if ("computer_acao".equals(acao))
+            return ResultadoFerramenta.texto("Acao interna do computer use; use tarefa_no_pc.");
         // Antes de qualquer outra coisa: travar o turno 30 s para no fim dizer "o PC está
         // offline" é o pior dos mundos.
         if (!pc.online()) {
@@ -183,6 +191,24 @@ public class ControlarPcFerramenta implements Ferramenta {
         // preencher campo, e o agente não tem o que fazer com isso.
         String efetivo = ComandoPc.exigeArgumento(acao) ? normalizar(acao, argumento) : "";
 
+        if (ComandoPc.perigosa(acao) && intencoesPc != null) {
+            if (!codigo.isBlank())
+                return ResultadoFerramenta.texto("O modelo nao pode confirmar uma acao do PC.");
+            try {
+                var confirmacao = intencoesPc.pedir("pc", acao + " o PC", progresso.usuarioAutenticado(),
+                        progresso.idPedido(), () -> {
+                            if (!pc.online()) return "PC offline; acao nao iniciada.";
+                            ComandoPc ordem = ComandoPc.nova(acao, efetivo, Instant.now());
+                            pc.enfileirar(ordem, progresso.canal(), progresso.usuarioAutenticado());
+                            pc.pedirAviso(ordem.id());
+                            return "Acao confirmada. Operacao " + ordem.id() + " enviada ao PC.";
+                        });
+                return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo pc "
+                        + confirmacao.codigo(), List.of(), List.of(), confirmacao, List.of(), List.of());
+            } catch (IllegalArgumentException | IllegalStateException falhaConfirmacao) {
+                return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());
+            }
+        }
         if (ComandoPc.perigosa(acao)) {
             Optional<ResultadoFerramenta> confirmacao = conferirConfirmacao(acao, efetivo, codigo);
             if (confirmacao.isPresent()) {

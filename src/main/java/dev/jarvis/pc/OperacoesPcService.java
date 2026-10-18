@@ -148,6 +148,16 @@ public class OperacoesPcService {
         Operacao o = operacoes.get(id);
         return o == null ? Optional.empty() : Optional.ofNullable(o.resultado);
     }
+    /** A captura de computer use vive somente ate a rodada seguinte do modelo. */
+    public synchronized void descartarImagemComputer(String id) {
+        Operacao o = operacoes.get(id);
+        if (o == null || !"computer_acao".equals(o.comando.acao()) || o.resultado == null) return;
+        ResultadoPc r = o.resultado;
+        o.resultado = new ResultadoPc(r.comandoId(), r.ok(), r.mensagem(), null, null,
+                r.arquivo(), r.dados());
+        try { Files.deleteIfExists(caminhoImagem(id)); }
+        catch (IOException ignorada) { }
+    }
     public Path arquivoDeUpload(String id) {
         if (!id.matches("[0-9a-fA-F-]{36}")) throw new IllegalArgumentException("ID inválido");
         return arquivo.getParent().resolve("arquivos").resolve(id + ".bin");
@@ -271,8 +281,15 @@ public class OperacoesPcService {
     public synchronized void varrer() {
         Instant agora = relogio.instant(); boolean mudou = false;
         for (Operacao o : new ArrayList<>(operacoes.values())) {
+            if ("computer_acao".equals(o.comando.acao()) && o.resultado != null
+                    && o.resultado.temImagem()
+                    && agora.isAfter(o.atualizado.plus(Duration.ofMinutes(5)))) {
+                descartarImagemComputer(o.comando.id());
+            }
             if (o.finalizada()) {
-                if (agora.isAfter(o.atualizado.plus(RETENCAO))) {
+                Duration retencao = "computer_acao".equals(o.comando.acao())
+                        ? Duration.ofMinutes(5) : RETENCAO;
+                if (agora.isAfter(o.atualizado.plus(retencao))) {
                     operacoes.remove(o.comando.id());
                     try {
                         Files.deleteIfExists(caminhoImagem(o.comando.id()));
@@ -343,7 +360,8 @@ public class OperacoesPcService {
                         .put("assinatura", o.assinatura).put("temResultado", o.resultado != null)
                         .put("avisoTentado", o.avisoTentado).put("avisoPendente", o.avisoPendente)
                         .put("canal", o.canal).put("chatId", o.chatId);
-                if (o.comando.dados() != null) n.set("dados", o.comando.dados());
+                if (o.comando.dados() != null && !("computer_acao".equals(o.comando.acao())
+                        && o.finalizada())) n.set("dados", o.comando.dados());
                 if (o.codigoSaida != null) n.put("codigoSaida", o.codigoSaida);
                 if (o.resultado != null) {
                     n.put("arquivo", o.resultado.arquivo());

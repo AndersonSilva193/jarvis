@@ -565,3 +565,36 @@ dados estruturados e estado ficam no diário. O servidor valida ação, tipo e t
 o resultado. Um retry idêntico recebe a mesma confirmação. Anexos tardios são enviados ao Telegram
 ou registrados no histórico da HUD; o comando continua consultável pelo ID até a retenção terminar.
 Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`, junto do diário.
+
+## Etapa 14: tarefa visual no PC
+
+`tarefa_no_pc` é último recurso: use somente quando resposta direta, busca, arquivo, rotina
+cadastrada ou ação fixa não resolver. A ferramenta guarda objetivo, usuário e pedido de origem;
+uma **nova** mensagem `confirmo pc <código>` (Telegram ou botão da HUD) inicia a tarefa sem
+devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e `rodar_rotina`
+na produção. `cancelar` encerra a intenção pendente. O código vale dois minutos e serve uma vez.
+
+Por padrão `COMPUTER_USE_ATIVO=false`. Para ativar após homologação, configure também
+`computer.use.ativo=true` no `config.properties` do agente. O provedor padrão é Anthropic;
+`COMPUTER_USE_PROVEDOR=openai` exige `OPENAI_API_KEY` e acesso ao modelo configurado. Revalide
+modelos e formatos de ferramenta na documentação oficial antes de trocar versões. Os tetos são
+25 respostas do modelo, 75 ações individuais e cinco minutos. Cada ação vai pelo E2 com ID
+próprio, sem repetição após início registrado. Capturas da tarefa não são enviadas automaticamente
+ao Telegram; são descartadas do diário da VPS após a rodada ou em até cinco minutos. No agente,
+imagens de resultado não entregue expiram após cinco minutos.
+
+A HUD consulta `GET /api/computer/ultima`, acompanha `computer.progresso` e pode pedir parada em
+`POST /api/computer/{id}/cancelar`. O Telegram usa `status_tarefa_no_pc` e
+`cancelar_tarefa_no_pc` pelo ID. O atalho local **Ctrl+Alt+Shift+F12** e o ícone da bandeja param
+novas ações sem rede. A ação já iniciada pode terminar antes da parada; nesse caso o estado é
+`resultado_incerto`. O cancelamento remoto interrompe a espera do servidor e bloqueia a próxima
+ação; sua latência depende da ação em curso e da rede. Com rede indisponível, use a parada local.
+O monitor principal é o único capturado e controlado. Alteração de geometria ou entrada do
+usuário entre ações interrompe a tarefa.
+
+Ordem de deploy: (1) publicar esta VPS com a ferramenta **desligada**; (2) atualizar o agente e
+testar o atalho local; (3) atualizar a HUD; (4) homologar com dados fictícios, ativar primeiro no
+agente e depois na VPS. Teste manual pendente: captura e escala no monitor principal, mudança de
+resolução, interferência por mouse/teclado, atalho e bandeja, queda da rede, cancelamento remoto e
+uma tarefa inofensiva até o resultado. Builds automatizados não homologam entrada nativa do
+Windows nem disponibilidade dos modelos na conta.
