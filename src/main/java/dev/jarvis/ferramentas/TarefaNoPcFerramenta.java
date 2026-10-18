@@ -25,6 +25,8 @@ public class TarefaNoPcFerramenta implements Ferramenta {
                 + "quando resposta direta, busca, criar_arquivo, rotina cadastrada e acao fixa "
                 + "nao resolverem. Descreva objetivo e mudancas permitidas em escopo curto. "
                 + "A tarefa so inicia apos nova mensagem autenticada do usuario. "
+                + "Novo pedido autenticado substitui uma confirmacao anterior ainda pendente; "
+                + "se o usuario pedir cancelamento explicito, use cancelar_tarefa_no_pc sem ID antes. "
                 + "Nunca use para pagamentos, compras, senhas ou shell.";
     }
     @Override public ObjectNode esquemaEntrada() {

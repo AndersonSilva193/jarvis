@@ -93,4 +93,36 @@ class IntencoesPcTest {
             assertEquals("feito", guarda.tratar(frase + codigo, 42, "novo").orElseThrow());
         }
     }
+
+    @Test void novoPedidoAutenticadoSubstituiConfirmacaoSemExecutarAnterior() {
+        IntencoesPc guarda = new IntencoesPc(new Relogio());
+        AtomicInteger antigas = new AtomicInteger();
+        String codigoAntigo = guarda.pedir("computer", "buscar academias", 42, "pedido-1",
+                () -> "antiga " + antigas.incrementAndGet()).codigo();
+        assertThrows(IllegalStateException.class, () -> guarda.pedir("computer", "outra", 42,
+                "pedido-1", () -> "indevido"));
+        assertThrows(IllegalStateException.class, () -> guarda.pedir("computer", "outra", 7,
+                "pedido-2", () -> "indevido"));
+        guarda.pedir("computer", "abrir Battle.net", 42, "pedido-2", () -> "nova");
+        assertTrue(guarda.tratar("confirmo pc " + codigoAntigo, 42, "pedido-3")
+                .orElseThrow().contains("incorreto"));
+        assertEquals("nova", guarda.tratar("confirmo", 42, "pedido-4").orElseThrow());
+        assertEquals(0, antigas.get());
+    }
+
+    @Test void cancelamentoDeTarefaPendenteExigeMesmoUsuarioEMensagemNova() {
+        IntencoesPc guarda = new IntencoesPc(new Relogio());
+        guarda.pedir("computer", "buscar academias", 42, "pedido-1", () -> "indevido");
+        assertEquals(IntencoesPc.Cancelamento.RECUSADA,
+                guarda.cancelarTarefaPendente(42, "pedido-1"));
+        assertEquals(IntencoesPc.Cancelamento.RECUSADA,
+                guarda.cancelarTarefaPendente(7, "pedido-2"));
+        assertEquals(IntencoesPc.Cancelamento.CANCELADA,
+                guarda.cancelarTarefaPendente(42, "pedido-2"));
+        assertEquals(IntencoesPc.Cancelamento.INEXISTENTE,
+                guarda.cancelarTarefaPendente(42, "pedido-3"));
+        guarda.pedir("rotina", "outra", 42, "pedido-4", () -> "rotina");
+        assertEquals(IntencoesPc.Cancelamento.INEXISTENTE,
+                guarda.cancelarTarefaPendente(42, "pedido-5"));
+    }
 }

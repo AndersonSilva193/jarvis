@@ -14,6 +14,8 @@ import dev.jarvis.conversa.Confirmacao;
 /** Autorizacao humana de uso unico, consumida antes de qualquer chamada ao modelo. */
 @Component
 public class IntencoesPc {
+    public enum Cancelamento { CANCELADA, INEXISTENTE, RECUSADA }
+
     private record Pendente(String tipo, String descricao, String codigo, long usuario,
             String pedidoOrigem, Instant expira, Supplier<String> executar) { }
 
@@ -28,12 +30,27 @@ public class IntencoesPc {
             String pedidoOrigem, Supplier<String> executar) {
         if (usuario <= 0 || pedidoOrigem == null || pedidoOrigem.isBlank())
             throw new IllegalArgumentException("pedido autenticado necessario");
-        if (pendente != null && relogio.instant().isBefore(pendente.expira()))
+        if (pendente != null && relogio.instant().isBefore(pendente.expira())
+                && (pendente.usuario() != usuario || pendente.pedidoOrigem().equals(pedidoOrigem)))
             throw new IllegalStateException("ja existe uma confirmacao do PC em aberto");
         String codigo = String.format("%06d", sorteio.nextInt(1_000_000));
         Instant expira = relogio.instant().plus(Duration.ofMinutes(2));
         pendente = new Pendente(tipo, descricao, codigo, usuario, pedidoOrigem, expira, executar);
         return new Confirmacao(codigo, descricao, expira.toString());
+    }
+
+    /** Cancela somente a confirmacao de tarefa visual, sem tocar em tarefas ja iniciadas. */
+    public synchronized Cancelamento cancelarTarefaPendente(long usuario, String pedidoAtual) {
+        Pendente p = pendente;
+        if (p == null || !p.tipo().equals("computer")) return Cancelamento.INEXISTENTE;
+        if (!relogio.instant().isBefore(p.expira())) {
+            pendente = null;
+            return Cancelamento.INEXISTENTE;
+        }
+        if (usuario <= 0 || usuario != p.usuario() || pedidoAtual == null
+                || pedidoAtual.equals(p.pedidoOrigem())) return Cancelamento.RECUSADA;
+        pendente = null;
+        return Cancelamento.CANCELADA;
     }
 
     /** Vazio = mensagem comum; presente = resposta deterministica sem passar pelo modelo. */

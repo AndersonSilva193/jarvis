@@ -575,7 +575,9 @@ devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e
 na produção. `cancelar` encerra a intenção pendente. A confirmação vale dois minutos e serve uma vez;
 as mensagens antigas com código ainda são aceitas. Os avisos usam um nome curto derivado do objetivo,
 enquanto o ID permanece na API para consultas específicas. Pelo Telegram, status e cancelamento usam
-a última tarefa do usuário quando nenhum ID é informado.
+a última tarefa do usuário quando nenhum ID é informado. Uma confirmação ainda pendente vive no servidor
+Jarvis e não possui ID de tarefa no agente do PC: `cancelar_tarefa_no_pc` sem ID a cancela primeiro.
+Um novo pedido autenticado do mesmo usuário também substitui a confirmação anterior sem executá-la.
 
 Por padrão `COMPUTER_USE_ATIVO=false`. Para ativar após homologação, configure também
 `computer.use.ativo=true` no `config.properties` do agente. O provedor padrão é Anthropic;
