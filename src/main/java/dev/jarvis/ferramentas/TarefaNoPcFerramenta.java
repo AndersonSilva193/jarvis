@@ -21,9 +21,13 @@ public class TarefaNoPcFerramenta implements Ferramenta {
     }
     @Override public String nome() { return "tarefa_no_pc"; }
     @Override public String descricao() {
-        return "Ultimo recurso para operar visualmente o monitor principal do PC. Use somente "
-                + "quando resposta direta, busca, criar_arquivo, rotina cadastrada e acao fixa "
-                + "nao resolverem. Descreva objetivo e mudancas permitidas em escopo curto. "
+        if (!tarefas.disponivel()) return "Computer use indisponivel agora: desativado ou agente "
+                + "do PC offline. Nao prometa executar tarefa visual enquanto estiver indisponivel.";
+        return "Ultimo recurso para executar tarefa pela interface visual do monitor principal do PC. "
+                + "Se o usuario pediu uma acao que pode ser feita no PC e resposta direta, busca, "
+                + "criar_arquivo, rotina cadastrada ou acao fixa nao resolverem, use esta ferramenta "
+                + "para pedir confirmacao. Nao diga que falta ferramenta antes de tentar este caminho. "
+                + "Descreva objetivo e mudancas permitidas em escopo curto. "
                 + "A tarefa so inicia apos nova mensagem autenticada do usuario. "
                 + "Novo pedido autenticado substitui uma confirmacao anterior ainda pendente; "
                 + "se o usuario pedir cancelamento explicito, use cancelar_tarefa_no_pc sem ID antes. "

@@ -570,7 +570,9 @@ Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`
 
 `tarefa_no_pc` é último recurso: use somente quando resposta direta, busca, arquivo, rotina
 cadastrada ou ação fixa não resolver. A ferramenta guarda objetivo, usuário e pedido de origem;
-uma **nova** mensagem como `confirmo`, `confirmo a tarefa` ou `pode prosseguir` (Telegram ou HUD) inicia a tarefa sem
+para um pedido interativo que possa ser feito visualmente no PC, o Jarvis deve oferecer esse caminho
+antes de alegar falta de ferramenta. Se o recurso estiver desativado ou o agente offline, deve dizer isso.
+Uma **nova** mensagem como `confirmo`, `confirmo a tarefa` ou `pode prosseguir` (Telegram ou HUD) inicia a tarefa sem
 devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e `rodar_rotina`
 na produção. `cancelar` encerra a intenção pendente. A confirmação vale dois minutos e serve uma vez;
 as mensagens antigas com código ainda são aceitas. Os avisos usam um nome curto derivado do objetivo,

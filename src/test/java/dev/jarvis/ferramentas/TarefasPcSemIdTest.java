@@ -76,4 +76,14 @@ class TarefasPcSemIdTest {
         assertTrue(resposta.texto().contains("Confirme em NOVA mensagem"));
         assertEquals("tarefa nova iniciada", intencoes.tratar("confirmo", 42, "terceiro-pedido").orElseThrow());
     }
+
+    @Test void descricaoApresentaUltimoRecursoSomenteQuandoDisponivel() {
+        var ferramenta = new TarefaNoPcFerramenta(tarefas, intencoes, json);
+        when(tarefas.disponivel()).thenReturn(false, true);
+        assertTrue(ferramenta.descricao().contains("indisponivel"));
+        String disponivel = ferramenta.descricao();
+        assertTrue(disponivel.contains("Ultimo recurso"));
+        assertTrue(disponivel.contains("Nao diga que falta ferramenta"));
+        assertTrue(disponivel.contains("pedir confirmacao"));
+    }
 }

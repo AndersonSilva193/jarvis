@@ -79,7 +79,8 @@ class PromptDeSistemaTest {
         assertTrue(dinamico.contains("America/Sao_Paulo"), dinamico);
         assertTrue(dinamico.contains("canal: telegram"), dinamico);
         assertTrue(dinamico.contains("nunca invente o resultado"), dinamico);
-        assertTrue(dinamico.contains("não existir ferramenta"), dinamico);
+        assertTrue(dinamico.contains("use tarefa_no_pc para pedir"), dinamico);
+        assertTrue(dinamico.contains("Não diga que falta"), dinamico);
     }
 
     @Test
@@ -95,9 +96,12 @@ class PromptDeSistemaTest {
 
         String briefing = texto(montar(Canal.BRIEFING, true).get(1));
         assertTrue(briefing.contains("não altere nenhum número"), briefing);
+        assertFalse(briefing.contains("use tarefa_no_pc"), briefing);
 
         String tarefa = texto(montar(Canal.TAREFA, true).get(1));
         assertTrue(tarefa.contains("linha de status"), tarefa);
+        assertFalse(tarefa.contains("use tarefa_no_pc"), tarefa);
+        assertTrue(hud.contains("use tarefa_no_pc para pedir"), hud);
     }
 
     @Test
