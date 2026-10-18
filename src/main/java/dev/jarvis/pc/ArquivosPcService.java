@@ -3,6 +3,7 @@ package dev.jarvis.pc;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,9 +28,22 @@ public class ArquivosPcService {
 
     public synchronized boolean guardar(String id, byte[] bytes) throws IOException {
         limpar();
-        if (!pc.aguardandoArquivo(id) || bytes == null || bytes.length == 0 || bytes.length > LIMITE)
+        if (bytes == null || bytes.length == 0 || bytes.length > LIMITE)
             return false;
+        Optional<Path> persistente = pc.caminhoArquivoE2(id);
+        if (persistente.isPresent()) {
+            Path destino = persistente.orElseThrow();
+            if (Files.isRegularFile(destino)) return java.util.Arrays.equals(bytes, Files.readAllBytes(destino));
+            if (!pc.aguardandoArquivo(id)) return false;
+            Files.createDirectories(destino.getParent());
+            Path temporario = destino.resolveSibling(destino.getFileName() + ".tmp");
+            Files.write(temporario, bytes);
+            Files.move(temporario, destino, StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+            return true;
+        }
         if (arquivos.containsKey(id)) return java.util.Arrays.equals(bytes, Files.readAllBytes(arquivos.get(id).caminho()));
+        if (!pc.aguardandoArquivo(id)) return false;
         Path caminho = Files.createTempFile("jarvis-arquivo-pc-", ".tmp");
         try { Files.write(caminho, bytes); }
         catch (IOException e) { Files.deleteIfExists(caminho); throw e; }
@@ -39,6 +53,9 @@ public class ArquivosPcService {
 
     public synchronized Optional<Path> obter(String id) {
         limpar();
+        Optional<Path> persistente = pc.caminhoArquivoE2(id);
+        if (persistente.isPresent() && Files.isRegularFile(persistente.orElseThrow()))
+            return persistente;
         Guardado guardado = arquivos.get(id);
         if (guardado == null) return Optional.empty();
         arquivos.put(id, new Guardado(guardado.caminho(), relogio.instant().plus(Duration.ofHours(1))));

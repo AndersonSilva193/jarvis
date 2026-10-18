@@ -13,8 +13,8 @@ RUN useradd --system --uid 1001 jarvis
 # O cache de voz precisa existir COM dono certo antes do USER: o Docker copia essa
 # propriedade ao criar o volume nomeado, e sem isso ele nasceria do root e o Jarvis
 # (uid 1001) não conseguiria gravar nada.
-RUN mkdir -p /data/voz /data/jarvis/memoria /data/jarvis/memoria-exclusoes \
-    && chown -R jarvis:jarvis /data/voz /data/jarvis
+RUN mkdir -p /data/voz /data/jarvis/memoria /data/jarvis/memoria-exclusoes /data/pc \
+    && chown -R jarvis:jarvis /data/voz /data/jarvis /data/pc
 COPY --from=build /app/target/jarvis.jar app.jar
 USER jarvis
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]

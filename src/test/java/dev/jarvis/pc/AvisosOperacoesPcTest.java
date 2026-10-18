@@ -1,0 +1,46 @@
+package dev.jarvis.pc;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import dev.jarvis.conversa.AnexosService;
+import dev.jarvis.conversa.RegistroConversas;
+import dev.jarvis.telegram.TelegramClient;
+import tools.jackson.databind.json.JsonMapper;
+
+class AvisosOperacoesPcTest {
+    @TempDir Path pasta;
+
+    @Test void imagemTardiaEntraNaHudUmaVez() throws Exception {
+        var e2 = new OperacoesPcService(JsonMapper.builder().build(),
+                pasta.resolve("operacoes.json"), Clock.systemUTC());
+        var comando = ComandoPc.nova("captura_tela", "", Instant.now());
+        e2.enfileirar(comando, Duration.ofMinutes(1), Duration.ofMinutes(1), "hud", 42);
+        e2.proximo(Duration.ZERO); e2.recebido(comando.id()); e2.executando(comando.id());
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10};
+        e2.concluir(comando.id(), "concluído",
+                new ResultadoPc(comando.id(), true, "print", png, "image/png"), null);
+        e2.pedirAviso(comando.id());
+        var conversas = mock(RegistroConversas.class);
+        var anexos = new AnexosService();
+        try {
+            var avisos = new AvisosOperacoesPc(e2, mock(TelegramClient.class), conversas,
+                    mock(ArquivosPcService.class), anexos);
+            avisos.avisar(); avisos.avisar();
+            verify(conversas, times(1)).registrarResultadoTardio(eq(42L), eq(comando.id()),
+                    anyString(), argThat(lista -> lista.size() == 1));
+            assertEquals(0, e2.avisosPendentes().size());
+        } finally { anexos.fechar(); }
+    }
+}

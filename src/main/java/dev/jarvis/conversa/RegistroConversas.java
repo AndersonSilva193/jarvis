@@ -83,6 +83,26 @@ public class RegistroConversas {
         avisarHistorico(chatId);
     }
 
+    /** Insere um resultado posterior sem encerrar uma conversa nova que esteja em andamento. */
+    public void registrarResultadoTardio(long chatId, String id, String texto) {
+        registrarResultadoTardio(chatId, id, texto, List.of());
+    }
+
+    public void registrarResultadoTardio(long chatId, String id, String texto, List<Anexo> anexos) {
+        RespostaConversa resposta = new RespostaConversa(id, "hud", texto, anexos, null,
+                Instant.now().toString(), null);
+        synchronized (this) {
+            Conversa c = conversa(chatId);
+            List<Troca> novas = new ArrayList<>(c.trocas);
+            novas.add(new Troca(id, "hud", "Resultado da operação " + id, resposta));
+            c.trocas = List.copyOf(novas.subList(Math.max(0, novas.size() - 10), novas.size()));
+            if (c.pendente == null) c.ultima = resposta;
+            c.revisao++;
+        }
+        publicar(chatId, "conversa.resposta", resposta);
+        avisarHistorico(chatId);
+    }
+
     /** Confirma exclusão sem reter o texto que pode conter o dado esquecido. */
     public void concluirSemHistorico(long chatId, RespostaConversa resposta) {
         synchronized (this) {

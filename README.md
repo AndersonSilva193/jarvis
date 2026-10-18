@@ -537,3 +537,31 @@ O estado aceita também `resposta` e todas as janelas minimizadas, sem o antigo 
 A HUD envia primeiro o foco e a mídia em reprodução; o contexto continua limitado a 12 linhas.
 `limpar` preserva cards fixados; `fechar_tudo` fecha inclusive os fixados.
 Instale esta versão da API antes da HUD com janelas. O formato dos eventos SSE permanece igual.
+
+## Operações E2 do PC e rotinas
+
+`rodar_rotina` oferece ao modelo somente nomes, descrições e capacidades anunciados pelo agente.
+O cadastro real fica em `rotinas.properties` no PC. Toda rotina exige uma nova mensagem do usuário
+com `confirmo rotina <código>`; o agente valida sua própria política local. A confirmação é consumida em
+até dois minutos e fica vinculada ao nome e ao pedido original; o modelo não pode confirmá-la
+no mesmo turno. O texto original segue ao agente para uso por stdin na rotina Claude.
+
+O protocolo E2 usa `/api/pc/v2`: catálogo, busca com prazo de posse, confirmação de recebimento,
+marcação de início, resultado, consulta por ID e sinal de cancelamento. O ID permanece o mesmo em
+reentregas. Estados e prazos são gravados no volume `pc-operacoes` em
+`PC_OPERACOES_PASTA`. Após 30 segundos de espera na ferramenta, consulte
+`status_operacao_pc` pelo ID; essa espera não cancela a execução. O resultado tardio gera no máximo
+uma tentativa de aviso e continua consultável pelo ID. `resultado_incerto` requer decisão humana:
+não envie automaticamente o mesmo comando de novo.
+
+Para implantar, publique primeiro a VPS com as rotas `/api/pc/v2` e só então atualize o agente do
+Windows. As rotas `/api/pc` antigas permanecem durante a migração. O agente novo anuncia rotinas
+somente após carregar um cadastro local válido. Execute `mvn -q -B package` nos dois projetos antes
+de publicar.
+
+O E2 também transporta os resultados de `criar_arquivo`, `captura_tela`, `listar_arquivos` e
+`ler_arquivo`. O upload binário de `criar_arquivo` e as imagens ficam no volume `pc-operacoes`;
+dados estruturados e estado ficam no diário. O servidor valida ação, tipo e tamanho antes de aceitar
+o resultado. Um retry idêntico recebe a mesma confirmação. Anexos tardios são enviados ao Telegram
+ou registrados no histórico da HUD; o comando continua consultável pelo ID até a retenção terminar.
+Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`, junto do diário.

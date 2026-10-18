@@ -75,12 +75,19 @@ public class CriarArquivoFerramenta implements Ferramenta {
                 Instant.now().toString(), entrada.deepCopy());
         dev.jarvis.pc.ResultadoPc resultado;
         try {
-            resultado = pc.enfileirar(comando).get(Duration.ofSeconds(150).toMillis(), TimeUnit.MILLISECONDS);
+            resultado = pc.enfileirar(comando, progresso.canal(), progresso.usuarioAutenticado())
+                    .get(Duration.ofSeconds(150).toMillis(), TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
+            if (pc.estadoE2(comando.id()).isPresent()) {
+                pc.pedirAviso(comando.id());
+                return ResultadoFerramenta.texto("Criação em andamento no PC: " + comando.id()
+                        + ". Consulte status_operacao_pc; o resultado será avisado.");
+            }
             pc.cancelar(comando.id());
             return ResultadoFerramenta.texto("O PC não confirmou a criação a tempo. Não publiquei anexo.");
         } catch (InterruptedException e) {
-            pc.cancelar(comando.id());
+            if (pc.estadoE2(comando.id()).isPresent()) pc.pedirAviso(comando.id());
+            else pc.cancelar(comando.id());
             Thread.currentThread().interrupt();
             throw e;
         }

@@ -2,6 +2,7 @@ package dev.jarvis.ferramentas;
 
 import org.springframework.stereotype.Component;
 import dev.jarvis.pc.PcService;
+import dev.jarvis.conversa.OuvinteProgresso;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -33,5 +34,9 @@ public class LerArquivoFerramenta implements Ferramenta {
     }
     @Override public String executar(JsonNode entrada) throws Exception {
         return ConsultaArquivosPc.executar(pc, nome(), entrada);
+    }
+    @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada,
+            OuvinteProgresso progresso) throws Exception {
+        return ResultadoFerramenta.texto(ConsultaArquivosPc.executar(pc, nome(), entrada, progresso));
     }
 }

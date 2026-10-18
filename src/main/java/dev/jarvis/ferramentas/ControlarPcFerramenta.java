@@ -134,6 +134,7 @@ public class ControlarPcFerramenta implements Ferramenta {
         // recusar tudo só gasta token e faz o modelo tentar à toa.
         ComandoPc.ACOES.stream()
                 .filter(nome -> !"criar_arquivo".equals(nome))
+                .filter(nome -> !"rodar_rotina".equals(nome))
                 .filter(nome -> !"abrir_app".equals(nome) || !apps.isEmpty())
                 .forEach(opcoes::add);
 
@@ -166,6 +167,8 @@ public class ControlarPcFerramenta implements Ferramenta {
         }
         if ("criar_arquivo".equals(acao))
             return ResultadoFerramenta.texto("Use a ferramenta criar_arquivo para gerar arquivos.");
+        if ("rodar_rotina".equals(acao))
+            return ResultadoFerramenta.texto("Use a ferramenta rodar_rotina para executar cadastros manuais.");
         // Antes de qualquer outra coisa: travar o turno 30 s para no fim dizer "o PC está
         // offline" é o pior dos mundos.
         if (!pc.online()) {
@@ -192,14 +195,21 @@ public class ControlarPcFerramenta implements Ferramenta {
             guarda.cancelar();
         }
 
+        ComandoPc comando = ComandoPc.nova(acao, efetivo, Instant.now());
         ResultadoPc resultado;
         try {
-            resultado = esperar(pc.enfileirar(ComandoPc.nova(acao, efetivo, Instant.now())));
+            resultado = esperar(pc.enfileirar(comando, progresso.canal(), progresso.usuarioAutenticado()));
         } catch (TimeoutException e) {
-            return ResultadoFerramenta.texto("Comando enviado ao PC, sem confirmação ainda.");
+            pc.pedirAviso(comando.id());
+            return ResultadoFerramenta.texto("Comando " + comando.id() + " no PC: "
+                    + pc.estadoE2(comando.id()).map(o -> o.estado()).orElse("sem confirmação")
+                    + ". Consulte status_operacao_pc pelo ID.");
         } catch (InterruptedException e) {
+            pc.pedirAviso(comando.id());
             Thread.currentThread().interrupt();
-            return ResultadoFerramenta.texto("Comando enviado ao PC, sem confirmação ainda.");
+            return ResultadoFerramenta.texto("Comando " + comando.id() + " no PC: "
+                    + pc.estadoE2(comando.id()).map(o -> o.estado()).orElse("sem confirmação")
+                    + ". Consulte status_operacao_pc pelo ID.");
         }
 
         if ("captura_tela".equals(acao)) {

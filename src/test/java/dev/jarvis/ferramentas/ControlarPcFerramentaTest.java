@@ -297,7 +297,7 @@ class ControlarPcFerramentaTest {
         // Nenhum agente do outro lado: a ferramenta desiste, mas o comando segue valendo.
         String resposta = texto("bloquear_tela", null);
 
-        assertEquals("Comando enviado ao PC, sem confirmação ainda.", resposta);
+        assertTrue(resposta.matches("Comando [0-9a-f-]{36} no PC: sem confirmação\\. Consulte status_operacao_pc pelo ID\\."), resposta);
         assertEquals(1, pc.naFila(), "desistir de esperar não cancela o comando");
     }
 
@@ -371,7 +371,7 @@ class ControlarPcFerramentaTest {
         assertTrue(ferramenta.descricao().contains("chrome, spotify"));
 
         for (String acao : ComandoPc.ACOES) {
-            if ("criar_arquivo".equals(acao)) continue; // ferramenta própria com dados estruturados
+            if ("criar_arquivo".equals(acao) || "rodar_rotina".equals(acao)) continue; // ferramentas próprias
             assertTrue(comApps.contains(acao), "ação '" + acao + "' fora do enum");
         }
     }

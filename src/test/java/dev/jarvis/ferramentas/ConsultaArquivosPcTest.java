@@ -3,6 +3,7 @@ package dev.jarvis.ferramentas;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import dev.jarvis.pc.PcService;
@@ -23,7 +24,8 @@ class ConsultaArquivosPcTest {
     @Test void falhaDeConexaoNaoExpoeExcecaoAoModelo() throws Exception {
         PcService pc = mock(PcService.class);
         when(pc.online()).thenReturn(true);
-        when(pc.enfileirar(any())).thenReturn(CompletableFuture.failedFuture(new java.io.IOException("rede caiu")));
+        when(pc.enfileirar(any(), any(), anyLong()))
+                .thenReturn(CompletableFuture.failedFuture(new java.io.IOException("rede caiu")));
         String resposta = new ListarArquivosFerramenta(pc, JsonMapper.builder().build())
                 .executar(JsonMapper.builder().build().createObjectNode());
         assertTrue(resposta.contains("conexão com o PC falhou"));

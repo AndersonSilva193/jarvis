@@ -3,6 +3,7 @@ package dev.jarvis.pc;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -18,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * A fila de comandos para o PC Windows, em memória.
@@ -68,6 +70,7 @@ public class PcService {
     private volatile List<String> apps = List.of();
 
     private final Clock relogio;
+    private final OperacoesPcService e2;
 
     public PcService() {
         this(Clock.systemUTC());
@@ -75,6 +78,13 @@ public class PcService {
 
     public PcService(Clock relogio) {
         this.relogio = relogio;
+        this.e2 = null;
+    }
+
+    @Autowired
+    public PcService(OperacoesPcService e2) {
+        this.relogio = Clock.systemUTC();
+        this.e2 = e2;
     }
 
     /**
@@ -86,6 +96,15 @@ public class PcService {
      * contra POST repetido por retry de rede.
      */
     public CompletableFuture<ResultadoPc> enfileirar(ComandoPc comando) {
+        return enfileirar(comando, "", 0);
+    }
+
+    public CompletableFuture<ResultadoPc> enfileirar(ComandoPc comando, String canal, long chatId) {
+        if (e2 != null && e2.online()) {
+            Duration prazo = "criar_arquivo".equals(comando.acao())
+                    ? Duration.ofMinutes(3) : VALIDADE;
+            return e2.enfileirar(comando, prazo, Duration.ofMinutes(5), canal, chatId);
+        }
         Pendente pendente = new Pendente(comando, relogio.instant().plus(
                 "criar_arquivo".equals(comando.acao()) ? Duration.ofMinutes(3) : VALIDADE),
                 new CompletableFuture<>());
@@ -158,6 +177,11 @@ public class PcService {
     }
 
     public boolean aguardandoArquivo(String id) {
+        if (e2 != null && e2.estado(id).isPresent()) {
+            var estado = e2.estado(id).orElseThrow();
+            return "criar_arquivo".equals(estado.acao())
+                    && List.of("recebido", "executando").contains(estado.estado());
+        }
         Pendente pendente = emAberto.get(id);
         return pendente != null && "criar_arquivo".equals(pendente.comando().acao())
                 && relogio.instant().isBefore(pendente.expira());
@@ -165,8 +189,19 @@ public class PcService {
 
     /** Cancela a espera quando a ferramenta já devolveu resposta ao usuário. */
     public void cancelar(String id) {
+        if (e2 != null && e2.estado(id).isPresent()) { e2.cancelar(id); return; }
         Pendente pendente = emAberto.get(id);
         if (pendente != null) vencer(pendente);
+    }
+    public void pedirAviso(String id) {
+        if (e2 != null) e2.pedirAviso(id);
+    }
+    public Optional<OperacoesPcService.Retrato> estadoE2(String id) {
+        return e2 == null ? Optional.empty() : e2.estado(id);
+    }
+    public Optional<Path> caminhoArquivoE2(String id) {
+        return e2 != null && e2.estado(id).isPresent()
+                ? Optional.of(e2.arquivoDeUpload(id)) : Optional.empty();
     }
 
     /**
@@ -189,6 +224,7 @@ public class PcService {
 
     /** Se o PC deu sinal de vida dentro do limite. */
     public boolean online() {
+        if (e2 != null && e2.online()) return true;
         Instant visto = ultimoContato;
         return visto != null
                 && Duration.between(visto, relogio.instant()).compareTo(LIMITE_SEM_CONTATO) < 0;

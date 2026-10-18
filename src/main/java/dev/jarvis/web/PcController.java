@@ -11,9 +11,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import dev.jarvis.pc.PcService;
+import dev.jarvis.pc.ArquivosPcService;
+import dev.jarvis.pc.OperacoesPcService;
+import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.tela.FalaDaTela;
 import dev.jarvis.tela.FalaDaTelaService;
 
@@ -44,18 +48,102 @@ public class PcController {
     private final PcService pc;
     private final FalaDaTelaService fala;
     private final Duration espera;
+    private final OperacoesPcService e2;
+    private final ArquivosPcService arquivos;
 
     // Com dois construtores e nenhum anotado o Spring procuraria um sem argumentos.
     @Autowired
+    public PcController(PcService pc, FalaDaTelaService fala, OperacoesPcService e2,
+            ArquivosPcService arquivos) {
+        this(pc, fala, ESPERA_PADRAO, e2, arquivos);
+    }
+
     public PcController(PcService pc, FalaDaTelaService fala) {
-        this(pc, fala, ESPERA_PADRAO);
+        this(pc, fala, ESPERA_PADRAO, null, null);
     }
 
     /** A espera curta é só para o teste não ficar 25 segundos parado. */
     PcController(PcService pc, FalaDaTelaService fala, Duration espera) {
+        this(pc, fala, espera, null, null);
+    }
+
+    PcController(PcService pc, FalaDaTelaService fala, Duration espera, OperacoesPcService e2) {
+        this(pc, fala, espera, e2, null);
+    }
+
+    PcController(PcService pc, FalaDaTelaService fala, Duration espera, OperacoesPcService e2,
+            ArquivosPcService arquivos) {
         this.pc = pc;
         this.fala = fala;
         this.espera = espera;
+        this.e2 = e2;
+        this.arquivos = arquivos;
+    }
+
+    public record ResultadoE2(String estado, String mensagem, Integer codigoSaida,
+            String imagemBase64, Boolean arquivo, tools.jackson.databind.JsonNode dados) { }
+
+    @PostMapping("/v2/catalogo")
+    public ResponseEntity<?> catalogo(@RequestBody List<OperacoesPcService.RotinaPublica> rotinas) {
+        e2.catalogo(rotinas);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/v2/comandos")
+    public ResponseEntity<?> comandosE2(@RequestHeader(value = "X-Pc-Apps", required = false) String apps)
+            throws InterruptedException {
+        pc.proximoComando(Duration.ZERO, apps);
+        return e2.proximo(espera).<ResponseEntity<?>>map(entrega -> ResponseEntity.ok(Map.of(
+                "versao", OperacoesPcService.VERSAO, "comando", PcDto.de(entrega.comando()),
+                "prazoInicio", entrega.prazoInicio(), "prazoExecucao", entrega.prazoExecucao())))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/v2/comandos/{id}/recebido")
+    public ResponseEntity<?> recebido(@PathVariable String id) {
+        return e2.recebido(id) ? ResponseEntity.noContent().build() : ResponseEntity.status(409).build();
+    }
+
+    @PostMapping("/v2/comandos/{id}/executando")
+    public ResponseEntity<?> executando(@PathVariable String id) {
+        return e2.executando(id) ? ResponseEntity.noContent().build() : ResponseEntity.status(409).build();
+    }
+
+    @PostMapping("/v2/comandos/{id}/resultado")
+    public ResponseEntity<?> resultadoE2(@PathVariable String id, @RequestBody ResultadoE2 corpo) {
+        if (corpo == null || corpo.estado() == null || corpo.mensagem() == null
+                || corpo.mensagem().length() > 1000) return ResponseEntity.badRequest().build();
+        var operacao = e2.estado(id);
+        if (operacao.isEmpty()) return ResponseEntity.notFound().build();
+        boolean arquivo = Boolean.TRUE.equals(corpo.arquivo());
+        boolean imagem = corpo.imagemBase64() != null && !corpo.imagemBase64().isBlank();
+        boolean dados = corpo.dados() != null && !corpo.dados().isMissingNode();
+        String acao = operacao.orElseThrow().acao();
+        if (((arquivo || imagem || dados) && !"concluído".equals(corpo.estado()))
+                || (arquivo && !"criar_arquivo".equals(acao))
+                || (imagem && !"captura_tela".equals(acao))
+                || (dados && !List.of("listar_arquivos", "ler_arquivo").contains(acao)))
+            return ResponseEntity.badRequest().build();
+        var dto = new PcDto.Resultado(id, "concluído".equals(corpo.estado()),
+                corpo.mensagem(), corpo.imagemBase64(), arquivo, corpo.dados());
+        if (!dto.erros().isEmpty()) return ResponseEntity.badRequest().build();
+        if (arquivo && !operacao.orElseThrow().estado().equals("concluído")
+                && (arquivos == null || arquivos.obter(id).isEmpty()))
+            return ResponseEntity.status(409).build();
+        ResultadoPc resultado = dto.paraDominio();
+        return e2.concluir(id, corpo.estado(), resultado, corpo.codigoSaida(), corpo.mensagem())
+                ? ResponseEntity.noContent().build() : ResponseEntity.status(409).build();
+    }
+
+    @GetMapping("/v2/comandos/{id}")
+    public ResponseEntity<?> estadoE2(@PathVariable String id) {
+        return e2.estado(id).<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/v2/comandos/{id}/cancelamento")
+    public Map<String, Boolean> cancelamentoE2(@PathVariable String id) {
+        return Map.of("cancelar", e2.cancelamentoPedido(id));
     }
 
     /**

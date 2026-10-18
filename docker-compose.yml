@@ -18,6 +18,7 @@ services:
       - google:/data/google
       - memoria:/data/jarvis/memoria
       - memoria-exclusoes:/data/jarvis/memoria-exclusoes
+      - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
     mem_limit: 512m
@@ -32,3 +33,4 @@ volumes:
   google:
   memoria:
   memoria-exclusoes:
+  pc-operacoes:
