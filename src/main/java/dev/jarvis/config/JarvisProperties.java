@@ -133,9 +133,13 @@ public record JarvisProperties(
      * cabeçalho {@code X-Pc-Apps} de cada consulta. Assim o enum de {@code abrir_app} tem uma
      * única fonte de verdade, no PC.
      */
-    public record Pc(String token, String operacoesPasta) {
+    public record Pc(String token, String operacoesPasta, int edicaoMaxBytes,
+            int edicaoMaxOperacoes, int edicaoMaxBytesResultado) {
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Pc { }
+        public Pc(String token, String operacoesPasta) {
+            this(token, operacoesPasta, 1024 * 1024, 10, 1024 * 1024);
+        }
         public Pc(String token) { this(token, "/data/pc/operacoes.json"); }
     }
 

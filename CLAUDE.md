@@ -112,6 +112,15 @@ colidindo com janela que ainda está na tela.
 
 ## O PC Windows pelo Telegram
 
+Edição de arquivos comuns: `editar_arquivo` aceita apenas IDs catalogados de TXT/MD,
+`versaoEsperada` SHA-256 e operações fechadas. A proposta é preparada no agente,
+com prévia e `editId`. Sobrescrita do original e `desfazer_edicao` passam por
+`IntencoesPc` em nova mensagem autenticada; o commit recebe apenas `editId`, nunca
+caminho ou conteúdo refeito pelo modelo. Cópia é criada no mesmo pedido após a prévia.
+O agente guarda backup protegido, revalida hash antes do move atômico e recusa
+conflitos. A janela residual contra editores externos sem lock impede prometer
+compare-and-swap perfeito. O expurgo configurável de backups limita desfazer.
+
 O PC roda um agente (projeto irmão `../jarvis-agente-pc`: Java 21, sem Spring, um jar) que
 **busca** comandos na VPS por long polling — `GET /api/pc/comandos` segura a requisição por 25 s.
 Nenhuma porta aberta na máquina, nenhum domínio: toda conexão é de dentro para fora, igual ao

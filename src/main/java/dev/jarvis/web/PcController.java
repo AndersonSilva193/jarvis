@@ -120,9 +120,12 @@ public class PcController {
         boolean dados = corpo.dados() != null && !corpo.dados().isMissingNode();
         String acao = operacao.orElseThrow().acao();
         if (((arquivo || imagem || dados) && !"concluído".equals(corpo.estado()))
-                || (arquivo && !"criar_arquivo".equals(acao))
+                || (arquivo && !List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer")
+                        .contains(acao))
                 || (imagem && !List.of("captura_tela", "computer_acao").contains(acao))
-                || (dados && !List.of("listar_arquivos", "ler_arquivo", "computer_acao").contains(acao)))
+                || (dados && !List.of("listar_arquivos", "ler_arquivo", "computer_acao",
+                        "preparar_edicao", "aplicar_edicao", "preparar_desfazer", "aplicar_desfazer")
+                        .contains(acao)))
             return ResponseEntity.badRequest().build();
         var dto = new PcDto.Resultado(id, "concluído".equals(corpo.estado()),
                 corpo.mensagem(), corpo.imagemBase64(), arquivo, corpo.dados());

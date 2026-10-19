@@ -76,6 +76,17 @@ situação.
 
 ## Criação de arquivos e Google Sheets
 
+`editar_arquivo` edita somente `.txt` e `.md` diretamente na `pastaArquivos` do agente.
+Use o ID e `versaoEsperada` (SHA-256) de `listar_arquivos`/`ler_arquivo` e leia o
+arquivo antes de propor operações. São aceitas `substituir_trecho` (uma ocorrência
+exata), `acrescentar_ao_final` e `substituir_conteudo` (somente após leitura integral
+e pedido explícito de reescrita). O agente devolve prévia limitada e `editId`;
+sobrescrever `original` exige nova mensagem autenticada. `copia` cria arquivo novo
+sem sobrescrever. `desfazer_edicao` recebe somente `editId`, confere backup e hash
+atual, e também exige nova mensagem autenticada. Os backups ficam fora da listagem
+comum no agente Windows. Se o arquivo foi salvo mas o upload falhou, o resultado
+informa “salvo, entrega falhou” e o Jarvis não repete a edição.
+
 `criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX e CSV no agente do PC, dentro da pasta
 `pastaArquivos` (padrão: Documentos/Jarvis). O comando leva dados estruturados, sem caminhos
 nem código executável. O agente faz upload binário em `/api/pc/arquivos/{id}` com `PC_TOKEN`;

@@ -37,6 +37,8 @@ public class AvisosOperacoesPc {
             long chatId = operacoes.chatId(id);
             List<Anexo> referencias = new ArrayList<>();
             boolean telegramAvisado = false;
+            boolean entregaFalhou = false;
+            boolean edicao = List.of("aplicar_edicao", "aplicar_desfazer").contains(estado.acao());
             if (resultado != null && resultado.temImagem()) {
                 try {
                     var imagem = operacoes.arquivoDeImagem(id);
@@ -60,11 +62,14 @@ public class AvisosOperacoesPc {
                             telegram.enviarDocumento(chatId, Files.readAllBytes(arquivo), nome);
                             telegramAvisado = true;
                         }
-                    }
-                } catch (Exception ignorada) { /* O resultado por ID continua disponível. */ }
+                    } else entregaFalhou = true;
+                } catch (Exception ignorada) { entregaFalhou = true; }
             }
-            if ("telegram".equals(canal) && chatId > 0 && !telegramAvisado)
-                telegram.enviarMensagem(chatId, texto);
+            if (edicao && resultado != null && resultado.ok() && (!resultado.arquivo() || entregaFalhou)
+                    && !texto.contains("salvo, entrega falhou")) texto += " salvo, entrega falhou.";
+            if ("telegram".equals(canal) && chatId > 0 && (!telegramAvisado || edicao))
+                try { telegram.enviarMensagem(chatId, texto); }
+                catch (Exception ignorada) { /* O estado segue consultável pelo ID. */ }
             if ("hud".equals(canal) && chatId > 0)
                 conversas.registrarResultadoTardio(chatId, id, texto, referencias);
         }

@@ -29,7 +29,8 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
             "abrir_app", "abrir_url", "abrir_hud", "bloquear_tela", "volume", "captura_tela",
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento",
             "modo_repouso", "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo",
-            "rodar_rotina", "computer_acao");
+            "rodar_rotina", "computer_acao", "preparar_edicao", "aplicar_edicao",
+            "preparar_desfazer", "aplicar_desfazer");
 
     /** As irreversíveis, que exigem o código de confirmação do {@link GuardaDeConfirmacao}. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

@@ -142,6 +142,8 @@ public class ControlarPcFerramenta implements Ferramenta {
         ComandoPc.ACOES.stream()
                 .filter(nome -> !"criar_arquivo".equals(nome))
                 .filter(nome -> !"rodar_rotina".equals(nome))
+                .filter(nome -> !List.of("preparar_edicao", "aplicar_edicao",
+                        "preparar_desfazer", "aplicar_desfazer").contains(nome))
                 .filter(nome -> !"computer_acao".equals(nome))
                 .filter(nome -> !"abrir_app".equals(nome) || !apps.isEmpty())
                 .forEach(opcoes::add);

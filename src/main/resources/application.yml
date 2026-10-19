@@ -61,6 +61,9 @@ jarvis:
     api-key: ${YOUTUBE_API_KEY:}
   pc:
     operacoes-pasta: ${PC_OPERACOES_PASTA:/data/pc/operacoes.json}
+    edicao-max-bytes: ${PC_EDICAO_MAX_BYTES:1048576}
+    edicao-max-operacoes: ${PC_EDICAO_MAX_OPERACOES:10}
+    edicao-max-bytes-resultado: ${PC_EDICAO_MAX_BYTES_RESULTADO:1048576}
     # Token do agente que roda no PC Windows. Separado do HUD_TOKEN de propósito: a HUD não manda
     # na máquina. Vazio = /api/pc recusa tudo com 401 e o controle do PC fica desligado.
     token: ${PC_TOKEN:}
