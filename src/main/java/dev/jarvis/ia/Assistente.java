@@ -260,11 +260,16 @@ public class Assistente {
      * histórico da conversa. O canal decide só o formato do texto que volta.
      */
     public String executarTarefa(String instrucao, Canal canal) throws Exception {
+        return executarTarefa(instrucao, canal, new OuvinteProgresso() { });
+    }
+
+    /** Tarefa de planilha com autorização já registrada pelo servidor. */
+    public String executarTarefa(String instrucao, Canal canal, OuvinteProgresso contexto) throws Exception {
         execucao.lockInterruptibly();
         try {
             List<ObjectNode> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(instrucao));
-            return executarLoop(new ArrayDeque<>(), turno, canal, new OuvinteProgresso() { }, new ArrayList<>());
+            return executarLoop(new ArrayDeque<>(), turno, canal, contexto, new ArrayList<>());
         } finally { execucao.unlock(); }
     }
 
@@ -285,7 +290,7 @@ public class Assistente {
         ArrayNode system = sistema.blocos(canal);
         // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
         // do cache de prompt. A da busca na web é server-side — quem executa é a Anthropic.
-        ArrayNode definicoes = ferramentas.definicoes(canal);
+        ArrayNode definicoes = ferramentas.definicoes(canal, !progresso.idTarefaPlanilha().isBlank());
         if (buscaWeb.ativa()) {
             definicoes.add(buscaWeb.definicao());
         }
@@ -344,6 +349,15 @@ public class Assistente {
                 JsonNode bloco = conteudo.get(i);
                 if ("tool_use".equals(Json.texto(bloco.path("type")))) {
                     String nomeFerramenta = Json.texto(bloco.path("name"));
+                    if (!progresso.idTarefaPlanilha().isBlank() && !List.of("listar_arquivos",
+                            "ler_arquivo", "editar_arquivo", "verificar_site", "clima")
+                            .contains(nomeFerramenta)) {
+                        resultados.add(json.createObjectNode().put("type", "tool_result")
+                                .put("tool_use_id", Json.texto(bloco.path("id")))
+                                .put("content", "Ferramenta indisponível nesta tarefa de planilha.")
+                                .put("is_error", true));
+                        continue;
+                    }
                     if ("criar_arquivo".equals(nomeFerramenta) && !falhaEdicao.isBlank()) {
                         resultados.add(json.createObjectNode().put("type", "tool_result")
                                 .put("tool_use_id", Json.texto(bloco.path("id")))
@@ -368,6 +382,7 @@ public class Assistente {
                         @Override public String idPedido() { return progresso.idPedido(); }
                         @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
                         @Override public String pedidoOriginal() { return Json.texto(turno.getFirst().path("content")); }
+                        @Override public String idTarefaPlanilha() { return progresso.idTarefaPlanilha(); }
                         @Override public String ultimoAnexoDeArquivo() { return progresso.ultimoAnexoDeArquivo(); }
                         @Override public boolean memoriaEsquecida() { return esqueceu.get(); }
                         @Override public void marcarMemoriaEsquecida() { esqueceu.set(true); progresso.marcarMemoriaEsquecida(); }

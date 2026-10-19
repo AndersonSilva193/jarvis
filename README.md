@@ -76,7 +76,7 @@ situação.
 
 ## Criação de arquivos e Google Sheets
 
-`editar_arquivo` edita somente `.txt` e `.md` diretamente na `pastaArquivos` do agente.
+`editar_arquivo` edita `.txt`, `.md`, `.json` e `.xlsx` diretamente na `pastaArquivos` do agente.
 Use o ID e `versaoEsperada` (SHA-256) de `listar_arquivos`/`ler_arquivo` e leia o
 arquivo antes de propor operações. São aceitas `substituir_trecho` (uma ocorrência
 exata), `substituir_todas_ocorrencias` (busca literal, com opção de ignorar maiúsculas),
@@ -90,6 +90,34 @@ informa “salvo, entrega falhou” e o Jarvis não repete a edição.
 O pedido “desfaça a última edição” usa o registro da última edição original concluída
 enquanto o servidor estiver em execução; após reinício, informe o `editId` pela
 consulta técnica de status.
+No JSON, `atualizar_valor` exige JSON Pointer, tipo e valor anterior esperados, e altera
+somente um escalar existente. O agente recusa JSON inválido, chaves repetidas, caminho
+ausente e tipo divergente. A serialização pode mudar espaços e apresentação lexical.
+Não há inserção, remoção, merge nem patch arbitrário de JSON.
+
+No XLSX, leia a versão atual e use `buscaValor` em `ler_arquivo` para localizar a célula;
+`buscaCabecalho`, `tabela` e `aba` restringem a busca. Havendo mais de uma correspondência,
+o Jarvis pede desambiguação. A proposta mostra aba, célula, tipo e antes/depois.
+As operações implementadas são atualizar/preencher célula, acrescentar/inserir linha,
+inserir coluna e criar aba. `atualizar_por_item` recebe o valor do item e o cabeçalho
+da coluna, resolve a célula no agente do PC e recusa item ou cabeçalho ambíguo.
+Linhas acrescentadas podem expandir tabela estruturada e
+intervalos de séries de gráficos com referências diretas; referências não reconhecidas
+fazem a edição falhar. Mesclas, proteção, links externos e estruturas que a biblioteca
+não consiga preservar também são recusados. Fórmulas não são avaliadas: o arquivo é
+marcado para recálculo quando aberto. Substituir fórmula por outro tipo exige autorização
+explícita. Texto começando por `=`, `+`, `-` ou `@` continua texto.
+
+Para tarefas recorrentes, `agendar_tarefa_planilha` registra instrução, agenda cron de
+seis campos e autorização para um XLSX inteiro após confirmação autenticada. Cada execução
+lê a versão atual, localiza o alvo e usa o mesmo fluxo de proposta, gravação e backup,
+sem pedir endereço de célula nem nova confirmação. `revogar_tarefa_planilha` cancela a
+autorização. Se só for possível omitir gráficos numa cópia simplificada, o original fica
+intacto e a criação da cópia exige confirmação naquela execução. Tarefas perdidas durante
+uma parada não são repetidas. Os limites padrão de edição são 1 MiB por arquivo e
+resultado; XLSX também limita o ZIP a 256 entradas, 32 MiB expandidos, 16 MiB por
+entrada e 100 mil células, sem desligar as proteções do POI.
+
 Pedidos como “edite esse arquivo” usam somente o único anexo TXT/MD da resposta
 imediatamente anterior do mesmo usuário e canal, entregue há no máximo dez minutos.
 Sem essa referência, o Jarvis pede o nome exato. Se a edição falhar, o mesmo pedido

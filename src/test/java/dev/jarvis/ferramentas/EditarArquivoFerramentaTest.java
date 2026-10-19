@@ -8,6 +8,7 @@ import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.FluxoEdicaoPc;
 import dev.jarvis.pc.IntencoesPc;
 import dev.jarvis.pc.ResultadoPc;
+import dev.jarvis.pc.TarefasPlanilhaService;
 import tools.jackson.databind.json.JsonMapper;
 
 class EditarArquivoFerramentaTest {
@@ -108,5 +109,51 @@ class EditarArquivoFerramentaTest {
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "acrescente x em nota.md"));
         assertTrue(resultado.texto().contains("não foi identificado"));
         verify(fluxo, never()).aplicarCopia(anyString(), any(), anyString());
+    }
+
+    @Test void tarefaAutorizadaAplicaSemNovaConfirmacao() throws Exception {
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        TarefasPlanilhaService tarefas = mock(TarefasPlanilhaService.class);
+        var dados = json.createObjectNode().put("editId", EDIT).put("nome", "dados.xlsx")
+                .put("previa", "Dados!A2 (numero → numero): 5 → 7");
+        when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
+                .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
+        when(tarefas.autorizada("tarefa-1", 42, ID, "dados.xlsx", false)).thenReturn(true);
+        var ferramenta = new EditarArquivoFerramenta(fluxo, new IntencoesPc(), json, tarefas);
+        var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
+                + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"atualizar_celula\","
+                + "\"aba\":\"Dados\",\"celula\":\"A2\",\"tipoAnterior\":\"numero\","
+                + "\"valorAnterior\":5,\"tipoNovo\":\"numero\",\"valorNovo\":7}]}");
+        OuvinteProgresso contexto = new OuvinteProgresso() {
+            @Override public String idPedido() { return "execucao-1"; }
+            @Override public long usuarioAutenticado() { return 42; }
+            @Override public String pedidoOriginal() { return "atualize dados.xlsx"; }
+            @Override public String canal() { return "tarefa"; }
+            @Override public String idTarefaPlanilha() { return "tarefa-1"; }
+        };
+        assertNull(ferramenta.executarDetalhado(pedido, contexto).confirmacao());
+        verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "tarefa", 42);
+    }
+
+    @Test void copiaSimplificadaSemprePedeConfirmacaoDaExecucao() throws Exception {
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        when(fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42, false))
+                .thenReturn("iniciada");
+        var dados = json.createObjectNode().put("editId", EDIT).put("nome", "dados.xlsx")
+                .put("previa", "Cópia simplificada: 1 gráfico será omitido")
+                .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString());
+        when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
+                .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
+        var intencoes = new IntencoesPc();
+        var ferramenta = new EditarArquivoFerramenta(fluxo, intencoes, json);
+        var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
+                + "\",\"destino\":\"copia\",\"simplificar\":true,\"operacoes\":[{\"tipo\":\"inserir_linha\","
+                + "\"aba\":\"Dados\",\"linha\":2}]}");
+        var resultado = ferramenta.executarDetalhado(pedido,
+                contexto("pedido-1", "insira uma linha em dados.xlsx"));
+        assertNotNull(resultado.confirmacao());
+        verify(fluxo, never()).aplicarDepoisDeConfirmar(anyString(), anyString(), anyString(), anyLong(), anyBoolean());
+        intencoes.tratar("confirmo", 42, "pedido-2");
+        verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42, false);
     }
 }

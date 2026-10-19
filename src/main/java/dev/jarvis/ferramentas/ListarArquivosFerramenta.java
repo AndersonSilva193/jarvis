@@ -21,7 +21,7 @@ public class ListarArquivosFerramenta implements Ferramenta {
         p.putObject("nome").put("type", "string").put("maxLength", 120);
         var f = p.putObject("formato").put("type", "string");
         var opcoes = f.putArray("enum");
-        for (String tipo : new String[]{"txt", "md", "docx", "pdf", "xlsx", "csv"}) opcoes.add(tipo);
+        for (String tipo : new String[]{"txt", "md", "json", "docx", "pdf", "xlsx", "csv"}) opcoes.add(tipo);
         p.putObject("pagina").put("type", "integer").put("minimum", 1).put("maximum", 10000);
         p.putObject("tamanhoPagina").put("type", "integer").put("minimum", 1).put("maximum", 50);
         return raiz;

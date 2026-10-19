@@ -45,12 +45,17 @@ public class FluxoEdicaoPc {
     }
 
     public String aplicarDepoisDeConfirmar(String acao, String editId, String canal, long usuario) {
+        return aplicarDepoisDeConfirmar(acao, editId, canal, usuario, true);
+    }
+
+    public String aplicarDepoisDeConfirmar(String acao, String editId, String canal,
+            long usuario, boolean original) {
         if (!operacoes.online()) return "Agente do PC offline; edição não iniciada.";
         ComandoPc comando = novo(acao, json.createObjectNode().put("editId", editId));
         try {
             operacoes.enfileirar(comando, Duration.ofSeconds(30), Duration.ofMinutes(2), canal, usuario);
             operacoes.pedirAviso(comando.id());
-            if ("aplicar_edicao".equals(acao))
+            if ("aplicar_edicao".equals(acao) && original)
                 ultimasEdicoes.put(usuario, new UltimaEdicao(editId, comando.id()));
             return "Edição autorizada. Avisarei o resultado e entregarei o arquivo.";
         } catch (RuntimeException e) { return "Não iniciei a edição: " + e.getMessage(); }
@@ -92,12 +97,17 @@ public class FluxoEdicaoPc {
             catch (Exception e) { aviso = " Entrega pelo Telegram falhou; consulte o anexo na HUD."; }
         return new ResultadoFerramenta(previa + "\nCópia criada: " + nome + "." + aviso,
                 List.of(new ResultadoFerramenta.Artefato(arquivo.get(), nome,
-                        nome.endsWith(".md") ? "text/markdown" : "text/plain")),
+                        mime(nome))),
                 List.of(), null, List.of(), List.of());
     }
 
     private ComandoPc novo(String acao, JsonNode dados) {
         return new ComandoPc(UUID.randomUUID().toString(), acao, "", Instant.now().toString(),
                 dados == null ? json.createObjectNode() : dados.deepCopy());
+    }
+    private static String mime(String nome) {
+        if (nome.endsWith(".json")) return "application/json";
+        if (nome.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        return nome.endsWith(".md") ? "text/markdown" : "text/plain";
     }
 }

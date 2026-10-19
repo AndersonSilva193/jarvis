@@ -7,6 +7,8 @@ public interface OuvinteProgresso {
     default long usuarioAutenticado() { return 0; }
     /** Texto recebido diretamente do usuário, nunca produzido pelo modelo ou por uma ferramenta. */
     default String pedidoOriginal() { return ""; }
+    /** Capacidade interna de uma tarefa de planilha previamente autorizada; nunca vem do modelo. */
+    default String idTarefaPlanilha() { return ""; }
     /** Nome do único TXT/MD anexado na resposta anterior autenticada deste canal. */
     default String ultimoAnexoDeArquivo() { return ""; }
     /** Exclusão concluída neste pedido; o turno não deve permanecer no histórico. */
