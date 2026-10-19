@@ -56,6 +56,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
             + "inserir_linha, inserir_coluna e criar_aba quando as referências puderem ser preservadas; "
             + "localize por ler_arquivo e recuse busca ambígua. Copie tipo e valorAnterior da leitura; "
             + "booleano usa true/false, não texto. Fórmulas não são recalculadas. "
+            + "O usuário pode indicar o nome falado sem extensão, como 'tabela exemplo' para tabela_exemplo.xlsx; "
+            + "apelidos ambíguos são recusados. "
             + "original exige confirmação em nova mensagem; copia cria arquivo novo."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -152,10 +154,17 @@ public class EditarArquivoFerramenta implements Ferramenta {
                 || !tarefas.autorizada(contexto.idTarefaPlanilha(), contexto.usuarioAutenticado(),
                         Json.texto(entrada.path("id")), nomeArquivo, substituirFormula)))
             return ResultadoFerramenta.texto("Tarefa sem autorização para este XLSX ou operação.");
-        if (!arquivoConstaDoPedido(contexto.pedidoOriginal(), nomeArquivo,
-                Json.texto(entrada.path("id")), contexto.ultimoAnexoDeArquivo()))
-            return ResultadoFerramenta.texto("O arquivo proposto não foi identificado no pedido original. "
-                    + "Peça ao usuário que indique o nome ou ID exato antes de editar.");
+        boolean identificado = arquivoConstaDoPedido(contexto.pedidoOriginal(), nomeArquivo,
+                Json.texto(entrada.path("id")), contexto.ultimoAnexoDeArquivo());
+        if (!identificado && apelidoConstaDoPedido(contexto.pedidoOriginal(), nomeArquivo)) {
+            if (!preparado.dados().path("apelidoUnico").asBoolean(false))
+                return ResultadoFerramenta.texto("Mais de uma planilha corresponde a esse nome falado. "
+                        + "Peça ao usuário um detalhe para distinguir o arquivo; nenhuma edição foi feita.");
+            identificado = true;
+        }
+        if (!identificado)
+            return ResultadoFerramenta.texto("A planilha proposta não corresponde ao nome indicado no pedido. "
+                    + "Peça ao usuário um nome que a diferencie das outras; nenhuma edição foi feita.");
         String editId = Json.texto(preparado.dados().path("editId"));
         if (!editId.matches("[0-9a-f-]{36}")) return ResultadoFerramenta.texto("Proposta sem editId válido.");
         String previa = "Prévia de " + nomeArquivo + ":\n"
@@ -210,6 +219,21 @@ public class EditarArquivoFerramenta implements Ferramenta {
                 + "(?:arquivo|documento|texto|relat[oó]rio)\\b.*");
         return referencia && arquivo.equals(Normalizer.normalize(ultimoAnexo, Normalizer.Form.NFKC)
                 .toLowerCase(Locale.ROOT));
+    }
+    static boolean apelidoConstaDoPedido(String pedido, String nome) {
+        if (pedido == null || nome == null || !nome.toLowerCase(Locale.ROOT).endsWith(".xlsx"))
+            return false;
+        String original = Normalizer.normalize(pedido, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+        if (original.matches("(?s).*\\.(?:md|txt|json|xlsx)\\b.*")
+                || original.matches("(?s).*[0-9a-f]{8}-[0-9a-f-]{27,}.*")) return false;
+        String apelido = nomeFalado(nome.substring(0, nome.length() - 5));
+        return apelido.length() >= 5 && (" " + nomeFalado(pedido) + " ")
+                .contains(" " + apelido + " ");
+    }
+    private static String nomeFalado(String nome) {
+        return Normalizer.normalize(nome, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ").trim().replaceAll("\\s+", " ");
     }
     private static boolean contemIdentificador(String texto, String identificador) {
         if (identificador.isBlank()) return false;

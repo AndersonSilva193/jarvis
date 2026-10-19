@@ -14,7 +14,7 @@ public class ListarArquivosFerramenta implements Ferramenta {
     private final JsonMapper json;
     public ListarArquivosFerramenta(PcService pc, JsonMapper json) { this.pc = pc; this.json = json; }
     @Override public String nome() { return "listar_arquivos"; }
-    @Override public String descricao() { return "Localiza arquivos locais do Jarvis por nome e formato, com paginação. Devolve IDs permanentes, metadados e estado. Se houver nomes semelhantes, apresente as opções ao usuário antes de ler; não escolha silenciosamente. Não consulta Google Sheets nativo."; }
+    @Override public String descricao() { return "Localiza arquivos locais do Jarvis por nome e formato, com paginação. Aceita nome falado sem extensão nem separadores, como 'tabela exemplo' para tabela_exemplo.xlsx. Devolve IDs permanentes, metadados e estado. Se houver nomes semelhantes, apresente as opções ao usuário antes de ler; não escolha silenciosamente. Não consulta Google Sheets nativo."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         ObjectNode p = raiz.putObject("properties");

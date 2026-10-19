@@ -98,6 +98,8 @@ Não há inserção, remoção, merge nem patch arbitrário de JSON.
 No XLSX, leia a versão atual e use `buscaValor` em `ler_arquivo` para localizar a célula;
 `buscaCabecalho`, `tabela` e `aba` restringem a busca. Havendo mais de uma correspondência,
 o Jarvis pede desambiguação. A proposta mostra aba, célula, tipo e antes/depois.
+O usuário pode dizer “tabela exemplo” para `tabela_exemplo.xlsx`: a busca ignora
+separadores e extensão, e o agente confirma que o apelido identifica um único XLSX.
 Na leitura XLSX, `tipo` e `valorAnterior` já vêm no formato aceito pela edição:
 por exemplo, uma célula booleana usa `booleano` e `false`, sem aspas.
 As operações implementadas são atualizar/preencher célula, acrescentar/inserir linha,

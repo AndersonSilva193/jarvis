@@ -71,7 +71,7 @@ class EditarArquivoFerramentaTest {
 
         var recusado = ferramenta.executarDetalhado(pedido,
                 contexto("pedido-2", "edite esse arquivo", "outro.md"));
-        assertTrue(recusado.texto().contains("não foi identificado"));
+        assertTrue(recusado.texto().contains("não corresponde"));
     }
 
     @Test void nomeSemelhanteNaoAutorizaOutroArquivo() {
@@ -83,6 +83,35 @@ class EditarArquivoFerramentaTest {
                 "edite NOTA.md", "nota.md", ID, ""));
         assertFalse(EditarArquivoFerramenta.arquivoConstaDoPedido(
                 "edite outro.md, não esse arquivo", "nota.md", ID, "nota.md"));
+    }
+
+    @Test void nomeFaladoDaPlanilhaAutorizaSomenteApelidoUnico() throws Exception {
+        assertTrue(EditarArquivoFerramenta.apelidoConstaDoPedido(
+                "Marque Oficina Fictícia como paga na tabela exemplo", "tabela_exemplo.xlsx"));
+        assertFalse(EditarArquivoFerramenta.apelidoConstaDoPedido(
+                "Marque Oficina Fictícia como paga na tabela vendas", "tabela_exemplo.xlsx"));
+        assertFalse(EditarArquivoFerramenta.apelidoConstaDoPedido(
+                "Edite outra.xlsx e a tabela exemplo", "tabela_exemplo.xlsx"));
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        var dados = json.createObjectNode().put("editId", EDIT)
+                .put("nome", "tabela_exemplo.xlsx")
+                .put("previa", "Clientes!E3 (booleano → booleano): false → true")
+                .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString())
+                .put("apelidoUnico", true);
+        when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
+                .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
+        var ferramenta = new EditarArquivoFerramenta(fluxo, new IntencoesPc(), json);
+        var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
+                + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"atualizar_celula\","
+                + "\"aba\":\"Clientes\",\"celula\":\"E3\",\"tipoAnterior\":\"booleano\","
+                + "\"valorAnterior\":false,\"tipoNovo\":\"booleano\",\"valorNovo\":true}]}");
+        var contexto = contexto("pedido-1", "Marque Oficina Fictícia como paga na tabela exemplo");
+        assertNotNull(ferramenta.executarDetalhado(pedido, contexto).confirmacao());
+        dados.put("apelidoUnico", false);
+        var ambiguo = new EditarArquivoFerramenta(fluxo, new IntencoesPc(), json)
+                .executarDetalhado(pedido, contexto("pedido-2", "Marque Oficina Fictícia como paga na tabela exemplo"));
+        assertTrue(ambiguo.texto().contains("Mais de uma planilha"), ambiguo.texto());
+        assertNull(ambiguo.confirmacao());
     }
 
     @Test void copiaNaoSolicitadaNemChegaAoAgente() throws Exception {
@@ -107,7 +136,7 @@ class EditarArquivoFerramentaTest {
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "acrescente x em nota.md"));
-        assertTrue(resultado.texto().contains("não foi identificado"));
+        assertTrue(resultado.texto().contains("não corresponde"));
         verify(fluxo, never()).aplicarCopia(anyString(), any(), anyString());
     }
 
