@@ -77,7 +77,8 @@ public class IntencoesPc {
         Pendente executar = null;
         synchronized (this) {
             Pendente p = pendente;
-            if (p == null) return Optional.of("Nao ha confirmacao do PC em aberto.");
+            if (p == null) return Optional.of("Nao ha confirmacao pendente. Nenhuma acao foi executada; "
+                    + "se uma edicao falhou, releia o arquivo e prepare uma nova proposta.");
             if (usuario <= 0 || usuario != p.usuario() || pedidoAtual == null
                     || pedidoAtual.equals(p.pedidoOrigem()))
                 return Optional.of("Confirmacao recusada: envie uma nova mensagem autenticada.");

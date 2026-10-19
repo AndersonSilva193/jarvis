@@ -54,7 +54,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
             + "de reescrita. JSON aceita atualizar_valor de escalar existente por ponteiro, tipo e valor anterior. "
             + "XLSX aceita atualizar_celula, atualizar_por_item (itemValor e cabecalhoAlvo), preencher_celula_vazia, acrescentar_linha, "
             + "inserir_linha, inserir_coluna e criar_aba quando as referências puderem ser preservadas; "
-            + "localize por ler_arquivo e recuse busca ambígua. Fórmulas não são recalculadas. "
+            + "localize por ler_arquivo e recuse busca ambígua. Copie tipo e valorAnterior da leitura; "
+            + "booleano usa true/false, não texto. Fórmulas não são recalculadas. "
             + "original exige confirmação em nova mensagem; copia cria arquivo novo."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -76,8 +77,12 @@ public class EditarArquivoFerramenta implements Ferramenta {
             campos.putObject(campo).put("type", "string");
         campos.putObject("ignorarMaiusculas").put("type", "boolean");
         for (String campo : List.of("ponteiro", "aba", "celula", "itemValor",
-                "cabecalhoAlvo", "tipoAnterior", "tipoNovo"))
+                "cabecalhoAlvo"))
             campos.putObject(campo).put("type", "string");
+        for (String campo : List.of("tipoAnterior", "tipoNovo"))
+            campos.putObject(campo).put("type", "string").putArray("enum")
+                    .add("texto").add("numero").add("booleano").add("data")
+                    .add("formula").add("vazio").add("nulo");
         campos.putObject("valorAnterior");
         campos.putObject("valorNovo");
         campos.putObject("autorizarSubstituirFormula").put("type", "boolean");
@@ -130,8 +135,14 @@ public class EditarArquivoFerramenta implements Ferramenta {
         ResultadoPc preparado;
         try { preparado = fluxo.preparar("preparar_edicao", pedido, contexto); }
         catch (IllegalStateException e) { return ResultadoFerramenta.texto(e.getMessage()); }
-        if (!preparado.ok() || preparado.dados() == null)
-            return ResultadoFerramenta.texto("Não preparei a edição: " + preparado.mensagem());
+        if (!preparado.ok() || preparado.dados() == null) {
+            String motivo = preparado.mensagem();
+            if (motivo != null && motivo.contains("CONFLITO_DE_CELULA"))
+                return ResultadoFerramenta.texto("A célula não corresponde ao tipo ou valor anterior informado. "
+                        + "Releia a célula e use exatamente tipo e valorAnterior retornados; "
+                        + "nenhuma edição foi preparada. " + motivo);
+            return ResultadoFerramenta.texto("Não preparei a edição: " + motivo);
+        }
         String nomeArquivo = Json.texto(preparado.dados().path("nome"));
         if (simplificar && !nomeArquivo.toLowerCase(Locale.ROOT).endsWith(".xlsx"))
             return ResultadoFerramenta.texto("Cópia simplificada só está disponível para XLSX.");
