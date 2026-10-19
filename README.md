@@ -103,7 +103,7 @@ separadores e extensão, e o agente confirma que o apelido identifica um único 
 Na leitura XLSX, `tipo` e `valorAnterior` já vêm no formato aceito pela edição:
 por exemplo, uma célula booleana usa `booleano` e `false`, sem aspas.
 As operações implementadas são atualizar/preencher célula, acrescentar/inserir linha,
-inserir coluna e criar aba. `atualizar_por_item` recebe o valor do item e o cabeçalho
+inserir coluna, criar aba e expandir filtro. `atualizar_por_item` recebe o valor do item e o cabeçalho
 da coluna, resolve a célula no agente do PC e recusa item ou cabeçalho ambíguo.
 Linhas acrescentadas podem expandir tabela estruturada e
 intervalos de séries de gráficos com referências diretas; referências não reconhecidas
@@ -111,6 +111,50 @@ fazem a edição falhar. Mesclas, proteção, links externos e estruturas que a 
 não consiga preservar também são recusados. Fórmulas não são avaliadas: o arquivo é
 marcado para recálculo quando aberto. Substituir fórmula por outro tipo exige autorização
 explícita. Texto começando por `=`, `+`, `-` ou `@` continua texto.
+
+### Localização e inclusão em XLSX
+
+Ao ler uma aba, `ler_arquivo` retorna `ultimaLinhaFisica`, `proximaLinhaFisica`,
+`intervaloFiltro` (ou null) e `tabelas` com nome/intervalo (até 50, com `tabelasTruncadas`
+quando necessário). O fim físico inclui notas e linhas formatadas. Uma consulta com os
+quatro limites de linha/coluna informa também células ausentes: `existe=false`,
+`tipo=vazio`, `valorAnterior=null`. Uma célula BLANK existente tem `existe=true`.
+
+| Operação XLSX | Campos obrigatórios além de `tipo` |
+| --- | --- |
+| `atualizar_celula`, `preencher_celula_vazia` | `aba`, `celula`, `tipoAnterior`, `valorAnterior`, `tipoNovo`, `valorNovo` |
+| `atualizar_por_item` | `itemValor`, `cabecalhoAlvo`, `tipoAnterior`, `valorAnterior`, `tipoNovo`, `valorNovo` |
+| `acrescentar_linha` | `aba`, `linhaEsperada` = próxima linha física; cria linha vazia |
+| `inserir_linha`, `inserir_coluna` | `aba` e `linha` ou `coluna`, com índice começando em 1 |
+| `criar_aba` | `aba` |
+| `expandir_filtro` | `aba`, `intervaloAnterior`, `intervaloNovo`, por exemplo `A1:H3` → `A1:H4` |
+
+`atualizar_celula` exige célula existente. `preencher_celula_vazia` aceita célula ausente,
+com tipo anterior `vazio` e valor anterior JSON `null`. Para uma tabela em A1:H3 com notas
+a partir da linha 5, leia A4:H4, proponha os preenchimentos e `expandir_filtro` na mesma
+edição. Não use `acrescentar_linha` com linha 4 se o fim físico estiver na linha 9.
+
+A expansão mantém cabeçalho e colunas, atualiza o filtro e seu nome definido, e inclui
+somente linhas originalmente vazias, preenchidas na mesma proposta. Recusa notas/dados
+preexistentes nessas linhas, mesclas, tabelas estruturadas na aba, ordenação ou critérios
+de filtro ativos e mudanças estruturais na mesma aba. Não recalcula fórmulas nem aplica
+critérios de filtragem. As demais operações continuam com as limitações anteriores.
+
+Conferência visual no LibreOffice: cabeçalho, larguras, notas e três abas do exemplo foram
+preservados, sem aviso de reparo. O Calc ampliou o filtro em memória até a nota contígua
+ao abrir seu menu, embora o XLSX grave A1:H4 corretamente. A prévia avisa quando há
+conteúdo imediatamente abaixo; não movemos notas nem inserimos espaçadores implicitamente.
+Esse comportamento de expansão automática também é descrito na
+[ajuda do LibreOffice](https://help.libreoffice.org/latest/en-GB/text/scalc/guide/autofilter.html).
+
+Falhas conhecidas retornam `dados.codigoErro`, `etapa`, `operacao` e `indiceOperacao`
+(começando em 1; 0 se a falha precede uma operação). Exemplos: `CELULA_INEXISTENTE`,
+`POSICAO_DIVERGENTE`, `CONFLITO_DE_CELULA`, `CONFLITO_DE_FILTRO`, `RECURSO_INCOMPATIVEL`
+e `ACESSO_NEGADO`. Erros inesperados usam `FALHA_INTERNA`; falhas de I/O sem causa mais
+específica usam `FALHA_DE_IO`. Não atribuir uma recusa de validação ao disco nem repetir
+os mesmos parâmetros. `RESULTADO_INCERTO` exige consultar o estado antes de nova edição.
+O agente registra ID, etapa, operação, código e classes da exceção/causa, sem valores
+das células ou credenciais; esse resumo permanece no diário após o envio à VPS.
 
 Para tarefas recorrentes, `agendar_tarefa_planilha` registra instrução, agenda cron de
 seis campos e autorização para um XLSX inteiro após confirmação autenticada. Cada execução

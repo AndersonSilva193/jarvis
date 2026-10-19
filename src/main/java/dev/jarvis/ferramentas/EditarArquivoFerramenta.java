@@ -53,7 +53,12 @@ public class EditarArquivoFerramenta implements Ferramenta {
             + "substituir_conteudo só após leitura integral e pedido explícito "
             + "de reescrita. JSON aceita atualizar_valor de escalar existente por ponteiro, tipo e valor anterior. "
             + "XLSX aceita atualizar_celula, atualizar_por_item (itemValor e cabecalhoAlvo), preencher_celula_vazia, acrescentar_linha, "
-            + "inserir_linha, inserir_coluna e criar_aba quando as referências puderem ser preservadas; "
+            + "inserir_linha, inserir_coluna, criar_aba e expandir_filtro quando as referências puderem ser preservadas. "
+            + "atualizar_celula exige célula existente; preencher_celula_vazia aceita ausente com tipoAnterior vazio e valorAnterior null. "
+            + "acrescentar_linha cria só uma linha vazia no fim FÍSICO da aba: use proximaLinhaFisica da leitura, "
+            + "que pode ficar depois das notas; preencha com operações separadas. Para incluir no filtro, leia a faixa seguinte, "
+            + "preencha células vazias e use expandir_filtro com intervaloAnterior e intervaloNovo na mesma proposta. "
+            + "Essa operação mantém cabeçalho/colunas e só inclui linhas originalmente vazias; não inclui notas existentes. "
             + "localize por ler_arquivo e recuse busca ambígua. Copie tipo e valorAnterior da leitura; "
             + "booleano usa true/false, não texto. Fórmulas não são recalculadas. "
             + "O usuário pode indicar o nome falado sem extensão, como 'tabela exemplo' para tabela_exemplo.xlsx; "
@@ -74,7 +79,7 @@ public class EditarArquivoFerramenta implements Ferramenta {
                 .add("atualizar_valor").add("atualizar_celula").add("atualizar_por_item")
                 .add("preencher_celula_vazia")
                 .add("acrescentar_linha").add("inserir_linha").add("inserir_coluna")
-                .add("criar_aba");
+                .add("criar_aba").add("expandir_filtro");
         for (String campo : List.of("textoAtual", "textoNovo", "texto", "conteudo"))
             campos.putObject(campo).put("type", "string");
         campos.putObject("ignorarMaiusculas").put("type", "boolean");
@@ -89,12 +94,34 @@ public class EditarArquivoFerramenta implements Ferramenta {
         campos.putObject("valorNovo");
         campos.putObject("autorizarSubstituirFormula").put("type", "boolean");
         p.putObject("simplificar").put("type", "boolean");
-        campos.putObject("linhaEsperada").put("type", "integer").put("minimum", 1);
         campos.putObject("linha").put("type", "integer").put("minimum", 1);
         campos.putObject("coluna").put("type", "integer").put("minimum", 1);
+        campos.putObject("linhaEsperada").put("type", "integer").put("minimum", 1)
+                .put("description", "Próxima linha física retornada por ler_arquivo; não é o fim da tabela ou filtro.");
+        for (String campo : List.of("intervaloAnterior", "intervaloNovo"))
+            campos.putObject(campo).put("type", "string").put("pattern", "^[A-Z]{1,3}[1-9][0-9]*:[A-Z]{1,3}[1-9][0-9]*$")
+                    .put("description", "Faixa do filtro sem aba, por exemplo A1:H3; expansão somente inferior.");
+        var regras = op.putArray("allOf");
+        exigir(regras, "atualizar_valor", "ponteiro", "tipoAnterior", "valorAnterior", "tipoNovo", "valorNovo");
+        for (String tipo : List.of("atualizar_celula", "preencher_celula_vazia"))
+            exigir(regras, tipo, "aba", "celula", "tipoAnterior", "valorAnterior", "tipoNovo", "valorNovo");
+        exigir(regras, "atualizar_por_item", "itemValor", "cabecalhoAlvo", "tipoAnterior", "valorAnterior", "tipoNovo", "valorNovo");
+        exigir(regras, "acrescentar_linha", "aba", "linhaEsperada");
+        exigir(regras, "inserir_linha", "aba", "linha");
+        exigir(regras, "inserir_coluna", "aba", "coluna");
+        exigir(regras, "criar_aba", "aba");
+        exigir(regras, "expandir_filtro", "aba", "intervaloAnterior", "intervaloNovo");
         op.putArray("required").add("tipo");
         raiz.putArray("required").add("id").add("versaoEsperada").add("destino").add("operacoes");
         return raiz;
+    }
+    private static void exigir(tools.jackson.databind.node.ArrayNode regras, String tipo, String... campos) {
+        var regra = regras.addObject();
+        var condicao = regra.putObject("if");
+        condicao.putObject("properties").putObject("tipo").put("const", tipo);
+        condicao.putArray("required").add("tipo");
+        var obrigatorios = regra.putObject("then").putArray("required");
+        for (String campo : campos) obrigatorios.add(campo);
     }
     @Override public String executar(JsonNode entrada) { return "Pedido autenticado necessário."; }
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada,
@@ -139,11 +166,16 @@ public class EditarArquivoFerramenta implements Ferramenta {
         catch (IllegalStateException e) { return ResultadoFerramenta.texto(e.getMessage()); }
         if (!preparado.ok() || preparado.dados() == null) {
             String motivo = preparado.mensagem();
-            if (motivo != null && motivo.contains("CONFLITO_DE_CELULA"))
+            String codigo = preparado.dados() == null ? "" : preparado.dados().path("codigoErro").asText("");
+            if (codigo.equals("RESULTADO_INCERTO"))
+                return ResultadoFerramenta.texto("Resultado incerto; consulte o estado antes de qualquer nova edição. " + motivo);
+            if (codigo.equals("CONFLITO_DE_CELULA") || (motivo != null && motivo.contains("CONFLITO_DE_CELULA")))
                 return ResultadoFerramenta.texto("A célula não corresponde ao tipo ou valor anterior informado. "
                         + "Releia a célula e use exatamente tipo e valorAnterior retornados; "
                         + "nenhuma edição foi preparada. " + motivo);
-            return ResultadoFerramenta.texto("Não preparei a edição: " + motivo);
+            String diagnostico = codigo.matches("[A-Z_]{1,64}") ? " [" + codigo + "]" : "";
+            return ResultadoFerramenta.texto("Não preparei a edição" + diagnostico + ": " + motivo
+                    + ". Corrija a causa antes de tentar novamente; não repita os mesmos parâmetros.");
         }
         String nomeArquivo = Json.texto(preparado.dados().path("nome"));
         if (simplificar && !nomeArquivo.toLowerCase(Locale.ROOT).endsWith(".xlsx"))
