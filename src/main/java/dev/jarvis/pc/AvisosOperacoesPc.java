@@ -30,9 +30,7 @@ public class AvisosOperacoesPc {
             var estado = operacoes.estado(id).orElse(null);
             if (estado == null || !operacoes.marcarAviso(id)) continue;
             var resultado = operacoes.resultado(id).orElse(null);
-            String texto = "Operação do PC " + id + ": " + estado.estado() + ". " + estado.mensagem();
-            if (resultado != null && resultado.dados() != null)
-                texto += "\n" + resultado.dados();
+            String texto = textoDoAviso(id, estado, resultado);
             String canal = operacoes.canal(id);
             long chatId = operacoes.chatId(id);
             List<Anexo> referencias = new ArrayList<>();
@@ -73,5 +71,20 @@ public class AvisosOperacoesPc {
             if ("hud".equals(canal) && chatId > 0)
                 conversas.registrarResultadoTardio(chatId, id, texto, referencias);
         }
+    }
+
+    static String textoDoAviso(String id, OperacoesPcService.Retrato estado, ResultadoPc resultado) {
+        boolean edicao = List.of("aplicar_edicao", "aplicar_desfazer").contains(estado.acao());
+        if (edicao) {
+            if (resultado != null && resultado.ok()) {
+                String acao = "aplicar_desfazer".equals(estado.acao())
+                        ? "Edição desfeita" : "Arquivo atualizado";
+                return acao + ": " + resultado.mensagem() + ".";
+            }
+            return "Edição do arquivo " + estado.estado() + ": " + estado.mensagem();
+        }
+        String texto = "Operação do PC " + id + ": " + estado.estado() + ". " + estado.mensagem();
+        if (resultado != null && resultado.dados() != null) texto += "\n" + resultado.dados();
+        return texto;
     }
 }

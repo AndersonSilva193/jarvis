@@ -22,6 +22,29 @@ import tools.jackson.databind.json.JsonMapper;
 class AvisosOperacoesPcTest {
     @TempDir Path pasta;
 
+    @Test void avisoDeEdicaoMostraSomenteONomeDoArquivo() {
+        String comandoId = "e321f623-1bac-400b-b00f-5c1ffe259544";
+        var estado = new OperacoesPcService.Retrato(comandoId, "aplicar_edicao",
+                "concluído", "", "", "", "relatorio_assistentes_ia.md", null, false);
+        var dados = JsonMapper.builder().build().createObjectNode()
+                .put("editId", "7ab3662a-b441-4513-8842-b8300521811e")
+                .put("versao", "a".repeat(64));
+        var resultado = new ResultadoPc(comandoId, true, "relatorio_assistentes_ia.md",
+                null, null, true, dados);
+
+        assertEquals("Arquivo atualizado: relatorio_assistentes_ia.md.",
+                AvisosOperacoesPc.textoDoAviso(comandoId, estado, resultado));
+    }
+
+    @Test void avisoDeDesfazerMostraONomeDoArquivo() {
+        var estado = new OperacoesPcService.Retrato("id", "aplicar_desfazer",
+                "concluído", "", "", "", "nota.txt", null, false);
+        var resultado = new ResultadoPc("id", true, "nota.txt", null, null, true, null);
+
+        assertEquals("Edição desfeita: nota.txt.",
+                AvisosOperacoesPc.textoDoAviso("id", estado, resultado));
+    }
+
     @Test void imagemTardiaEntraNaHudUmaVez() throws Exception {
         var e2 = new OperacoesPcService(JsonMapper.builder().build(),
                 pasta.resolve("operacoes.json"), Clock.systemUTC());
