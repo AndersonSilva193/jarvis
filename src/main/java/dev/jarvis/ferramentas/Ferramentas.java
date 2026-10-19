@@ -95,6 +95,7 @@ public class Ferramentas {
                 @Override public String idPedido() { return progresso.idPedido(); }
                 @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
                 @Override public String pedidoOriginal() { return progresso.pedidoOriginal(); }
+                @Override public String ultimoAnexoDeArquivo() { return progresso.ultimoAnexoDeArquivo(); }
                 @Override public boolean memoriaEsquecida() { return progresso.memoriaEsquecida(); }
                 @Override public void marcarMemoriaEsquecida() { progresso.marcarMemoriaEsquecida(); }
                 @Override public void marcarMemoriaEsquecida(String id, long revisao) {

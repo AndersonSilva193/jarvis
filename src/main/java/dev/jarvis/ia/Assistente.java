@@ -125,6 +125,8 @@ public class Assistente {
                 throw new IllegalStateException("Pedido encerrado pela limpeza do histórico");
             OuvinteProgresso.avisar(progresso::iniciado);
             if (progresso.usuarioAutenticado() > 0) usuarioPorChat.put(chatId, progresso.usuarioAutenticado());
+            String ultimoAnexo = progresso.usuarioAutenticado() > 0
+                    ? ultimoAnexoDeArquivo(conversas.historico(chatId), canal, Instant.now()) : "";
             Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
             List<ObjectNode> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(texto));
@@ -161,7 +163,24 @@ public class Assistente {
                 resposta = Json.texto(resultado.path("content"));
                 turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
             } else {
-                resposta = executarLoop(historico, turno, canal, progresso, resultados);
+                OuvinteProgresso comAnexo = new OuvinteProgresso() {
+                    @Override public String idPedido() { return progresso.idPedido(); }
+                    @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
+                    @Override public String ultimoAnexoDeArquivo() { return ultimoAnexo; }
+                    @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
+                        progresso.ferramenta(nome, descricao, passo, total);
+                    }
+                    @Override public void marcarMemoriaEsquecida() {
+                        progresso.marcarMemoriaEsquecida();
+                    }
+                    @Override public void marcarMemoriaEsquecida(String memoriaId, long revisao) {
+                        progresso.marcarMemoriaEsquecida(memoriaId, revisao);
+                    }
+                    @Override public boolean memoriaEsquecida() { return progresso.memoriaEsquecida(); }
+                    @Override public String idMemoriaEsquecida() { return progresso.idMemoriaEsquecida(); }
+                    @Override public long revisaoMemoriaEsquecida() { return progresso.revisaoMemoriaEsquecida(); }
+                };
+                resposta = executarLoop(historico, turno, canal, comAnexo, resultados);
             }
             List<Anexo> publicados = new ArrayList<>();
             Confirmacao confirmacao = null;
@@ -200,6 +219,21 @@ public class Assistente {
             }
             return publica;
         } finally { execucao.unlock(); }
+    }
+
+    static String ultimoAnexoDeArquivo(RegistroConversas.Historico historico, Canal canal, Instant agora) {
+        if (historico.trocas().isEmpty()) return "";
+        RespostaConversa resposta = historico.trocas().getLast().resposta();
+        if (!canal.nome().equals(resposta.canal())) return "";
+        try {
+            Instant concluido = Instant.parse(resposta.concluidoEm());
+            Duration idade = Duration.between(concluido, agora);
+            if (idade.isNegative() || idade.compareTo(Duration.ofMinutes(10)) > 0) return "";
+        } catch (RuntimeException e) { return ""; }
+        List<Anexo> elegiveis = resposta.anexos().stream().filter(a -> "arquivo".equals(a.tipo())
+                && a.nome() != null && a.nome().toLowerCase(java.util.Locale.ROOT)
+                        .matches(".*\\.(txt|md)")).toList();
+        return elegiveis.size() == 1 ? elegiveis.getFirst().nome() : "";
     }
 
     /** A confirmação determina a janela de escuta, inclusive quando já expirou. */
@@ -262,6 +296,7 @@ public class Assistente {
         boolean memoriaLida = false;
         String ultimoErroDeArquivo = "";
         String ultimaFalhaDeArquivo = "";
+        String falhaEdicao = "";
 
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
@@ -303,11 +338,20 @@ public class Assistente {
             // O modelo pediu uma ou mais ferramentas: executamos e devolvemos os resultados.
             ArrayNode resultados = json.createArrayNode();
             String erroRepetidoDeArquivo = "";
+            boolean substitutoRecusado = false;
             boolean pesquisaFeita = buscas > 0;
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
                 if ("tool_use".equals(Json.texto(bloco.path("type")))) {
                     String nomeFerramenta = Json.texto(bloco.path("name"));
+                    if ("criar_arquivo".equals(nomeFerramenta) && !falhaEdicao.isBlank()) {
+                        resultados.add(json.createObjectNode().put("type", "tool_result")
+                                .put("tool_use_id", Json.texto(bloco.path("id")))
+                                .put("content", "Não criei outro arquivo: o pedido de editar o original falhou.")
+                                .put("is_error", true));
+                        substitutoRecusado = true;
+                        continue;
+                    }
                     boolean ferramentaDeMemoria = List.of("buscar_memoria", "ler_memoria",
                             "registrar_memoria", "atualizar_memoria", "esquecer_memoria").contains(nomeFerramenta);
                     if (memoriaLida && !ferramentaDeMemoria) {
@@ -324,6 +368,7 @@ public class Assistente {
                         @Override public String idPedido() { return progresso.idPedido(); }
                         @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
                         @Override public String pedidoOriginal() { return Json.texto(turno.getFirst().path("content")); }
+                        @Override public String ultimoAnexoDeArquivo() { return progresso.ultimoAnexoDeArquivo(); }
                         @Override public boolean memoriaEsquecida() { return esqueceu.get(); }
                         @Override public void marcarMemoriaEsquecida() { esqueceu.set(true); progresso.marcarMemoriaEsquecida(); }
                         @Override public void marcarMemoriaEsquecida(String id, long revisao) {
@@ -349,7 +394,14 @@ public class Assistente {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }
                     };
+                    int anteriores = detalhados.size();
                     ObjectNode resultado = ferramentas.executar(bloco, seguro, detalhados::add);
+                    if ("editar_arquivo".equals(nomeFerramenta)) {
+                        boolean preparada = detalhados.size() > anteriores
+                                && (detalhados.getLast().confirmacao() != null
+                                        || !detalhados.getLast().artefatos().isEmpty());
+                        falhaEdicao = preparada ? "" : Json.texto(resultado.path("content"));
+                    }
                     if (List.of("buscar_memoria", "ler_memoria").contains(nomeFerramenta)) memoriaLida = true;
                     if (List.of("verificar_site", "status_servidor", "clima").contains(Json.texto(bloco.path("name")))
                             && !resultado.path("is_error").asBoolean(false))
@@ -381,6 +433,8 @@ public class Assistente {
             comResultados.set("content", resultados);
             turno.add(comResultados);
             if (esqueceu.get()) return "Memória esquecida.";
+            if (substitutoRecusado) return "Não alterei o arquivo original e não criei um substituto. "
+                    + falhaEdicao.substring(0, Math.min(240, falhaEdicao.length()));
             // Repetir a mesma entrada recusada desperdiça chamadas do modelo e acabava no erro
             // genérico da HUD. O turno já tem o tool_result, então o histórico continua válido.
             if (!erroRepetidoDeArquivo.isBlank()) return erroRepetidoDeArquivo;

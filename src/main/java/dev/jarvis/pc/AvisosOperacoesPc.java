@@ -79,7 +79,12 @@ public class AvisosOperacoesPc {
             if (resultado != null && resultado.ok()) {
                 String acao = "aplicar_desfazer".equals(estado.acao())
                         ? "Edição desfeita" : "Arquivo atualizado";
-                return acao + ": " + resultado.mensagem() + ".";
+                String mensagem = resultado.mensagem();
+                String prefixo = "salvo, entrega falhou: ";
+                if (mensagem.startsWith(prefixo))
+                    return acao + ": " + mensagem.substring(prefixo.length())
+                            + "; salvo, entrega falhou.";
+                return acao + ": " + mensagem + ".";
             }
             return "Edição do arquivo " + estado.estado() + ": " + estado.mensagem();
         }

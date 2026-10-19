@@ -120,6 +120,14 @@ caminho ou conteúdo refeito pelo modelo. Cópia é criada no mesmo pedido após
 O agente guarda backup protegido, revalida hash antes do move atômico e recusa
 conflitos. A janela residual contra editores externos sem lock impede prometer
 compare-and-swap perfeito. O expurgo configurável de backups limita desfazer.
+`substituir_todas_ocorrencias` troca todas as correspondências literais, com opção
+de ignorar maiúsculas, e a prévia informa a contagem. “Esse arquivo” só referencia
+o único anexo TXT/MD da resposta anterior do mesmo usuário e canal, por dez minutos;
+nomes explícitos são comparados exatamente. Se a edição falhar, o mesmo turno não
+cria outro documento. Leituras paginadas da mesma versão podem comprovar leitura
+integral para reescrita; registros de leitura expiram em dez minutos.
+`desfazer_edicao` pode omitir `editId` para a última edição original concluída
+enquanto a instância do servidor permanecer ativa.
 
 O PC roda um agente (projeto irmão `../jarvis-agente-pc`: Java 21, sem Spring, um jar) que
 **busca** comandos na VPS por long polling — `GET /api/pc/comandos` segura a requisição por 25 s.

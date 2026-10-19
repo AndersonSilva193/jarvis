@@ -79,13 +79,21 @@ situação.
 `editar_arquivo` edita somente `.txt` e `.md` diretamente na `pastaArquivos` do agente.
 Use o ID e `versaoEsperada` (SHA-256) de `listar_arquivos`/`ler_arquivo` e leia o
 arquivo antes de propor operações. São aceitas `substituir_trecho` (uma ocorrência
-exata), `acrescentar_ao_final` e `substituir_conteudo` (somente após leitura integral
+exata), `substituir_todas_ocorrencias` (busca literal, com opção de ignorar maiúsculas),
+`acrescentar_ao_final` e `substituir_conteudo` (somente após leitura integral
 e pedido explícito de reescrita). O agente devolve prévia limitada e `editId`;
 sobrescrever `original` exige nova mensagem autenticada. `copia` cria arquivo novo
 sem sobrescrever. `desfazer_edicao` recebe somente `editId`, confere backup e hash
 atual, e também exige nova mensagem autenticada. Os backups ficam fora da listagem
 comum no agente Windows. Se o arquivo foi salvo mas o upload falhou, o resultado
 informa “salvo, entrega falhou” e o Jarvis não repete a edição.
+O pedido “desfaça a última edição” usa o registro da última edição original concluída
+enquanto o servidor estiver em execução; após reinício, informe o `editId` pela
+consulta técnica de status.
+Pedidos como “edite esse arquivo” usam somente o único anexo TXT/MD da resposta
+imediatamente anterior do mesmo usuário e canal, entregue há no máximo dez minutos.
+Sem essa referência, o Jarvis pede o nome exato. Se a edição falhar, o mesmo pedido
+não cria um arquivo substituto. IDs e hashes ficam fora das mensagens comuns.
 
 `criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX e CSV no agente do PC, dentro da pasta
 `pastaArquivos` (padrão: Documentos/Jarvis). O comando leva dados estruturados, sem caminhos

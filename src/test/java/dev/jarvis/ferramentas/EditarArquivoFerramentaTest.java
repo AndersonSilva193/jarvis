@@ -16,18 +16,23 @@ class EditarArquivoFerramentaTest {
     private static final String EDIT = "22222222-2222-2222-2222-222222222222";
     private static final String HASH = "a".repeat(64);
     private OuvinteProgresso contexto(String pedidoId, String texto) {
+        return contexto(pedidoId, texto, "");
+    }
+    private OuvinteProgresso contexto(String pedidoId, String texto, String ultimoAnexo) {
         return new OuvinteProgresso() {
             @Override public String idPedido() { return pedidoId; }
             @Override public long usuarioAutenticado() { return 42; }
             @Override public String canal() { return "telegram"; }
             @Override public String pedidoOriginal() { return texto; }
+            @Override public String ultimoAnexoDeArquivo() { return ultimoAnexo; }
         };
     }
     @Test void confirmacaoUsaEditIdDaPropostaSemRepassarOperacoes() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
         var dados = json.createObjectNode().put("editId", EDIT).put("nome", "nota.md")
                 .put("previa", "- velho\n+ novo").put("versaoAnterior", HASH)
-                .put("versaoProposta", "b".repeat(64));
+                .put("versaoProposta", "b".repeat(64))
+                .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString());
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
         when(fluxo.aplicarDepoisDeConfirmar(eq("aplicar_edicao"), eq(EDIT), eq("telegram"), eq(42L)))
@@ -44,6 +49,52 @@ class EditarArquivoFerramentaTest {
         assertTrue(intencoes.tratar("confirmo", 42, "terceiro").orElseThrow().contains("Nao ha"));
     }
 
+    @Test void esseArquivoUsaSomenteOAnexoAnteriorCorrespondente() throws Exception {
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        var dados = json.createObjectNode().put("editId", EDIT).put("nome", "relatorio.md")
+                .put("previa", "- Chat GPT\n+ você")
+                .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString())
+                .put("ocorrenciasSubstituidas", 3);
+        when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
+                .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
+        var ferramenta = new EditarArquivoFerramenta(fluxo, new IntencoesPc(), json);
+        var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
+                + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"substituir_todas_ocorrencias\",\"textoAtual\":\"Chat GPT\",\"textoNovo\":\"você\",\"ignorarMaiusculas\":true}]}");
+
+        var aceito = ferramenta.executarDetalhado(pedido,
+                contexto("pedido-1", "edite esse arquivo onde tiver Chat GPT", "relatorio.md"));
+        assertNotNull(aceito.confirmacao());
+        assertTrue(aceito.texto().contains("Ocorrências substituídas: 3"));
+        assertFalse(aceito.texto().contains(EDIT));
+        assertFalse(aceito.texto().contains(HASH));
+
+        var recusado = ferramenta.executarDetalhado(pedido,
+                contexto("pedido-2", "edite esse arquivo", "outro.md"));
+        assertTrue(recusado.texto().contains("não foi identificado"));
+    }
+
+    @Test void nomeSemelhanteNaoAutorizaOutroArquivo() {
+        assertFalse(EditarArquivoFerramenta.arquivoConstaDoPedido(
+                "edite meu relatório de assistentes", "relatorio_de_assistentes.md", ID, ""));
+        assertFalse(EditarArquivoFerramenta.arquivoConstaDoPedido(
+                "edite outra-nota.md", "nota.md", ID, ""));
+        assertTrue(EditarArquivoFerramenta.arquivoConstaDoPedido(
+                "edite NOTA.md", "nota.md", ID, ""));
+        assertFalse(EditarArquivoFerramenta.arquivoConstaDoPedido(
+                "edite outro.md, não esse arquivo", "nota.md", ID, "nota.md"));
+    }
+
+    @Test void copiaNaoSolicitadaNemChegaAoAgente() throws Exception {
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        var ferramenta = new EditarArquivoFerramenta(fluxo, new IntencoesPc(), json);
+        var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
+                + "\",\"destino\":\"copia\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
+        var resultado = ferramenta.executarDetalhado(pedido,
+                contexto("pedido", "edite esse arquivo", "nota.md"));
+        assertTrue(resultado.texto().contains("não autorizou criar uma cópia"));
+        verify(fluxo, never()).preparar(anyString(), any(), any());
+    }
+
     @Test void documentoNaoAutorizaEditarOutroArquivo() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
         var dados = json.createObjectNode().put("editId", EDIT).put("nome", "segredo.md")
@@ -53,7 +104,7 @@ class EditarArquivoFerramentaTest {
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
         var ferramenta = new EditarArquivoFerramenta(fluxo, new IntencoesPc(), json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
-                + "\",\"destino\":\"copia\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
+                + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "acrescente x em nota.md"));
         assertTrue(resultado.texto().contains("não foi identificado"));
         verify(fluxo, never()).aplicarCopia(anyString(), any(), anyString());

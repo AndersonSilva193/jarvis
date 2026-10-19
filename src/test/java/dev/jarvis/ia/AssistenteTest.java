@@ -29,6 +29,9 @@ import dev.jarvis.ferramentas.ResultadoFerramenta;
 import dev.jarvis.conversa.Confirmacao;
 import dev.jarvis.conversa.EscutaResposta;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.conversa.Anexo;
+import dev.jarvis.conversa.RegistroConversas;
+import dev.jarvis.conversa.RespostaConversa;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -42,6 +45,59 @@ import tools.jackson.databind.node.ObjectNode;
  * e foi assim que o bot quebrou em produção.
  */
 class AssistenteTest {
+
+    @Test void referenciaSomenteAnexoUnicoDaRespostaAnteriorDoMesmoCanal() {
+        Instant agora = Instant.parse("2026-10-18T21:00:00Z");
+        Anexo arquivo = new Anexo("a", "arquivo", "nota.md", "application/octet-stream", "", "");
+        Anexo outro = new Anexo("b", "arquivo", "outro.txt", "application/octet-stream", "", "");
+        assertEquals("nota.md", Assistente.ultimoAnexoDeArquivo(
+                historicoComAnexos("hud", agora.minusSeconds(60), List.of(arquivo)), Canal.HUD, agora));
+        assertEquals("", Assistente.ultimoAnexoDeArquivo(
+                historicoComAnexos("hud", agora.minusSeconds(60), List.of(arquivo, outro)), Canal.HUD, agora));
+        assertEquals("", Assistente.ultimoAnexoDeArquivo(
+                historicoComAnexos("hud", agora.minusSeconds(601), List.of(arquivo)), Canal.HUD, agora));
+        assertEquals("", Assistente.ultimoAnexoDeArquivo(
+                historicoComAnexos("telegram", agora.minusSeconds(60), List.of(arquivo)), Canal.HUD, agora));
+        assertEquals("", Assistente.ultimoAnexoDeArquivo(
+                historicoComAnexos("hud", agora.minusSeconds(60), List.of()), Canal.HUD, agora));
+    }
+
+    private static RegistroConversas.Historico historicoComAnexos(String canal, Instant quando,
+            List<Anexo> arquivos) {
+        var resposta = new RespostaConversa("resposta", canal, "", arquivos, null,
+                quando.toString(), null);
+        var troca = new RegistroConversas.Troca("resposta", canal, "pedido", resposta);
+        return new RegistroConversas.Historico("sessao", 1, List.of(troca), null, resposta);
+    }
+
+    @Test void anexoAnteriorAutenticadoChegaAFerramentaNoTelegram() throws Exception {
+        var conversas = new RegistroConversas(evento -> { });
+        var anexo = new Anexo("a", "arquivo", "relatorio.md", "application/octet-stream", "", "");
+        conversas.concluir(42, "pedido anterior", new RespostaConversa("anterior", "telegram",
+                "Arquivo criado", List.of(anexo), null, Instant.now().toString(), null));
+        Ferramenta observar = new Ferramenta() {
+            public String nome() { return "observar_anexo"; }
+            public String descricao() { return "Observa referência"; }
+            public ObjectNode esquemaEntrada() { return JSON.createObjectNode().put("type", "object"); }
+            public String executar(JsonNode entrada) { return ""; }
+            public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso contexto) {
+                return ResultadoFerramenta.texto(contexto.ultimoAnexoDeArquivo());
+            }
+        };
+        var assistenteComHistorico = new Assistente(claude, new Ferramentas(List.of(observar), JSON),
+                new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
+                        JSON, props()), JSON, conversas, new dev.jarvis.conversa.AnexosService(),
+                BuscaWebServidor.desligada(), new dev.jarvis.pc.IntencoesPc());
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("observar_anexo", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("feito"));
+        assistenteComHistorico.responder(42, "edite esse arquivo", Canal.TELEGRAM,
+                new OuvinteProgresso() {
+                    @Override public String idPedido() { return "telegram-2"; }
+                    @Override public long usuarioAutenticado() { return 42; }
+                });
+        assertTrue(mensagensEnviadas().getLast().toString().contains("relatorio.md"));
+    }
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -169,6 +225,25 @@ class AssistenteTest {
                 .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()));
         var resposta = comFerramentas(arquivo).responder(1L, "crie um arquivo", Canal.HUD, null);
         assertTrue(resposta.texto().contains("Nome inválido"));
+        verify(claude, times(2)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+    }
+
+    @Test void edicaoRecusadaNaoViraCriacaoDeOutroArquivo() throws Exception {
+        Ferramenta editar = ferramentaDeFluxo("editar_arquivo",
+                "O arquivo proposto não foi identificado no pedido original.");
+        Ferramenta criar = mock(Ferramenta.class);
+        when(criar.nome()).thenReturn("criar_arquivo");
+        when(criar.descricao()).thenReturn("Criar arquivo");
+        when(criar.esquemaEntrada()).thenReturn(JSON.createObjectNode().put("type", "object"));
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("editar_arquivo", JSON.createObjectNode()))
+                .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()));
+
+        var resposta = comFerramentas(editar, criar).responder(1L,
+                "edite esse arquivo", Canal.HUD, null);
+
+        assertTrue(resposta.texto().contains("não criei um substituto"));
+        verify(criar, org.mockito.Mockito.never()).executarDetalhado(any(), any());
         verify(claude, times(2)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
     }
 

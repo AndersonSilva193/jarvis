@@ -45,6 +45,15 @@ class AvisosOperacoesPcTest {
                 AvisosOperacoesPc.textoDoAviso("id", estado, resultado));
     }
 
+    @Test void falhaDeEntregaMostraNomeSemIdsNemJson() {
+        var estado = new OperacoesPcService.Retrato("comando", "aplicar_edicao",
+                "concluído", "", "", "", "salvo, entrega falhou: nota.md", null, false);
+        var resultado = new ResultadoPc("comando", true, "salvo, entrega falhou: nota.md",
+                null, null, false, null);
+        assertEquals("Arquivo atualizado: nota.md; salvo, entrega falhou.",
+                AvisosOperacoesPc.textoDoAviso("comando", estado, resultado));
+    }
+
     @Test void imagemTardiaEntraNaHudUmaVez() throws Exception {
         var e2 = new OperacoesPcService(JsonMapper.builder().build(),
                 pasta.resolve("operacoes.json"), Clock.systemUTC());

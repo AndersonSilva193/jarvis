@@ -17,6 +17,19 @@ class IntencoesPcTest {
         @Override public Instant instant() { return agora.get(); }
     }
 
+    @Test void confirmacaoDeEdicaoRespeitaPrazoDaProposta() {
+        Relogio relogio = new Relogio();
+        IntencoesPc guarda = new IntencoesPc(relogio);
+        AtomicInteger execucoes = new AtomicInteger();
+        Instant prazo = relogio.instant().plusSeconds(30);
+        var confirmacao = guarda.pedir("edicao", "Substituir nota.md", 42,
+                "pedido-1", prazo, () -> "feito " + execucoes.incrementAndGet());
+        assertEquals(prazo.toString(), confirmacao.expiraEm());
+        relogio.agora.set(prazo);
+        assertTrue(guarda.tratar("confirmo", 42, "pedido-2").orElseThrow().contains("expirou"));
+        assertEquals(0, execucoes.get());
+    }
+
     @Test void soMensagemPosteriorAutenticadaExecutaUmaVez() {
         Relogio relogio = new Relogio();
         IntencoesPc guarda = new IntencoesPc(relogio);

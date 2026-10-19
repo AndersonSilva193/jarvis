@@ -4,7 +4,9 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
 import dev.jarvis.conversa.OuvinteProgresso;
@@ -22,6 +24,8 @@ public class FluxoEdicaoPc {
     private final ArquivosPcService arquivos;
     private final TelegramClient telegram;
     private final JsonMapper json;
+    private record UltimaEdicao(String editId, String comandoId) { }
+    private final ConcurrentHashMap<Long, UltimaEdicao> ultimasEdicoes = new ConcurrentHashMap<>();
 
     public FluxoEdicaoPc(OperacoesPcService operacoes, ArquivosPcService arquivos,
             TelegramClient telegram, JsonMapper json) {
@@ -36,7 +40,7 @@ public class FluxoEdicaoPc {
             return operacoes.enfileirar(comando, Duration.ofSeconds(30), Duration.ofMinutes(2),
                     contexto.canal(), contexto.usuarioAutenticado()).get(55, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
-            throw new IllegalStateException("Preparação sem resposta; consulte status_operacao_pc: " + comando.id());
+            throw new IllegalStateException("Preparação sem resposta; consulte o status da operação no PC.");
         }
     }
 
@@ -46,9 +50,18 @@ public class FluxoEdicaoPc {
         try {
             operacoes.enfileirar(comando, Duration.ofSeconds(30), Duration.ofMinutes(2), canal, usuario);
             operacoes.pedirAviso(comando.id());
-            return "Edição autorizada. Operação " + comando.id()
-                    + " iniciada; o resultado e o anexo serão avisados. Consulte status_operacao_pc pelo ID.";
+            if ("aplicar_edicao".equals(acao))
+                ultimasEdicoes.put(usuario, new UltimaEdicao(editId, comando.id()));
+            return "Edição autorizada. Avisarei o resultado e entregarei o arquivo.";
         } catch (RuntimeException e) { return "Não iniciei a edição: " + e.getMessage(); }
+    }
+
+    public Optional<String> ultimaEdicaoConcluida(long usuario) {
+        UltimaEdicao ultima = ultimasEdicoes.get(usuario);
+        if (ultima == null) return Optional.empty();
+        var estado = operacoes.estado(ultima.comandoId()).orElse(null);
+        return estado != null && "concluído".equals(estado.estado())
+                ? Optional.of(ultima.editId()) : Optional.empty();
     }
 
     public ResultadoFerramenta aplicarCopia(String editId, OuvinteProgresso contexto,
@@ -60,13 +73,18 @@ public class FluxoEdicaoPc {
                     contexto.canal(), contexto.usuarioAutenticado()).get(55, TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
             operacoes.pedirAviso(comando.id());
-            return ResultadoFerramenta.texto(previa + "\nCriação da cópia em andamento: " + comando.id()
-                    + ". Consulte status_operacao_pc; o resultado será avisado.");
+            return ResultadoFerramenta.texto(previa
+                    + "\nCriação da cópia em andamento; avisarei o resultado.");
         }
         if (!resultado.ok()) return ResultadoFerramenta.texto(previa + "\nCópia não criada: " + resultado.mensagem());
-        if (!resultado.arquivo()) return ResultadoFerramenta.texto(previa + "\nCópia salva, entrega falhou.");
+        if (!resultado.arquivo()) {
+            String nome = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
+            return ResultadoFerramenta.texto(previa + "\nCópia criada: " + nome
+                    + "; salvo, entrega falhou.");
+        }
         var arquivo = arquivos.obter(comando.id());
-        if (arquivo.isEmpty()) return ResultadoFerramenta.texto(previa + "\nCópia salva, entrega falhou.");
+        if (arquivo.isEmpty()) return ResultadoFerramenta.texto(previa + "\nCópia criada: "
+                + resultado.mensagem() + "; salvo, entrega falhou.");
         String nome = resultado.mensagem();
         String aviso = "";
         if ("telegram".equals(contexto.canal()) && contexto.usuarioAutenticado() > 0)

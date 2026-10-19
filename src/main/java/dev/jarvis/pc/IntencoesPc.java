@@ -28,6 +28,12 @@ public class IntencoesPc {
 
     public synchronized Confirmacao pedir(String tipo, String descricao, long usuario,
             String pedidoOrigem, Supplier<String> executar) {
+        return pedir(tipo, descricao, usuario, pedidoOrigem,
+                relogio.instant().plus(Duration.ofMinutes(2)), executar);
+    }
+
+    public synchronized Confirmacao pedir(String tipo, String descricao, long usuario,
+            String pedidoOrigem, Instant prazoMaximo, Supplier<String> executar) {
         if (usuario <= 0 || pedidoOrigem == null || pedidoOrigem.isBlank())
             throw new IllegalArgumentException("pedido autenticado necessario");
         if (pendente != null && relogio.instant().isBefore(pendente.expira())
@@ -35,6 +41,9 @@ public class IntencoesPc {
             throw new IllegalStateException("ja existe uma confirmacao do PC em aberto");
         String codigo = String.format("%06d", sorteio.nextInt(1_000_000));
         Instant expira = relogio.instant().plus(Duration.ofMinutes(2));
+        if (prazoMaximo.isBefore(expira)) expira = prazoMaximo;
+        if (!relogio.instant().isBefore(expira))
+            throw new IllegalStateException("a proposta expirou; prepare uma nova edição");
         pendente = new Pendente(tipo, descricao, codigo, usuario, pedidoOrigem, expira, executar);
         return new Confirmacao(codigo, descricao, expira.toString());
     }
