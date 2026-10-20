@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
+import dev.jarvis.conversa.HistoricoEmArquivo;
 import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
@@ -15,6 +16,18 @@ public class BeansConfig {
     @Bean
     public JsonMapper jsonMapper() {
         return JsonMapper.builder().build();
+    }
+
+    /**
+     * A pasta onde o histórico da conversa sobrevive ao restart do container.
+     *
+     * Fica aqui, e não num {@code @Component} em {@code dev.jarvis.conversa}, porque o caminho e a
+     * validade vêm da configuração: a classe em si não conhece o {@link JarvisProperties}, e é isso
+     * que permite aos testes construí-la apontando para uma pasta temporária.
+     */
+    @Bean
+    public HistoricoEmArquivo historicoEmArquivo(JarvisProperties config, JsonMapper json) {
+        return new HistoricoEmArquivo(config.pastaDoHistorico(), config.validadeDoHistorico(), json);
     }
 
     /**

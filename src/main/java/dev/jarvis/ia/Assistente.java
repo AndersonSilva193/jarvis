@@ -36,7 +36,10 @@ public class Assistente {
 
     /** Limite de idas e vindas com ferramentas por pedido, para nunca entrar em loop infinito. */
     private static final int MAX_PASSOS = 8;
-    /** Quantas trocas (pedido + resposta) o Jarvis lembra por conversa. Fica em memória. */
+    /**
+     * Quantas trocas (pedido + resposta) o Jarvis lembra por conversa. Também é o teto do que volta
+     * do disco na partida: o arquivo pode ter sido gravado por uma versão que lembrava mais.
+     */
     private static final int MAX_TURNOS_HISTORICO = 10;
 
     private static final Logger log = LoggerFactory.getLogger(Assistente.class);
@@ -49,6 +52,7 @@ public class Assistente {
     private final AnexosService anexos;
     private final BuscaWebServidor buscaWeb;
     private final IntencoesPc intencoesPc;
+    private final HistoricoEmArquivo arquivo;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
@@ -65,10 +69,18 @@ public class Assistente {
         this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, new IntencoesPc());
     }
 
-    @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             IntencoesPc intencoesPc) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, intencoesPc,
+                HistoricoEmArquivo.desligado());
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            IntencoesPc intencoesPc, HistoricoEmArquivo arquivo) {
+        this.arquivo = arquivo;
         this.claude = claude;
         this.ferramentas = ferramentas;
         this.sistema = sistema;
@@ -77,6 +89,37 @@ public class Assistente {
         this.anexos = anexos;
         this.buscaWeb = buscaWeb;
         this.intencoesPc = intencoesPc;
+    }
+
+    /**
+     * Devolve à memória o histórico que estava em disco. Roda antes de a primeira mensagem chegar,
+     * porque a HUD pode pedir o histórico sem ninguém ter falado nada ainda.
+     *
+     * Os turnos voltam ao {@code Deque} do chat e as trocas públicas ao {@link RegistroConversas};
+     * o {@code usuarioPorChat} volta junto, e é ele que faz "esquecer a memória" depois de um
+     * restart ainda alcançar todos os chats daquele usuário.
+     */
+    @jakarta.annotation.PostConstruct
+    public void restaurarHistorico() {
+        if (!arquivo.ligado()) return;
+        int chats = 0;
+        for (HistoricoEmArquivo.Salvo salvo : arquivo.carregarTudo()) {
+            if (!salvo.turnos().isEmpty()) {
+                Deque<List<ObjectNode>> historico = new ArrayDeque<>(salvo.turnos());
+                while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
+                historicos.put(salvo.chatId(), historico);
+            }
+            if (salvo.usuario() > 0) usuarioPorChat.put(salvo.chatId(), salvo.usuario());
+            conversas.restaurar(salvo.chatId(), salvo.trocas());
+            chats++;
+        }
+        if (chats > 0) log.info("Histórico restaurado de {} conversa(s) em {}", chats, arquivo.pasta());
+    }
+
+    /** Espera a última gravação sair antes de o processo morrer. */
+    @jakarta.annotation.PreDestroy
+    public void fechar() {
+        arquivo.fechar();
     }
 
     /** Responde a uma mensagem vinda do Telegram. */
@@ -209,13 +252,22 @@ public class Assistente {
                     if (entrada.getValue() == progresso.usuarioAutenticado()) {
                         historicos.remove(entrada.getKey());
                         conversas.limpar(entrada.getKey());
+                        // Apagar do disco aqui, e não num agendamento: o Jarvis só diz "esqueci"
+                        // depois de o arquivo ter saído do volume.
+                        arquivo.apagar(entrada.getKey());
                     }
                 }
+                historicos.remove(chatId);
+                arquivo.apagar(chatId);
                 conversas.concluirSemHistorico(chatId, publica);
             } else {
                 historico.addLast(semPensamentos(turno));
                 while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
                 conversas.concluir(chatId, texto, publica);
+                // Turno concluído, e só agora: nada do que deu erro no meio chega ao disco. A
+                // gravação em si sai numa thread virtual, fora do caminho da resposta.
+                arquivo.agendar(chatId, usuarioPorChat.getOrDefault(chatId, 0L),
+                        new ArrayList<>(historico), conversas.trocas(chatId));
             }
             return publica;
         } finally { execucao.unlock(); }
@@ -278,6 +330,7 @@ public class Assistente {
         try {
             historicos.remove(chatId);
             conversas.limpar(chatId);
+            arquivo.apagar(chatId);
         } finally { execucao.unlock(); }
     }
 

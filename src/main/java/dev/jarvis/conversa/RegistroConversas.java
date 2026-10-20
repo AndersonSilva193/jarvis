@@ -32,6 +32,23 @@ public class RegistroConversas {
 
     public RegistroConversas(ApplicationEventPublisher eventos) { this.eventos = eventos; }
 
+    /**
+     * Devolve as trocas do disco à conversa, sem publicar evento e sem tocar em {@code ultima}:
+     * o histórico restaurado é lista para olhar, não resposta para a HUD falar de novo. O
+     * {@code sessao} é novo a cada partida, e é por ele que a HUD sabe que reiniciou.
+     */
+    public synchronized void restaurar(long chatId, List<Troca> trocas) {
+        Conversa c = conversa(chatId);
+        if (!c.trocas.isEmpty() || c.pendente != null || trocas.isEmpty()) return;
+        c.trocas = List.copyOf(trocas.subList(Math.max(0, trocas.size() - 10), trocas.size()));
+        c.revisao++;
+    }
+
+    /** As trocas públicas de um chat, para quem precisa gravá-las em disco. */
+    public synchronized List<Troca> trocas(long chatId) {
+        return conversa(chatId).trocas;
+    }
+
     public synchronized Historico historico(long chatId) {
         Conversa c = conversa(chatId);
         return new Historico(sessao, c.revisao, c.trocas, c.pendente, c.ultima);

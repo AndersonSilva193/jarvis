@@ -14,7 +14,7 @@ RUN useradd --system --uid 1001 jarvis
 # propriedade ao criar o volume nomeado, e sem isso ele nasceria do root e o Jarvis
 # (uid 1001) não conseguiria gravar nada.
 RUN mkdir -p /data/voz /data/jarvis/memoria /data/jarvis/memoria-exclusoes \
-    /data/jarvis/lembretes /data/pc \
+    /data/jarvis/lembretes /data/jarvis/historico /data/pc \
     && chown -R jarvis:jarvis /data/voz /data/jarvis /data/pc
 COPY --from=build /app/target/jarvis.jar app.jar
 USER jarvis

@@ -47,9 +47,32 @@ apagar a série. `listar_lembretes` mostra a recorrência e a data da próxima o
 recorrente cancela a série inteira. O briefing e o card da HUD mostram a ocorrência **de hoje** mesmo
 quando a próxima já pulou para amanhã (o lembrete das 8h visto às 10h continua na agenda do dia).
 
+## Histórico da conversa persistente
+
+O que o Jarvis lembra da conversa também sobrevive ao restart. Para cada chat há um arquivo
+`chat-<id>.json` em `HISTORICO_PASTA` (padrão `/data/jarvis/historico`, volume nomeado `historico`),
+gravado pela mesma troca atômica dos lembretes. Dentro dele ficam as duas metades do diálogo: os
+últimos dez turnos que vão ao modelo e as trocas públicas que a HUD mostra na lista.
+
+O arquivo é escrito **ao fim de cada turno concluído**, numa thread virtual própria — quem está
+esperando a resposta não paga a gravação. Turno que falhou no meio não chega ao disco, porque quem
+agenda é o mesmo trecho que já decidia guardar o turno em memória.
+
+O que não entra: bloco de pensamento (que já ficava fora, por exigência da API) e imagem em base64 —
+uma captura de tela viraria centenas de kilobytes parados no volume, e no lugar dela fica o texto
+`[imagem omitida]`. Na partida, todo turno mais velho que `HISTORICO_VALIDADE_HORAS` (padrão 24) é
+descartado; o id de sessão é novo a cada partida, e é por ele que a HUD sabe que o histórico
+restaurado é lista para olhar, não resposta para falar de novo.
+
+Privacidade: esquecer a memória pessoal apaga **na hora** o arquivo de todos os chats daquele
+usuário, não só o que estava em RAM — o Jarvis só diz "esqueci" depois de o disco estar limpo. O
+`/limpar` do Telegram e o `POST /api/conversa/limpar` da HUD apagam o arquivo daquele chat do mesmo
+jeito.
+
 ### Backup e restauração da memória
 
-Execute o backup com o container parado para copiar os volumes de memória e de lembretes no mesmo
+Execute o backup com o container parado para copiar os volumes de memória, de lembretes e do
+histórico no mesmo
 ponto no tempo. No diretório
 do Compose, agende este procedimento diariamente; o exemplo abaixo guarda o arquivo em uma pasta privada
 da VPS e descarta arquivos de conteúdo com mais de 30 dias:
@@ -61,10 +84,10 @@ mkdir -p backups-memoria
 copia=$(mktemp -d)
 trap 'docker compose start jarvis; rm -rf -- "$copia"' EXIT
 docker compose stop jarvis
-mkdir -p "$copia/memoria" "$copia/exclusoes" "$copia/lembretes"
+mkdir -p "$copia/memoria" "$copia/exclusoes" "$copia/lembretes" "$copia/historico"
 docker run --rm --volumes-from jarvis -v "$copia:/backup" alpine:3.20 sh -c \
-  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/; cp -a /data/jarvis/lembretes/. /backup/lembretes/'
-tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes lembretes
+  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/; cp -a /data/jarvis/lembretes/. /backup/lembretes/; cp -a /data/jarvis/historico/. /backup/historico/'
+tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes lembretes historico
 tar -C "$copia" -czf backups-memoria/exclusoes-mais-recentes.tar.gz exclusoes
 find backups-memoria -maxdepth 1 -name 'memoria-*.tar.gz' -mtime +30 -delete
 ```
@@ -89,7 +112,11 @@ docker run --rm --volumes-from jarvis -v "$copia:/backup:ro" alpine:3.20 sh -c '
   # Os lembretes voltam inteiros: o Jarvis reagenda na partida e avisa o que venceu no meio.
   find /data/jarvis/lembretes -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   cp -a /backup/lembretes/. /data/jarvis/lembretes/
-  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes /data/jarvis/lembretes
+  # O histórico é conversa: restaure só se quiser o contexto de volta. Turno com mais de
+  # HISTORICO_VALIDADE_HORAS é descartado na partida, e o que foi esquecido não está aqui.
+  find /data/jarvis/historico -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a /backup/historico/. /data/jarvis/historico/
+  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes /data/jarvis/lembretes     /data/jarvis/historico
 '
 docker compose start jarvis
 ```

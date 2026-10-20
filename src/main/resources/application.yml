@@ -90,6 +90,9 @@ jarvis:
     pasta-exclusoes: ${MEMORIA_PASTA_EXCLUSOES:/data/jarvis/memoria-exclusoes}
   lembretes:
     arquivo: ${LEMBRETES_ARQUIVO:/data/jarvis/lembretes/lembretes.json}
+  historico:
+    pasta: ${HISTORICO_PASTA:/data/jarvis/historico}
+    validade-horas: ${HISTORICO_VALIDADE_HORAS:24}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

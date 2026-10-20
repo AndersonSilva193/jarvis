@@ -20,6 +20,8 @@ services:
       - memoria-exclusoes:/data/jarvis/memoria-exclusoes
       # A agenda do dono: lembretes gravados em JSON, reagendados na partida.
       - lembretes:/data/jarvis/lembretes
+      # O histórico da conversa: um JSON por chat, para o Jarvis não perder o assunto no restart.
+      - historico:/data/jarvis/historico
       - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
@@ -36,4 +38,5 @@ volumes:
   memoria:
   memoria-exclusoes:
   lembretes:
+  historico:
   pc-operacoes:

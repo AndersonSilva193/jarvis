@@ -1,10 +1,8 @@
 package dev.jarvis.lembretes;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.DayOfWeek;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeParseException;
@@ -17,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import dev.jarvis.lembretes.LembreteService.Lembrete;
+import dev.jarvis.util.ArquivoAtomico;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -55,7 +54,7 @@ class LembretesEmArquivo {
 
     LembretesEmArquivo(Path arquivo, JsonMapper json) {
         this.arquivo = arquivo.toAbsolutePath().normalize();
-        this.backup = this.arquivo.resolveSibling(this.arquivo.getFileName() + ".bak");
+        this.backup = ArquivoAtomico.backupDe(this.arquivo);
         this.json = json;
     }
 
@@ -89,10 +88,7 @@ class LembretesEmArquivo {
     }
 
     private Estado ler(Path origem) throws IOException {
-        if (Files.size(origem) > MAX_BYTES) {
-            throw new IOException("arquivo de lembretes acima do limite de " + MAX_BYTES + " bytes");
-        }
-        JsonNode raiz = json.readTree(Files.readString(origem, StandardCharsets.UTF_8));
+        JsonNode raiz = json.readTree(ArquivoAtomico.ler(origem, MAX_BYTES));
         if (!raiz.isObject()) {
             throw new IOException("raiz do arquivo de lembretes não é um objeto JSON");
         }
@@ -143,10 +139,6 @@ class LembretesEmArquivo {
 
     /** Grava o estado inteiro. Lança {@link IOException} para quem chamou decidir o que logar. */
     void salvar(List<Lembrete> lembretes, int proximoId) throws IOException {
-        Path pasta = arquivo.getParent();
-        if (pasta != null) {
-            Files.createDirectories(pasta);
-        }
         ObjectNode raiz = json.createObjectNode();
         raiz.put("proximoId", proximoId);
         ArrayNode lista = raiz.putArray("lembretes");
@@ -165,19 +157,6 @@ class LembretesEmArquivo {
             }
         }
 
-        Path temporario = Files.createTempFile(pasta == null ? arquivo.toAbsolutePath().getParent() : pasta,
-                ".lembretes-", ".tmp");
-        try {
-            Files.writeString(temporario, json.writeValueAsString(raiz), StandardCharsets.UTF_8);
-            // O .bak é a versão anterior, copiada antes da troca. Depois do move não dá mais: o
-            // arquivo antigo já não existe.
-            if (Files.exists(arquivo)) {
-                Files.copy(arquivo, backup, StandardCopyOption.REPLACE_EXISTING);
-            }
-            Files.move(temporario, arquivo, StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(temporario);
-        }
+        ArquivoAtomico.gravar(arquivo, json.writeValueAsString(raiz));
     }
 }
