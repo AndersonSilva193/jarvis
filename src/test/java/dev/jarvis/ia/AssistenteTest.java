@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,6 +22,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.aprovacao.ClassificadorDeResposta;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ferramentas.Ferramentas;
 import dev.jarvis.ferramentas.Ferramenta;
@@ -427,5 +430,102 @@ class AssistenteTest {
         List<ArrayNode> enviadas = mensagensEnviadas();
         assertEquals(1, enviadas.size(), "não há ferramenta nossa para executar: o turno acaba aqui");
         assertTrue(blocosDe(enviadas.get(0), "tool_result").isEmpty());
+    }
+
+    // --- A resposta em linguagem natural a uma aprovação pendente ---------------------------
+
+    private final dev.jarvis.pc.RelogioFalso relogio = new dev.jarvis.pc.RelogioFalso();
+    private final Aprovacoes aprovacoes = new Aprovacoes(relogio);
+    private final ClassificadorDeResposta classificador = mock(ClassificadorDeResposta.class);
+    private final java.util.concurrent.atomic.AtomicInteger desligamentos =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /** Monta o assistente com uma aprovação já pendente, criada pelo pedido "telegram-1". */
+    private Assistente comAprovacaoPendente() {
+        aprovacoes.pedir("pc", "desligar o PC", "Posso desligar o PC?", Aprovacoes.Risco.CRITICO,
+                42, "telegram-1", () -> "Desligando em 60 segundos, senhor. " + desligamentos.incrementAndGet());
+        return new Assistente(claude, new Ferramentas(List.of(), JSON),
+                new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
+                        JSON, props()), JSON, new RegistroConversas(evento -> { }),
+                new dev.jarvis.conversa.AnexosService(), BuscaWebServidor.desligada(), aprovacoes,
+                dev.jarvis.conversa.HistoricoEmArquivo.desligado(), classificador);
+    }
+
+    private String responderComoDono(Assistente agente, String texto) throws Exception {
+        return agente.responder(42, texto, Canal.TELEGRAM, new OuvinteProgresso() {
+            @Override public String idPedido() { return "telegram-2"; }
+            @Override public long usuarioAutenticado() { return 42; }
+        }).texto();
+    }
+
+    @Test
+    @DisplayName("SIM executa a pendência sem passar pelo modelo")
+    void simExecutaAPendencia() throws Exception {
+        when(classificador.classificar(any(), any())).thenReturn(ClassificadorDeResposta.Decisao.SIM);
+        Assistente agente = comAprovacaoPendente();
+
+        assertEquals("Desligando em 60 segundos, senhor. 1", responderComoDono(agente, "manda ver"));
+        assertEquals(1, desligamentos.get());
+        verify(claude, never()).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+        assertTrue(aprovacoes.pendenciaDe(42, "telegram-3").isEmpty(), "uso único");
+    }
+
+    @Test
+    @DisplayName("NÃO cancela e responde numa linha")
+    void naoCancelaAPendencia() throws Exception {
+        when(classificador.classificar(any(), any())).thenReturn(ClassificadorDeResposta.Decisao.NAO);
+        Assistente agente = comAprovacaoPendente();
+
+        assertEquals("Certo, não fiz.", responderComoDono(agente, "agora não"));
+        assertEquals(0, desligamentos.get());
+        verify(claude, never()).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+        assertTrue(aprovacoes.pendenciaDe(42, "telegram-3").isEmpty());
+    }
+
+    @Test
+    @DisplayName("AJUSTE cancela a proposta e segue para o modelo com a nota no turno")
+    void ajusteCancelaESegueParaOModelo() throws Exception {
+        when(classificador.classificar(any(), any())).thenReturn(ClassificadorDeResposta.Decisao.AJUSTE);
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(respostaComPensamento("Então só reinicio, senhor."));
+        Assistente agente = comAprovacaoPendente();
+
+        assertEquals("Então só reinicio, senhor.",
+                responderComoDono(agente, "pode, mas reinicia em vez de desligar"));
+        assertEquals(0, desligamentos.get());
+        String enviado = mensagensEnviadas().getFirst().toString();
+        assertTrue(enviado.contains("pode, mas reinicia em vez de desligar"), enviado);
+        assertTrue(enviado.contains("nota do servidor"), "o modelo precisa saber que a proposta caiu: " + enviado);
+        assertTrue(enviado.contains("Posso desligar o PC?"), enviado);
+        assertTrue(aprovacoes.pendenciaDe(42, "telegram-3").isEmpty(), "a proposta de antes não vale mais");
+    }
+
+    @Test
+    @DisplayName("OUTRO ASSUNTO mantém a pendência e toca a conversa")
+    void outroAssuntoMantemAPendencia() throws Exception {
+        when(classificador.classificar(any(), any()))
+                .thenReturn(ClassificadorDeResposta.Decisao.OUTRO_ASSUNTO);
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(respostaComPensamento("Faz 23 graus, senhor."));
+        Assistente agente = comAprovacaoPendente();
+
+        assertEquals("Faz 23 graus, senhor.", responderComoDono(agente, "qual a temperatura agora?"));
+        assertEquals(0, desligamentos.get());
+        assertFalse(mensagensEnviadas().getFirst().toString().contains("nota do servidor"));
+        assertEquals("Posso desligar o PC?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow(),
+                "quem não respondeu a pergunta não cancelou nada");
+    }
+
+    @Test
+    @DisplayName("DÚVIDA não executa: repete a pergunta e mantém a pendência")
+    void duvidaRepeteAPergunta() throws Exception {
+        when(classificador.classificar(any(), any())).thenReturn(ClassificadorDeResposta.Decisao.DUVIDA);
+        Assistente agente = comAprovacaoPendente();
+
+        assertEquals("Só para confirmar: Posso desligar o PC? Responda sim ou não.",
+                responderComoDono(agente, "sei lá, você que sabe"));
+        assertEquals(0, desligamentos.get());
+        verify(claude, never()).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+        assertEquals("Posso desligar o PC?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow());
     }
 }

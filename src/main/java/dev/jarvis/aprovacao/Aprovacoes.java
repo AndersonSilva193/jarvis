@@ -1,11 +1,9 @@
 package dev.jarvis.aprovacao;
 
 import java.security.SecureRandom;
-import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
@@ -151,12 +149,51 @@ public class Aprovacoes {
         return Optional.of(executar.executar().get());
     }
 
+    /**
+     * A pergunta em aberto para este usuário nesta mensagem, ou vazio.
+     *
+     * <p>É o que permite responder à aprovação em linguagem natural sem gastar nada quando não há
+     * nada pendente: só com a pergunta na mão é que o {@link ClassificadorDeResposta} é chamado.
+     * As condições são as mesmas do {@link #tratar} — usuário autenticado e igual, mensagem nova,
+     * prazo de pé —, e a pendência vencida é descartada aqui mesmo.
+     */
+    public synchronized Optional<String> pendenciaDe(long usuario, String pedidoAtual) {
+        Pendente p = pendente;
+        if (p == null) return Optional.empty();
+        if (!relogio.instant().isBefore(p.expira())) {
+            pendente = null;
+            return Optional.empty();
+        }
+        if (usuario <= 0 || usuario != p.usuario() || pedidoAtual == null
+                || pedidoAtual.equals(p.pedidoOrigem())) return Optional.empty();
+        return Optional.of(p.pergunta());
+    }
+
+    /**
+     * Retira a pendência e roda a ação aprovada. Mesmas garantias do {@link #tratar}: uso único, e
+     * o {@code Supplier} — com a ação e os argumentos capturados na hora do pedido — rodando fora
+     * do monitor, porque ele fala com o PC e pode demorar.
+     */
+    public Optional<String> executarPendente(long usuario, String pedidoAtual) {
+        Pendente executar;
+        synchronized (this) {
+            if (pendenciaDe(usuario, pedidoAtual).isEmpty()) return Optional.empty();
+            executar = pendente;
+            pendente = null;
+        }
+        return Optional.of(executar.executar().get());
+    }
+
+    /** Como o {@link #cancelarTarefaPendente}, mas para qualquer tipo de pendência. */
+    public synchronized Cancelamento cancelarPendente(long usuario, String pedidoAtual) {
+        if (pendente == null) return Cancelamento.INEXISTENTE;
+        if (pendenciaDe(usuario, pedidoAtual).isEmpty())
+            return pendente == null ? Cancelamento.INEXISTENTE : Cancelamento.RECUSADA;
+        pendente = null;
+        return Cancelamento.CANCELADA;
+    }
+
     private static String normalizar(String texto) {
-        if (texto == null) return "";
-        String semAcentos = Normalizer.normalize(texto, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "");
-        return semAcentos.toLowerCase(Locale.ROOT).trim()
-                .replaceAll("[.!?]+$", "").replace(',', ' ')
-                .replaceAll("\\s+", " ").trim();
+        return ClassificadorDeResposta.normalizar(texto);
     }
 }

@@ -213,4 +213,42 @@ class AprovacoesTest {
                 aprovacoes.cancelarTarefaPendente(42, "pedido-5"));
         assertEquals(0, execucoes.get());
     }
+
+    @Test
+    @DisplayName("a pergunta em aberto só aparece para o dono, em mensagem nova e no prazo")
+    void pendenciaDeExigeODonoEMensagemNova() {
+        assertTrue(aprovacoes.pendenciaDe(42, "pedido-0").isEmpty(), "nada pendente");
+
+        pedir("rotina", Risco.COMUM, "pedido-1");
+        assertTrue(aprovacoes.pendenciaDe(42, "pedido-1").isEmpty(),
+                "o mesmo pedido que criou a pendência não pode confirmá-la");
+        assertTrue(aprovacoes.pendenciaDe(7, "pedido-2").isEmpty(), "outro usuário");
+        assertTrue(aprovacoes.pendenciaDe(0, "pedido-2").isEmpty(), "sem autenticação");
+        assertEquals("Posso fazer a acao?", aprovacoes.pendenciaDe(42, "pedido-2").orElseThrow());
+
+        relogio.avancar(Duration.ofMinutes(10));
+        assertTrue(aprovacoes.pendenciaDe(42, "pedido-3").isEmpty(), "expirada");
+        assertEquals(Aprovacoes.Cancelamento.INEXISTENTE,
+                aprovacoes.cancelarPendente(42, "pedido-4"), "e some de vez");
+        assertEquals(0, execucoes.get());
+    }
+
+    @Test
+    @DisplayName("executar e cancelar sem frase fixa valem para qualquer tipo, uma vez só")
+    void executarECancelarPendenteSemFraseFixa() {
+        pedir("rotina", Risco.COMUM, "pedido-1");
+        assertTrue(aprovacoes.executarPendente(42, "pedido-1").isEmpty(), "mesma mensagem");
+        assertTrue(aprovacoes.executarPendente(7, "pedido-2").isEmpty(), "outro usuário");
+        assertEquals("feito 1", aprovacoes.executarPendente(42, "pedido-2").orElseThrow());
+        assertTrue(aprovacoes.executarPendente(42, "pedido-3").isEmpty(), "uso único");
+
+        pedir("edicao", Risco.COMUM, "pedido-4");
+        assertEquals(Aprovacoes.Cancelamento.RECUSADA,
+                aprovacoes.cancelarPendente(42, "pedido-4"));
+        assertEquals(Aprovacoes.Cancelamento.CANCELADA,
+                aprovacoes.cancelarPendente(42, "pedido-5"));
+        assertEquals(Aprovacoes.Cancelamento.INEXISTENTE,
+                aprovacoes.cancelarPendente(42, "pedido-6"));
+        assertEquals(1, execucoes.get(), "cancelar não executa nada");
+    }
 }

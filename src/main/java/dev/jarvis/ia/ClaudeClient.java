@@ -31,6 +31,8 @@ public class ClaudeClient {
     /** Erros temporários (limite de taxa, sobrecarga) que valem uma nova tentativa. */
     private static final Set<Integer> STATUS_TEMPORARIOS = Set.of(429, 500, 502, 503, 529);
     private static final int TENTATIVAS = 3;
+    /** Prazo de uma conversa normal: o modelo pode pensar e chamar ferramenta antes de responder. */
+    private static final Duration PRAZO_PADRAO = Duration.ofSeconds(120);
 
     private final HttpClient http;
     private final JsonMapper json;
@@ -56,9 +58,28 @@ public class ClaudeClient {
      */
     public JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas)
             throws IOException, InterruptedException {
+        return criarMensagem(system, mensagens, ferramentas, config.maxTokens(), PRAZO_PADRAO,
+                TENTATIVAS);
+    }
+
+    /**
+     * Chamada curta de decisão: teto de tokens e prazo próprios, tentativa única.
+     *
+     * <p>Sem repetição de propósito: a espera entre tentativas é de segundos e estouraria o prazo
+     * curto de quem chama assim. Quem decide em poucos tokens prefere falhar rápido — e tratar a
+     * falha — a segurar o turno do usuário.
+     */
+    public JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas,
+            int maxTokens, Duration prazo) throws IOException, InterruptedException {
+        return criarMensagem(system, mensagens, ferramentas, maxTokens, prazo, 1);
+    }
+
+    private JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas,
+            int maxTokens, Duration prazo, int tentativas)
+            throws IOException, InterruptedException {
         ObjectNode corpo = json.createObjectNode();
         corpo.put("model", config.modelo());
-        corpo.put("max_tokens", config.maxTokens());
+        corpo.put("max_tokens", maxTokens);
         corpo.set("system", system);
         corpo.set("messages", mensagens);
         if (!ferramentas.isEmpty()) {
@@ -66,7 +87,7 @@ public class ClaudeClient {
         }
 
         HttpRequest requisicao = HttpRequest.newBuilder(URL)
-                .timeout(Duration.ofSeconds(120))
+                .timeout(prazo)
                 .header("x-api-key", config.apiKey())
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
@@ -81,7 +102,7 @@ public class ClaudeClient {
                 registrarConsumo(raiz.path("usage"));
                 return raiz;
             }
-            if (STATUS_TEMPORARIOS.contains(status) && tentativa < TENTATIVAS) {
+            if (STATUS_TEMPORARIOS.contains(status) && tentativa < tentativas) {
                 log.warn("API do Claude respondeu {} (tentativa {}), tentando de novo...", status, tentativa);
                 Thread.sleep(2_000L * tentativa);
                 continue;

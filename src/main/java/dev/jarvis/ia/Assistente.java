@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 
 import dev.jarvis.ferramentas.Ferramentas;
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.aprovacao.ClassificadorDeResposta;
+import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -52,6 +54,7 @@ public class Assistente {
     private final AnexosService anexos;
     private final BuscaWebServidor buscaWeb;
     private final Aprovacoes aprovacoes;
+    private final ClassificadorDeResposta classificador;
     private final HistoricoEmArquivo arquivo;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
@@ -76,10 +79,18 @@ public class Assistente {
                 HistoricoEmArquivo.desligado());
     }
 
-    @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             Aprovacoes aprovacoes, HistoricoEmArquivo arquivo) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                ClassificadorDeResposta.semModelo());
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador) {
+        this.classificador = classificador;
         this.arquivo = arquivo;
         this.claude = claude;
         this.ferramentas = ferramentas;
@@ -179,6 +190,37 @@ public class Assistente {
             var confirmacaoMemoria = java.util.regex.Pattern.compile(
                     "(?i)^confirmo esquecer ([0-9a-f-]{36}) ([0-9]{6})$").matcher(texto.trim());
             var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id);
+            // Só quando o texto não é um código nem uma frase fixa é que vale classificar: a
+            // pergunta pendente é a única coisa que a mensagem pode estar respondendo, e sem
+            // pendência em aberto nada disso roda — nem a lista, nem a chamada curta ao modelo.
+            String emAberto = decisaoPc.isPresent() ? ""
+                    : aprovacoes.pendenciaDe(progresso.usuarioAutenticado(), id).orElse("");
+            Decisao decisao = emAberto.isEmpty() ? Decisao.OUTRO_ASSUNTO
+                    : classificador.classificar(emAberto, texto);
+            String notaDeAjuste = "";
+            if (!emAberto.isEmpty() && decisao != Decisao.OUTRO_ASSUNTO) {
+                long usuario = progresso.usuarioAutenticado();
+                switch (decisao) {
+                    case SIM -> decisaoPc = aprovacoes.executarPendente(usuario, id);
+                    case NAO -> {
+                        aprovacoes.cancelarPendente(usuario, id);
+                        decisaoPc = java.util.Optional.of("Certo, não fiz.");
+                    }
+                    case AJUSTE -> {
+                        aprovacoes.cancelarPendente(usuario, id);
+                        // A nota vai no texto do usuário, e não numa mensagem de assistente: duas
+                        // do assistente seguidas quebram a alternância e a API recusa com 400.
+                        notaDeAjuste = "\n\n(nota do servidor: a proposta anterior — " + emAberto
+                                + " — foi cancelada porque você pediu outra coisa; trate esta"
+                                + " mensagem como um pedido novo.)";
+                    }
+                    // A pergunta repetida é montada aqui, de dado real: deixá-la ao modelo seria
+                    // deixá-lo escolher o que o próximo "sim" vai significar.
+                    default -> decisaoPc = java.util.Optional.of("Só para confirmar: " + emAberto
+                            + " Responda sim ou não.");
+                }
+            }
+            if (!notaDeAjuste.isEmpty()) turno.set(0, mensagemDoUsuario(texto + notaDeAjuste));
             if (decisaoPc.isPresent()) {
                 resposta = decisaoPc.get();
                 turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
