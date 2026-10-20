@@ -8,7 +8,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.FluxoEdicaoPc;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.ResultadoPc;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -23,7 +23,7 @@ class DesfazerEdicaoFerramentaTest {
                 .put("hashAtual", "a".repeat(64)).put("hashRestaurado", "b".repeat(64));
         when(fluxo.preparar(eq("preparar_desfazer"), any(), any())).thenReturn(
                 new ResultadoPc("comando", true, "ok", null, null, false, dados));
-        var ferramenta = new DesfazerEdicaoFerramenta(fluxo, new IntencoesPc(), json);
+        var ferramenta = new DesfazerEdicaoFerramenta(fluxo, new Aprovacoes(), json);
         OuvinteProgresso contexto = new OuvinteProgresso() {
             @Override public String idPedido() { return "pedido"; }
             @Override public long usuarioAutenticado() { return 42; }

@@ -187,7 +187,7 @@ class HistoricoPersistenteTest {
                 new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
                         JSON, props()),
                 JSON, conversas, new dev.jarvis.conversa.AnexosService(),
-                BuscaWebServidor.desligada(), new dev.jarvis.pc.IntencoesPc(), arquivo);
+                BuscaWebServidor.desligada(), new dev.jarvis.aprovacao.Aprovacoes(), arquivo);
     }
 
     /** Uma ferramenta que faz o que a de esquecer memória faz: marca o turno como "esqueceu". */

@@ -14,17 +14,15 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.ComandoPc;
-import dev.jarvis.pc.GuardaDeConfirmacao;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.RelogioFalso;
 import dev.jarvis.pc.ResultadoPc;
@@ -33,11 +31,12 @@ import dev.jarvis.telegram.TelegramRecusouException;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-/** A ferramenta controlar_pc: validação por ação, confirmação em dois passos e a captura. */
+/** A ferramenta controlar_pc: validação por ação, a aprovação das ações perigosas e a captura. */
 class ControlarPcFerramentaTest {
 
     private static final long CHAT = 42;
-    private static final Pattern CODIGO = Pattern.compile("\\b(\\d{4})\\b");
+    /** O id do pedido que criou a aprovação: confirmar com ele é o modelo se autoconfirmando. */
+    private static final String PEDIDO = "pedido-do-turno";
     private static final byte[] PNG = { (byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x42 };
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -48,11 +47,11 @@ class ControlarPcFerramentaTest {
 
     private final RelogioFalso relogio = new RelogioFalso();
     private final PcService pc = new PcService(relogio);
-    private final GuardaDeConfirmacao guarda = new GuardaDeConfirmacao(relogio);
+    private final Aprovacoes aprovacoes = new Aprovacoes(relogio);
     private final TelegramClient telegram = mock(TelegramClient.class);
 
-    private final ControlarPcFerramenta ferramenta = new ControlarPcFerramenta(pc, guarda, telegram,
-            JSON, PROPS, Duration.ofMillis(300));
+    private final ControlarPcFerramenta ferramenta = new ControlarPcFerramenta(pc, telegram,
+            JSON, PROPS, Duration.ofMillis(300), aprovacoes);
 
     @AfterEach
     void limpar() {
@@ -64,24 +63,25 @@ class ControlarPcFerramentaTest {
         pc.proximoComando(Duration.ofMillis(10), apps);
     }
 
-    private static ObjectNode entrada(String acao, String argumento, String codigo) {
+    private static ObjectNode entrada(String acao, String argumento) {
         ObjectNode entrada = JSON.createObjectNode();
         entrada.put("acao", acao);
         if (argumento != null) {
             entrada.put("argumento", argumento);
         }
-        if (codigo != null) {
-            entrada.put("codigo_confirmacao", codigo);
-        }
         return entrada;
     }
 
     private String texto(String acao, String argumento) {
-        return chamar(entrada(acao, argumento, null)).texto();
+        return chamar(entrada(acao, argumento)).texto();
     }
 
+    /** Um pedido autenticado, que é o que as ações perigosas exigem para pedir a aprovação. */
     private ResultadoFerramenta chamar(ObjectNode entrada) {
-        return ferramenta.executarDetalhado(entrada, new OuvinteProgresso() { });
+        return ferramenta.executarDetalhado(entrada, new OuvinteProgresso() {
+            @Override public long usuarioAutenticado() { return CHAT; }
+            @Override public String idPedido() { return PEDIDO; }
+        });
     }
 
     /**
@@ -100,10 +100,17 @@ class ControlarPcFerramentaTest {
         return chamar(entrada);
     }
 
-    private static String codigoDe(String texto) {
-        Matcher achado = CODIGO.matcher(texto);
-        assertTrue(achado.find(), "esperava um código de 4 dígitos em: " + texto);
-        return achado.group(1);
+    /**
+     * Aprova como o usuário aprovaria: em mensagem nova, consumida pelo {@code Assistente} antes de
+     * o modelo entrar. O agente de mentira já está do outro lado, porque é a aprovação que
+     * enfileira o comando.
+     */
+    private String aprovar(boolean ok, String mensagem) {
+        Thread agente = new Thread(() -> pc.proximoComando(Duration.ofSeconds(2), null)
+                .ifPresent(c -> pc.concluir(new ResultadoPc(c.id(), ok, mensagem, null, null))));
+        agente.setDaemon(true);
+        agente.start();
+        return aprovacoes.tratar("confirmo", CHAT, "mensagem-seguinte").orElseThrow();
     }
 
     @Test
@@ -139,7 +146,7 @@ class ControlarPcFerramentaTest {
         assertEquals(0, pc.naFila());
 
         // E a caixa não importa: o modelo repete o nome como o ouviu.
-        assertEquals("Feito no PC: abri", comAgente(entrada("abrir_app", "Chrome", null),
+        assertEquals("Feito no PC: abri", comAgente(entrada("abrir_app", "Chrome"),
                 true, "abri", null).texto());
     }
 
@@ -168,7 +175,7 @@ class ControlarPcFerramentaTest {
         assertEquals(0, pc.naFila(), "nenhuma dessas podia chegar ao PC");
 
         assertEquals("Feito no PC: abri", comAgente(entrada("abrir_url",
-                "https://exemplo.com/pagina", null), true, "abri", null).texto());
+                "https://exemplo.com/pagina"), true, "abri", null).texto());
     }
 
     @Test
@@ -180,7 +187,7 @@ class ControlarPcFerramentaTest {
         assertTrue(resposta.contains("subir, baixar ou mudo"), resposta);
         assertEquals(0, pc.naFila());
 
-        assertEquals("Feito no PC.", comAgente(entrada("volume", "baixar", null),
+        assertEquals("Feito no PC.", comAgente(entrada("volume", "baixar"),
                 true, "", null).texto());
     }
 
@@ -196,74 +203,63 @@ class ControlarPcFerramentaTest {
     }
 
     @Test
-    @DisplayName("desligar pede código antes e só executa com o código certo")
-    void desligarPedeConfirmacao() {
+    @DisplayName("desligar pede aprovação, não enfileira nada, e só a mensagem seguinte executa")
+    void desligarPedeAprovacao() {
         pcOnline("chrome");
 
-        String pedido = texto("desligar", null);
-        assertTrue(pedido.contains("Confirmação necessária"), pedido);
-        assertTrue(pedido.contains("ESPERE"), "o modelo tem de esperar o usuário repetir");
-        assertEquals(0, pc.naFila(), "a primeira chamada não enfileira nada");
+        ResultadoFerramenta pedido = chamar(entrada("desligar", null));
 
-        ResultadoFerramenta executado = comAgente(entrada("desligar", null, codigoDe(pedido)),
-                true, "desligando em 60 s", null);
-        assertTrue(executado.texto().contains("desligando"), executado.texto());
+        assertTrue(pedido.texto().contains("NOVA mensagem"), pedido.texto());
+        assertEquals("Posso desligar o PC agora?", pedido.confirmacao().pergunta(),
+                "a pergunta é montada aqui, de dado real, e é o que o usuário responde");
+        assertEquals(0, pc.naFila(), "a chamada do modelo não enfileira nada");
+
+        assertTrue(aprovar(true, "desligando em 60 s").contains("enviada ao PC"));
     }
 
     @Test
-    @DisplayName("código errado, expirado, de outra ação ou sem pendência não desliga")
-    void codigoQueNaoVale() {
+    @DisplayName("o modelo não aprova: confirmar dentro do pedido que criou a aprovação é recusado")
+    void modeloNaoAprovaNoMesmoPedido() {
         pcOnline("chrome");
+        chamar(entrada("desligar", null));
 
-        // Sem pendência nenhuma.
-        String semPendencia = chamar(entrada("desligar", null, "1234")).texto();
-        assertTrue(semPendencia.contains("Não há confirmação em aberto"), semPendencia);
-
-        // Errado, e a tentativa queima a confirmação: nem o certo vale depois.
-        String certo = codigoDe(texto("desligar", null));
-        String errado = certo.equals("0000") ? "1111" : "0000";
-        assertTrue(chamar(entrada("desligar", null, errado)).texto().contains("Código incorreto"));
-        assertTrue(chamar(entrada("desligar", null, certo)).texto()
-                .contains("Não há confirmação em aberto"), "errar uma vez cancela de vez");
-
-        // Código de desligar não reinicia.
-        String deDesligar = codigoDe(texto("desligar", null));
-        assertTrue(chamar(entrada("reiniciar", null, deDesligar)).texto().contains("Código incorreto"));
-
-        // Expirado: a ferramenta já devolve um código novo. Os 121 s também passariam dos 90 s
-        // sem contato, então o agente "volta a falar" antes da segunda chamada.
-        String velho = codigoDe(texto("reiniciar", null));
-        relogio.avancar(Duration.ofSeconds(121));
-        pcOnline("chrome");
-        String expirado = chamar(entrada("reiniciar", null, velho)).texto();
-        assertTrue(expirado.contains("expirou"), expirado);
-        assertFalse(expirado.contains(velho), "o código novo não pode ser o que acabou de vencer");
-
+        assertTrue(aprovacoes.tratar("confirmo", CHAT, PEDIDO).orElseThrow().contains("recusada"));
+        assertTrue(aprovacoes.tratar("confirmo", 7, "mensagem-seguinte").orElseThrow()
+                .contains("recusada"), "outro usuário também não");
         assertEquals(0, pc.naFila(), "em nenhum desses caminhos o PC recebeu ordem");
     }
 
     @Test
-    @DisplayName("pedido perigoso novo invalida o código anterior")
-    void pedidoNovoInvalidaAnterior() {
+    @DisplayName("a aprovação de desligar é CRITICO: vence em 2 minutos")
+    void aprovacaoDeDesligarVenceEmDoisMinutos() {
         pcOnline("chrome");
+        chamar(entrada("desligar", null));
 
-        String deDesligar = codigoDe(texto("desligar", null));
-        texto("reiniciar", null);
+        relogio.avancar(Duration.ofMinutes(2));
 
-        assertTrue(chamar(entrada("desligar", null, deDesligar)).texto().contains("Código incorreto"));
+        assertTrue(aprovacoes.tratar("confirmo", CHAT, "mensagem-seguinte").orElseThrow()
+                .contains("expirou"));
         assertEquals(0, pc.naFila());
     }
 
     @Test
-    @DisplayName("cancelar_desligamento vai ao PC e esquece a confirmação pendente")
-    void cancelarEsqueceConfirmacao() {
+    @DisplayName("pedido perigoso novo substitui a aprovação anterior")
+    void pedidoNovoSubstituiAnterior() {
         pcOnline("chrome");
-        String codigo = codigoDe(texto("desligar", null));
+        chamar(entrada("desligar", null));
 
-        comAgente(entrada("cancelar_desligamento", null, null), true, "cancelado", null);
+        // O mesmo pedido não pode trocar a aprovação que o usuário está vendo.
+        assertTrue(chamar(entrada("reiniciar", null)).texto().contains("ja existe uma aprovacao"));
+        assertEquals(0, pc.naFila());
+    }
 
-        assertTrue(chamar(entrada("desligar", null, codigo)).texto()
-                .contains("Não há confirmação em aberto"));
+    @Test
+    @DisplayName("cancelar_desligamento vai ao PC, que é quem aborta o shutdown já agendado")
+    void cancelarDesligamentoVaiAoPc() {
+        pcOnline("chrome");
+
+        assertTrue(comAgente(entrada("cancelar_desligamento", null), true, "cancelado", null)
+                .texto().contains("cancelado"));
     }
 
     @Test
@@ -271,7 +267,7 @@ class ControlarPcFerramentaTest {
     void statusVaiAoAgente() {
         pcOnline("chrome");
 
-        String resposta = comAgente(entrada("status_pc", null, null), true,
+        String resposta = comAgente(entrada("status_pc", null), true,
                 "CPU 23%, memória 11,2/32 GB, disco C: 180 GB livres de 930, bateria 87%",
                 null).texto();
 
@@ -283,7 +279,7 @@ class ControlarPcFerramentaTest {
     void recusaDoPc() {
         pcOnline("chrome");
 
-        String resposta = comAgente(entrada("bloquear_tela", null, null), false,
+        String resposta = comAgente(entrada("bloquear_tela", null), false,
                 "rundll32 saiu com código 1", null).texto();
 
         assertTrue(resposta.startsWith("O PC recusou:"), resposta);
@@ -306,7 +302,7 @@ class ControlarPcFerramentaTest {
     void capturaVaiAosDoisDestinos() throws Exception {
         pcOnline("chrome");
 
-        ResultadoFerramenta resultado = comAgente(entrada("captura_tela", null, null),
+        ResultadoFerramenta resultado = comAgente(entrada("captura_tela", null),
                 true, "print de 1600 px", PNG);
 
         assertEquals("Print do PC na tela e enviado no Telegram.", resultado.texto());
@@ -334,7 +330,7 @@ class ControlarPcFerramentaTest {
         doThrow(new TelegramRecusouException("sendPhoto", 400, "PHOTO_INVALID_DIMENSIONS"))
                 .when(telegram).enviarFoto(eq(CHAT), any(), any(), any());
 
-        ResultadoFerramenta resultado = comAgente(entrada("captura_tela", null, null),
+        ResultadoFerramenta resultado = comAgente(entrada("captura_tela", null),
                 true, "print", PNG);
 
         assertEquals("Print do PC na tela. Não consegui enviar no Telegram.", resultado.texto());
@@ -346,7 +342,7 @@ class ControlarPcFerramentaTest {
     void capturaSemImagem() throws Exception {
         pcOnline("chrome");
 
-        ResultadoFerramenta resultado = comAgente(entrada("captura_tela", null, null),
+        ResultadoFerramenta resultado = comAgente(entrada("captura_tela", null),
                 false, "não consigo ver a tela", null);
 
         assertTrue(resultado.texto().contains("não consigo ver a tela"), resultado.texto());
@@ -396,15 +392,17 @@ class ControlarPcFerramentaTest {
         agente.setDaemon(true);
         agente.start();
 
-        assertTrue(chamar(entrada("bloquear_tela", "agora mesmo", null)).texto().contains("trancado"));
+        assertTrue(chamar(entrada("bloquear_tela", "agora mesmo")).texto().contains("trancado"));
     }
 
     @Test
     @DisplayName("a descrição avisa quando o agente não reportou app nenhum")
     void descricaoSemApps() {
         assertTrue(ferramenta.descricao().contains("nenhum"), ferramenta.descricao());
-        assertTrue(ferramenta.descricao().contains("codigo_confirmacao"),
-                "o fluxo de confirmação tem de estar explicado para o modelo");
+        assertTrue(ferramenta.descricao().contains("NOVA mensagem autenticada"),
+                "o fluxo de aprovação tem de estar explicado para o modelo");
+        assertFalse(ferramenta.esquemaEntrada().toString().contains("codigo_confirmacao"),
+                "campo que o modelo não pode preencher não entra no schema");
     }
 
     @Test
@@ -413,9 +411,9 @@ class ControlarPcFerramentaTest {
         pcOnline("chrome");
 
         // Nenhuma das duas é perigosa nem leva argumento: vão direto para a fila.
-        assertTrue(comAgente(entrada("modo_repouso", null, null), true, "voltei a escutar", null)
+        assertTrue(comAgente(entrada("modo_repouso", null), true, "voltei a escutar", null)
                 .texto().contains("voltei a escutar"));
-        assertTrue(comAgente(entrada("falso_positivo", null, null), true, "3 alarmes falsos", null)
+        assertTrue(comAgente(entrada("falso_positivo", null), true, "3 alarmes falsos", null)
                 .texto().contains("3 alarmes falsos"));
 
         // E o modelo precisa saber quando usar cada uma.

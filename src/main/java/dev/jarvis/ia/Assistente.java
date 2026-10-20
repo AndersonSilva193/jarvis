@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.ferramentas.Ferramentas;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -51,7 +51,7 @@ public class Assistente {
     private final RegistroConversas conversas;
     private final AnexosService anexos;
     private final BuscaWebServidor buscaWeb;
-    private final IntencoesPc intencoesPc;
+    private final Aprovacoes aprovacoes;
     private final HistoricoEmArquivo arquivo;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
@@ -61,25 +61,25 @@ public class Assistente {
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
         this(claude, ferramentas, sistema, json, new RegistroConversas(evento -> { }), new AnexosService(),
-                BuscaWebServidor.desligada(), new IntencoesPc());
+                BuscaWebServidor.desligada(), new Aprovacoes());
     }
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb) {
-        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, new IntencoesPc());
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, new Aprovacoes());
     }
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
-            IntencoesPc intencoesPc) {
-        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, intencoesPc,
+            Aprovacoes aprovacoes) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes,
                 HistoricoEmArquivo.desligado());
     }
 
     @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
-            IntencoesPc intencoesPc, HistoricoEmArquivo arquivo) {
+            Aprovacoes aprovacoes, HistoricoEmArquivo arquivo) {
         this.arquivo = arquivo;
         this.claude = claude;
         this.ferramentas = ferramentas;
@@ -88,7 +88,7 @@ public class Assistente {
         this.conversas = conversas;
         this.anexos = anexos;
         this.buscaWeb = buscaWeb;
-        this.intencoesPc = intencoesPc;
+        this.aprovacoes = aprovacoes;
     }
 
     /**
@@ -178,7 +178,7 @@ public class Assistente {
             String resposta;
             var confirmacaoMemoria = java.util.regex.Pattern.compile(
                     "(?i)^confirmo esquecer ([0-9a-f-]{36}) ([0-9]{6})$").matcher(texto.trim());
-            var decisaoPc = intencoesPc.tratar(texto, progresso.usuarioAutenticado(), id);
+            var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id);
             if (decisaoPc.isPresent()) {
                 resposta = decisaoPc.get();
                 turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));

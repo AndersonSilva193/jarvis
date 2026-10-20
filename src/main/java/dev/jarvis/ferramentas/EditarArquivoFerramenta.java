@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.pc.FluxoEdicaoPc;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.pc.TarefasPlanilhaService;
 import dev.jarvis.util.Json;
@@ -21,28 +21,28 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class EditarArquivoFerramenta implements Ferramenta {
     private final FluxoEdicaoPc fluxo;
-    private final IntencoesPc intencoes;
+    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
     private final int maxBytes;
     private final int maxOperacoes;
     private final TarefasPlanilhaService tarefas;
     @org.springframework.beans.factory.annotation.Autowired
-    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, IntencoesPc intencoes, JsonMapper json,
+    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json,
             JarvisProperties props, TarefasPlanilhaService tarefas) {
-        this(fluxo, intencoes, json,
+        this(fluxo, aprovacoes, json,
                 props.pc() == null ? 1024 * 1024 : props.pc().edicaoMaxBytes(),
                 props.pc() == null ? 10 : props.pc().edicaoMaxOperacoes(), tarefas);
     }
-    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, IntencoesPc intencoes, JsonMapper json) {
-        this(fluxo, intencoes, json, 1024 * 1024, 10, null);
+    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json) {
+        this(fluxo, aprovacoes, json, 1024 * 1024, 10, null);
     }
-    EditarArquivoFerramenta(FluxoEdicaoPc fluxo, IntencoesPc intencoes, JsonMapper json,
+    EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json,
             TarefasPlanilhaService tarefas) {
-        this(fluxo, intencoes, json, 1024 * 1024, 10, tarefas);
+        this(fluxo, aprovacoes, json, 1024 * 1024, 10, tarefas);
     }
-    private EditarArquivoFerramenta(FluxoEdicaoPc fluxo, IntencoesPc intencoes, JsonMapper json,
+    private EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json,
             int maxBytes, int maxOperacoes, TarefasPlanilhaService tarefas) {
-        this.fluxo = fluxo; this.intencoes = intencoes; this.json = json; this.tarefas = tarefas;
+        this.fluxo = fluxo; this.aprovacoes = aprovacoes; this.json = json; this.tarefas = tarefas;
         this.maxBytes = Math.clamp(maxBytes, 1, 8 * 1024 * 1024);
         this.maxOperacoes = Math.clamp(maxOperacoes, 1, 50);
     }
@@ -211,8 +211,10 @@ public class EditarArquivoFerramenta implements Ferramenta {
             try {
                 Instant prazo = Instant.parse(Json.texto(preparado.dados().path("expiraEm")))
                         .minusSeconds(30);
-                var confirmacao = intencoes.pedir("copia_simplificada",
-                        "Criar cópia simplificada de " + nomeArquivo, usuarioCopia,
+                var confirmacao = aprovacoes.pedir("copia_simplificada",
+                        "Criar cópia simplificada de " + nomeArquivo,
+                        "Posso criar uma cópia simplificada de " + nomeArquivo + "?",
+                        Aprovacoes.Risco.COMUM, usuarioCopia,
                         contexto.idPedido(), prazo, () -> fluxo.aplicarDepoisDeConfirmar(
                                 "aplicar_edicao", editId, canalCopia, usuarioCopia, false));
                 return new ResultadoFerramenta(previa
@@ -230,7 +232,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
         try {
             Instant prazo = Instant.parse(Json.texto(preparado.dados().path("expiraEm")))
                     .minusSeconds(30);
-            var confirmacao = intencoes.pedir("edicao", "Substituir " + nomeArquivo,
+            var confirmacao = aprovacoes.pedir("edicao", "Substituir " + nomeArquivo,
+                    "Posso substituir o original de " + nomeArquivo + "?", Aprovacoes.Risco.COMUM,
                     usuario, contexto.idPedido(), prazo, () ->
                             fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", editId, canal, usuario));
             return new ResultadoFerramenta(previa + "\nPara substituir o original, confirme em NOVA mensagem: confirmo.",

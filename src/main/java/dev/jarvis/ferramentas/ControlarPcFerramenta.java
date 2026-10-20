@@ -22,8 +22,7 @@ import org.springframework.stereotype.Component;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.ComandoPc;
-import dev.jarvis.pc.GuardaDeConfirmacao;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.telegram.TelegramClient;
@@ -54,8 +53,7 @@ public class ControlarPcFerramenta implements Ferramenta {
     private static final Duration VIDA_DO_PRINT = Duration.ofMinutes(5);
 
     private final PcService pc;
-    private final GuardaDeConfirmacao guarda;
-    private final IntencoesPc intencoesPc;
+    private final Aprovacoes aprovacoes;
     private final TelegramClient telegram;
     private final JsonMapper json;
     private final long chatId;
@@ -64,21 +62,15 @@ public class ControlarPcFerramenta implements Ferramenta {
     private Path pastaDePrints;
 
     @Autowired
-    public ControlarPcFerramenta(PcService pc, GuardaDeConfirmacao guarda, TelegramClient telegram,
-            JsonMapper json, JarvisProperties props, IntencoesPc intencoesPc) {
-        this(pc, guarda, telegram, json, props, ESPERA_PADRAO, intencoesPc);
+    public ControlarPcFerramenta(PcService pc, TelegramClient telegram,
+            JsonMapper json, JarvisProperties props, Aprovacoes aprovacoes) {
+        this(pc, telegram, json, props, ESPERA_PADRAO, aprovacoes);
     }
 
-    ControlarPcFerramenta(PcService pc, GuardaDeConfirmacao guarda, TelegramClient telegram,
-            JsonMapper json, JarvisProperties props, Duration espera) {
-        this(pc, guarda, telegram, json, props, espera, null);
-    }
-
-    private ControlarPcFerramenta(PcService pc, GuardaDeConfirmacao guarda, TelegramClient telegram,
-            JsonMapper json, JarvisProperties props, Duration espera, IntencoesPc intencoesPc) {
+    ControlarPcFerramenta(PcService pc, TelegramClient telegram,
+            JsonMapper json, JarvisProperties props, Duration espera, Aprovacoes aprovacoes) {
         this.pc = pc;
-        this.guarda = guarda;
-        this.intencoesPc = intencoesPc;
+        this.aprovacoes = aprovacoes;
         this.telegram = telegram;
         this.json = json;
         this.chatId = props.telegram() == null ? 0 : props.telegram().usuarioPermitido();
@@ -116,9 +108,9 @@ public class ControlarPcFerramenta implements Ferramenta {
                 "foi engano", "não te chamei") — esta devolve quantos alarmes falsos já houve, \
                 número que ajuda o usuário a ajustar a sensibilidade.
 
-                desligar e reiniciar exigem NOVA mensagem autenticada do usuário. Chame uma vez \
-                sem codigo_confirmacao; o servidor guarda a ação e consome a \
-                confirmação diretamente. O modelo não deve chamar a ferramenta para confirmar. \
+                desligar e reiniciar exigem NOVA mensagem autenticada do usuário. Chame uma vez: \
+                o servidor guarda a ação e consome a aprovação diretamente, sem passar por você. \
+                Não chame a ferramenta de novo para confirmar — não há como. \
                 O PC avisa e espera 60 segundos antes de desligar de verdade, então ainda \
                 dá para desistir com cancelar_desligamento.
 
@@ -153,8 +145,6 @@ public class ControlarPcFerramenta implements Ferramenta {
                         + (apps.isEmpty() ? "nenhum liberado" : String.join(", ", apps))
                         + "), a URL https em abrir_url, ou subir/baixar/mudo em volume. "
                         + "As outras ações não usam este campo.");
-        campos.putObject("codigo_confirmacao").put("type", "string")
-                .put("description", "Os 4 dígitos que o usuário repetiu, só em desligar e reiniciar.");
 
         esquema.putArray("required").add("acao");
         return esquema;
@@ -169,7 +159,6 @@ public class ControlarPcFerramenta implements Ferramenta {
     public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso) {
         String acao = Json.texto(entrada.path("acao")).trim();
         String argumento = Json.texto(entrada.path("argumento")).trim();
-        String codigo = Json.texto(entrada.path("codigo_confirmacao")).trim();
 
         if (!ComandoPc.acaoValida(acao)) {
             return ResultadoFerramenta.texto("Não conheço a ação '" + acao + "' no PC. As válidas: "
@@ -195,12 +184,11 @@ public class ControlarPcFerramenta implements Ferramenta {
         // preencher campo, e o agente não tem o que fazer com isso.
         String efetivo = ComandoPc.exigeArgumento(acao) ? normalizar(acao, argumento) : "";
 
-        if (ComandoPc.perigosa(acao) && intencoesPc != null) {
-            if (!codigo.isBlank())
-                return ResultadoFerramenta.texto("O modelo nao pode confirmar uma acao do PC.");
+        if (ComandoPc.perigosa(acao)) {
             try {
-                var confirmacao = intencoesPc.pedir("pc", acao + " o PC", progresso.usuarioAutenticado(),
-                        progresso.idPedido(), () -> {
+                var confirmacao = aprovacoes.pedir("pc", acao + " o PC",
+                        "Posso " + acao + " o PC agora?", Aprovacoes.Risco.CRITICO,
+                        progresso.usuarioAutenticado(), progresso.idPedido(), () -> {
                             if (!pc.online()) return "PC offline; acao nao iniciada.";
                             ComandoPc ordem = ComandoPc.nova(acao, efetivo, Instant.now());
                             pc.enfileirar(ordem, progresso.canal(), progresso.usuarioAutenticado());
@@ -213,18 +201,9 @@ public class ControlarPcFerramenta implements Ferramenta {
                 return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());
             }
         }
-        if (ComandoPc.perigosa(acao)) {
-            Optional<ResultadoFerramenta> confirmacao = conferirConfirmacao(acao, efetivo, codigo);
-            if (confirmacao.isPresent()) {
-                return confirmacao.get();
-            }
-            log.warn("Ação '{}' confirmada no PC por código", acao);
-        }
-        if ("cancelar_desligamento".equals(acao)) {
-            // Cancelou o desligamento, cancelou a pendência de confirmação.
-            guarda.cancelar();
-        }
-
+        // cancelar_desligamento não é perigosa e vai ao PC como qualquer outra: ela aborta o
+        // 'shutdown /t 60' que já está correndo lá. Uma aprovação ainda em aberto não é assunto
+        // dela — morre com "cancelar" do usuário, que é o caminho autenticado, ou por expirar.
         ComandoPc comando = ComandoPc.nova(acao, efetivo, Instant.now());
         ResultadoPc resultado;
         try {
@@ -327,31 +306,6 @@ public class ControlarPcFerramenta implements Ferramenta {
             case "abrir_app", "volume" -> argumento.toLowerCase(Locale.ROOT);
             case "abrir_url" -> URI.create(argumento).toASCIIString();
             default -> argumento;
-        };
-    }
-
-    /**
-     * O passo de confirmação das ações perigosas.
-     *
-     * @return vazio quando está autorizado a executar; o resultado a devolver ao modelo quando não
-     */
-    private Optional<ResultadoFerramenta> conferirConfirmacao(String acao, String argumento, String codigo) {
-        if (codigo.isEmpty()) {
-            String novo = guarda.pedir(acao, argumento);
-            return Optional.of(ResultadoFerramenta.texto(
-                    "Confirmação necessária para " + acao + " o PC. Diga ao usuário o código " + novo
-                    + " e ESPERE ele repetir; só então chame controlar_pc de novo com "
-                    + "codigo_confirmacao=" + novo + ". Vale 2 minutos. Não confirme por conta própria."));
-        }
-        return switch (guarda.conferir(acao, argumento, codigo)) {
-            case CONFIRMADA -> Optional.empty();
-            case INCORRETA -> Optional.of(ResultadoFerramenta.texto("Código incorreto. Cancelei a "
-                    + "confirmação por segurança; se ele insistir, peça um código novo."));
-            case EXPIRADA -> Optional.of(ResultadoFerramenta.texto("O código expirou (vale 2 minutos). "
-                    + "Código novo: " + guarda.pedir(acao, argumento)
-                    + " — diga e espere ele repetir."));
-            case INEXISTENTE -> Optional.of(ResultadoFerramenta.texto("Não há confirmação em aberto. "
-                    + "Chame sem codigo_confirmacao para pedir um código."));
         };
     }
 

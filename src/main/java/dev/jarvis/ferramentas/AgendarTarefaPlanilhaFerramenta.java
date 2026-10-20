@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.TarefasPlanilhaService;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -15,11 +15,11 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
     private final TarefasPlanilhaService tarefas;
-    private final IntencoesPc intencoes;
+    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
     public AgendarTarefaPlanilhaFerramenta(TarefasPlanilhaService tarefas,
-            IntencoesPc intencoes, JsonMapper json) {
-        this.tarefas = tarefas; this.intencoes = intencoes; this.json = json;
+            Aprovacoes aprovacoes, JsonMapper json) {
+        this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "agendar_tarefa_planilha"; }
     @Override public String descricao() { return "Agenda edição recorrente de um XLSX inteiro por ID "
@@ -57,8 +57,9 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
             String descricao = "Autorizar edições recorrentes em todo " + nome + " (" + cron + ")"
                     + ". Instrução: " + instrucao
                     + (formula ? ", inclusive substituição de fórmulas" : "");
-            var confirmacao = intencoes.pedir("tarefa_planilha", descricao, usuario,
-                    contexto.idPedido(), () -> {
+            var confirmacao = aprovacoes.pedir("tarefa_planilha", descricao,
+                    "Posso agendar edições recorrentes em " + nome + " (" + cron + ")?",
+                    Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(), () -> {
                         try {
                             var tarefa = tarefas.registrar(usuario, id, nome, instrucao, cron, formula);
                             return "Tarefa de planilha agendada: " + tarefa.id();

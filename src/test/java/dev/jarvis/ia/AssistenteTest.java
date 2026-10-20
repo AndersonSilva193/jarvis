@@ -87,7 +87,7 @@ class AssistenteTest {
         var assistenteComHistorico = new Assistente(claude, new Ferramentas(List.of(observar), JSON),
                 new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
                         JSON, props()), JSON, conversas, new dev.jarvis.conversa.AnexosService(),
-                BuscaWebServidor.desligada(), new dev.jarvis.pc.IntencoesPc());
+                BuscaWebServidor.desligada(), new dev.jarvis.aprovacao.Aprovacoes());
         when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
                 .thenReturn(chamada("observar_anexo", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("feito"));

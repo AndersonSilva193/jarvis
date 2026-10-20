@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.ComandoPc;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -17,10 +17,10 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class RodarRotinaFerramenta implements Ferramenta {
     private final OperacoesPcService e2;
-    private final IntencoesPc intencoes;
+    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
-    public RodarRotinaFerramenta(OperacoesPcService e2, IntencoesPc intencoes, JsonMapper json) {
-        this.e2 = e2; this.intencoes = intencoes; this.json = json;
+    public RodarRotinaFerramenta(OperacoesPcService e2, Aprovacoes aprovacoes, JsonMapper json) {
+        this.e2 = e2; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "rodar_rotina"; }
     @Override public String descricao() {
@@ -52,7 +52,8 @@ public class RodarRotinaFerramenta implements Ferramenta {
             return ResultadoFerramenta.texto("Pedido original ausente ou acima do limite.");
         String pedidoConfirmado = pedido;
         try {
-            var confirmacao = intencoes.pedir("rotina", "Executar rotina " + nome,
+            var confirmacao = aprovacoes.pedir("rotina", "Executar rotina " + nome,
+                    "Posso executar a rotina " + nome + " no seu PC?", Aprovacoes.Risco.COMUM,
                     contexto.usuarioAutenticado(), contexto.idPedido(), () ->
                             iniciar(nome, pedidoConfirmado, contexto));
             return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",

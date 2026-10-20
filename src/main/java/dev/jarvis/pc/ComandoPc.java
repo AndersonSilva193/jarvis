@@ -32,7 +32,7 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
             "rodar_rotina", "computer_acao", "preparar_edicao", "aplicar_edicao",
             "preparar_desfazer", "aplicar_desfazer");
 
-    /** As irreversíveis, que exigem o código de confirmação do {@link GuardaDeConfirmacao}. */
+    /** As irreversíveis, que exigem aprovação {@code CRITICO} em nova mensagem autenticada. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");
 
     /** As que não fazem nada sem um argumento; nas outras ele é ignorado. */

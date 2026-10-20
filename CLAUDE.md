@@ -51,7 +51,8 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
-| `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService`, `IntencoesPc`/`AvisosOperacoesPc` e as guardas `GuardaDeConfirmacao` e `GuardaDeRotina` |
+| `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
+| `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
 
@@ -119,7 +120,7 @@ colidindo com janela que ainda está na tela.
 Edição de arquivos comuns: `editar_arquivo` aceita apenas IDs catalogados de TXT/MD,
 `versaoEsperada` SHA-256 e operações fechadas. A proposta é preparada no agente,
 com prévia e `editId`. Sobrescrita do original e `desfazer_edicao` passam por
-`IntencoesPc` em nova mensagem autenticada; o commit recebe apenas `editId`, nunca
+`Aprovacoes` em nova mensagem autenticada; o commit recebe apenas `editId`, nunca
 caminho ou conteúdo refeito pelo modelo. Cópia é criada no mesmo pedido após a prévia.
 O agente guarda backup protegido, revalida hash antes do move atômico e recusa
 conflitos. A janela residual contra editores externos sem lock impede prometer
@@ -158,10 +159,14 @@ controlar_pc ──► PcService (fila) ──► GET /api/pc/comandos ──►
 - **PC offline responde na hora** (`PcService.online()`, 90 s sem contato), antes de enfileirar:
   travar o turno 30 s para no fim dizer "offline" seria o pior dos mundos. Com o PC online, a
   ferramenta espera até 30 s pelo resultado; o comando segue valendo 60 s na fila.
-- **`desligar` e `reiniciar` pedem código de 4 dígitos** (`GuardaDeConfirmacao`): uso único,
-  2 minutos, amarrado a ação e argumento, e **tentativa errada queima a confirmação** — é isso
-  que torna 10.000 possibilidades suficientes. O agente ainda espera 60 s (`shutdown /t 60`),
-  então dá para desistir com `cancelar_desligamento`.
+- **`desligar` e `reiniciar` exigem mensagem nova autenticada** (`Aprovacoes`, risco `CRITICO`):
+  a ferramenta só registra a aprovação pendente e devolve ao modelo "confirme em nova mensagem";
+  quem consome a decisão é o `Assistente.responder`, **antes** de falar com o Claude. Não há
+  código que passe pelo modelo e, portanto, não há como ele se autoconfirmar. Uso único,
+  2 minutos no `CRITICO` (10 no `COMUM`), uma pendência por vez, amarrada à ação e aos argumentos
+  capturados na hora do pedido. O agente ainda espera 60 s (`shutdown /t 60`), então dá para
+  desistir com `cancelar_desligamento` — que só aborta o desligamento já agendado no PC: uma
+  aprovação em aberto morre com "cancelar" do usuário ou por expirar.
 - **O despertar é a única coisa que o PC inicia.** Duas palmas ou a palavra **"Jarvis"** dita
   sozinha (o `ReconhecedorDeVoz` só dispara quando a transcrição inteira é `jarvis` — a grafia
   `jardes`, que o Whisper base costuma devolver, é normalizada; "Jarvis, iniciar" **não** dispara)
@@ -270,7 +275,13 @@ a informá-lo.
   corpo de requisições que levem credenciais.
 - O bot **só atende ao `TELEGRAM_USUARIO_PERMITIDO`**; mensagem de outro ID é ignorada e só
   o ID aparece no log.
-- Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar.
+- **Ação perigosa (apagar, reiniciar, pagar) passa pelo `Aprovacoes`, e por mais nada.** Não
+  invente um segundo caminho de confirmação: a ferramenta chama `pedir(...)` e devolve ao modelo
+  apenas "confirme em nova mensagem"; a execução mora no `Supplier`, com a ação e os argumentos
+  já capturados, e roda quando o `Assistente` consome a aprovação — fora do alcance do modelo.
+  A `pergunta` mostrada ao usuário é montada **em Java, de dado real** (nome da rotina, nome do
+  arquivo, objetivo); texto do modelo ali deixaria ele escolher o que o "sim" significa.
+  `Risco.CRITICO` é para o irreversível (desligar, reiniciar) e encurta o prazo para 2 minutos.
 - **A VPS só busca URL que ela provou ser pública.** O `abrir_pagina` é a única ferramenta que
   acessa um endereço ditado pelo modelo, e ele passa pelo `GuardaSsrf`: só http/https, DNS
   resolvido e conferido contra loopback, faixas privadas, link-local (inclusive o

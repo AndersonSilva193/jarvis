@@ -4,7 +4,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.FluxoEdicaoPc;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -15,10 +15,10 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class DesfazerEdicaoFerramenta implements Ferramenta {
     private final FluxoEdicaoPc fluxo;
-    private final IntencoesPc intencoes;
+    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
-    public DesfazerEdicaoFerramenta(FluxoEdicaoPc fluxo, IntencoesPc intencoes, JsonMapper json) {
-        this.fluxo = fluxo; this.intencoes = intencoes; this.json = json;
+    public DesfazerEdicaoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json) {
+        this.fluxo = fluxo; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "desfazer_edicao"; }
     @Override public String descricao() { return "Prepara a restauração do backup de uma edição original "
@@ -52,7 +52,8 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
         String nome = Json.texto(preparado.dados().path("nome"));
         String canal = contexto.canal(); long usuario = contexto.usuarioAutenticado();
         try {
-            var confirmacao = intencoes.pedir("desfazer_edicao", "Restaurar " + nome,
+            var confirmacao = aprovacoes.pedir("desfazer_edicao", "Restaurar " + nome,
+                    "Posso restaurar " + nome + " para a versão anterior?", Aprovacoes.Risco.COMUM,
                     usuario, contexto.idPedido(), () ->
                     fluxo.aplicarDepoisDeConfirmar("aplicar_desfazer", editId, canal, usuario));
             return new ResultadoFerramenta("Desfazer preparado para " + nome

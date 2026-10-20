@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 import dev.jarvis.computer.TarefasComputerUse;
 import dev.jarvis.conversa.OuvinteProgresso;
-import dev.jarvis.pc.IntencoesPc;
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -26,10 +26,10 @@ public class TarefaNoPcFerramenta implements Ferramenta {
             + "preencher|informar|enviar|usar)\\s+)?(?:comprar|compre|compras?|pagar|pague|"
             + "pagamentos?|senha|password|cartao de credito)\\b");
     private final TarefasComputerUse tarefas;
-    private final IntencoesPc intencoes;
+    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
-    public TarefaNoPcFerramenta(TarefasComputerUse tarefas, IntencoesPc intencoes, JsonMapper json) {
-        this.tarefas = tarefas; this.intencoes = intencoes; this.json = json;
+    public TarefaNoPcFerramenta(TarefasComputerUse tarefas, Aprovacoes aprovacoes, JsonMapper json) {
+        this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "tarefa_no_pc"; }
     @Override public String descricao() {
@@ -69,8 +69,10 @@ public class TarefaNoPcFerramenta implements Ferramenta {
         try {
             long usuario = contexto.usuarioAutenticado();
             String canal = contexto.canal();
-            var confirmacao = intencoes.pedir("computer", "Tarefa no monitor principal: " + objetivo,
-                    usuario, contexto.idPedido(), () -> tarefas.iniciar(objetivo, canal, usuario));
+            var confirmacao = aprovacoes.pedir("computer", "Tarefa no monitor principal: " + objetivo,
+                    "Posso executar no monitor principal: " + objetivo + "?",
+                    Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(),
+                    () -> tarefas.iniciar(objetivo, canal, usuario));
             return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
                     List.of(), List.of(), confirmacao, List.of(), List.of());
         } catch (IllegalArgumentException | IllegalStateException recusa) {
