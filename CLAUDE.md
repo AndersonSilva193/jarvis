@@ -37,19 +37,23 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | Pacote | Responsabilidade |
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (loop + filtro de usuário) |
-| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
+| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
 | `dev.jarvis.lembretes` | `LembreteService` (agenda, dispara e reagenda na partida), `LembretesEmArquivo` (o JSON com troca atômica e `.bak`), `Recorrencia`/`Repeticao` |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
+| `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`) e `ConfirmacaoEsquecimento` |
+| `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
+| `dev.jarvis.computer` | O computer use: `TarefasComputerUse` e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
+| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
-| `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
-| `dev.jarvis.pc` | O PC Windows: `PcService` (fila de comandos), `ComandoPc`/`ResultadoPc` e `GuardaDeConfirmacao` (o código das ações perigosas) |
+| `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
+| `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService`, `IntencoesPc`/`AvisosOperacoesPc` e as guardas `GuardaDeConfirmacao` e `GuardaDeRotina` |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
-| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir) e `ComparadorDeToken` (comparação de segredo em tempo constante) |
+| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
 
 ## Personalidade e canais
 
@@ -158,7 +162,10 @@ controlar_pc ──► PcService (fila) ──► GET /api/pc/comandos ──►
   2 minutos, amarrado a ação e argumento, e **tentativa errada queima a confirmação** — é isso
   que torna 10.000 possibilidades suficientes. O agente ainda espera 60 s (`shutdown /t 60`),
   então dá para desistir com `cancelar_desligamento`.
-- **O despertar é a única coisa que o PC inicia.** Duas palmas ou "Jarvis, iniciar" abrem a tela
+- **O despertar é a única coisa que o PC inicia.** Duas palmas ou a palavra **"Jarvis"** dita
+  sozinha (o `ReconhecedorDeVoz` só dispara quando a transcrição inteira é `jarvis` — a grafia
+  `jardes`, que o Whisper base costuma devolver, é normalizada; "Jarvis, iniciar" **não** dispara)
+  abrem a tela
   **sem** passar pela VPS: o agente abre o Chrome em `<urlHud>?inicio=1` e é a HUD que pede a
   introdução. A VPS só entra quando a tela **já** estava aberta: aí o agente chama
   `POST /api/pc/falar` e o Jarvis responde "Já estou aqui, senhor.". Esse é o único endpoint em
@@ -192,8 +199,8 @@ que falha fica de fora —, com duas diferenças de propósito:
 
 Cache de **2 minutos**, com `Duration.between` e não com `Saudacao.reutilizavel` (que também exige
 mesmo dia e mesma saudação): é o que impede palmas repetidas de gerarem duas chamadas ao Claude.
-Prazo e validade são constantes na classe, como em `BriefingService` e `PcService` — não valia o
-14º componente de `JarvisProperties`, que é construído por posição em dez arquivos de teste.
+Prazo e validade são constantes na classe, como em `BriefingService` e `PcService` — não valia
+mais um componente em `JarvisProperties`, que é construído por posição em dezenas de testes.
 
 Claude falhando, a introdução é montada em Java com o que chegou. A tela acabou de acender sozinha:
 ficar muda seria pior que uma frase sem charme.
@@ -241,12 +248,16 @@ Toda configuração entra nos **três** lugares, na mesma ordem:
 2. `src/main/resources/application.yml`, lendo a variável com default: `${MINHA_VAR:valor}`;
 3. `.env.example`, com um comentário curto explicando para que serve.
 
-Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. O último exemplo é
+Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. Um exemplo curto é
 o `PC_TOKEN` (`jarvis.pc.token`), usado pelo `TokenPcFiltro`: vazio, `/api/pc` recusa tudo com 401
 e o controle do PC fica desligado.
 
-Atenção ao `JarvisProperties`: é um record construído por posição em vários testes, então
-acrescente componente **no fim** e atualize essas chamadas.
+Atenção ao `JarvisProperties`: é um record de 18 componentes, construído **por posição** em mais
+de vinte arquivos de teste. Acrescente componente **no fim**, e prefira esticar um dos blocos
+aninhados (`Pc`, `ComputerUse`, `Historico`…) a criar outro no topo. Os construtores de
+compatibilidade no fim da classe existem justamente para os testes antigos continuarem compilando
+— quando criar um componente novo, decida se ele entra num desses atalhos ou se os testes passam
+a informá-lo.
 
 ## Segurança
 
@@ -307,12 +318,18 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 
 ## Limitações conhecidas
 
-- **A fila de comandos do PC também é em memória**, com o código de confirmação: depois de um
-  restart o Jarvis espera o agente reaparecer (até 25 s) e qualquer confirmação pendente se perde.
-- **O histórico fica em memória**: some quando o container reinicia. Lembretes, não: eles vivem no
-  JSON de `LEMBRETES_ARQUIVO` (volume `lembretes`) e são reagendados na partida, com aviso de
-  "Atrasado:" para o que venceu no meio. O cache de voz também sobrevive, no volume `/data/voz`.
-- O retrato da tela e o cache de buscas no YouTube também são em memória: depois de um restart o
-  Jarvis fica cego para a tela até a HUD repostar o estado.
-- Só entende texto (nada de áudio ou foto).
-- Atende **uma mensagem por vez** — `Assistente.responder` é `synchronized`.
+- **O que sobrevive ao restart tem volume próprio**: lembretes no JSON de `LEMBRETES_ARQUIVO`
+  (volume `lembretes`), reagendados na partida com aviso de "Atrasado:" para o que venceu no meio;
+  histórico da conversa em `HISTORICO_PASTA` (volume `historico`), um `chat-<id>.json` por chat,
+  descartando turno mais velho que `HISTORICO_VALIDADE_HORAS`; memória pessoal em `MEMORIA_PASTA` e
+  `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
+  `/data/voz`. Todos usam a troca atômica do `ArquivoAtomico`.
+- O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC e as confirmações
+  pendentes são **em memória**: depois de um restart o Jarvis fica cego para a tela até a HUD
+  repostar o estado, e qualquer confirmação pendente se perde.
+- No Telegram só entende texto (nada de áudio ou foto). Na HUD, quem transcreve e sintetiza é o
+  navegador — ou a ElevenLabs, quando `VOZ_PROVEDOR=elevenlabs`.
+- Atende **uma execução por vez**: `Assistente.responder` segura um `ReentrantLock` **justo**
+  (`new ReentrantLock(true)`) pelo turno inteiro, e conversas, tarefas e limpeza passam pelo mesmo
+  lock. O retrato público do histórico usa um bloqueio curto separado, que nunca é mantido durante
+  I/O do modelo.

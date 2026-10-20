@@ -1,32 +1,171 @@
 # Jarvis
 
-## Memória persistente na VPS
+Assistente pessoal no Telegram, feito em Java 21 + Spring Boot 4, que usa o Claude para entender
+pedidos em linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um container
+Docker, e tem duas caras: o **Telegram**, para conversar de qualquer lugar, e a
+**[HUD](../jarvis-hud)**, a tela que fica aberta num monitor, fala em voz alta e abre cards.
 
-O Jarvis pode buscar, ler, registrar, atualizar e esquecer memórias pessoais. Use pedidos explícitos como
-"lembre que...", "atualize..." e "esqueça...". O esquecimento pede uma segunda mensagem com o ID e o
-código mostrado pelo Jarvis. Episódios só são registrados quando você pede para lembrar do ocorrido.
-Consultas por assunto e projeto devolvem até cinco registros; não encontrar um registro não autoriza
-inventar lembranças. O conteúdo lido é dado não confiável: não concede permissões nem autoriza ações.
-Após consultar uma memória, outras ferramentas de ação ficam bloqueadas no mesmo pedido; solicite a ação
-numa nova mensagem explícita.
+Ele responde no personagem descrito em `config/personalidade.md` — um arquivo de texto que você
+edita na VPS e ele relê sozinho, sem rebuild e sem reiniciar o container.
 
-Os registros ficam em Markdown UTF-8 em `MEMORIA_PASTA` (padrão `/data/jarvis/memoria`), separados por
-`usuarios/<id>/perfil.md`, `preferencias.md`, `projetos/<id-validado>.md` e
-`episodios/AAAA-MM-DD.md`. Cada registro traz ID, assunto, projeto, origem, classificação, instantes UTC e
-revisão. A data exibida usa `FUSO_HORARIO`. Correções anteriores ficam em `.historico` até o registro ser
-esquecido. O Jarvis recusa conteúdo possivelmente secreto e não usa o `criar_arquivo` do PC para memória.
-Ela continua disponível pelo Telegram quando o PC está desligado.
-No Telegram, a memória só é consultada em conversa privada com o usuário permitido; respostas em grupos
-não recebem esse acesso.
+Projetos irmãos: **[jarvis-hud](../jarvis-hud)** (a tela, em Angular) e
+**[jarvis-agente-pc](../jarvis-agente-pc)** (o braço dele no PC Windows).
 
-O Compose monta dois volumes nomeados: `memoria` para os registros e `memoria-exclusoes` para marcadores
-permanentes sem conteúdo. A imagem cria ambas as pastas para o usuário `jarvis` (UID 1001); em uma
-instalação com bind mount, crie as pastas no host com dono `1001:1001` e acesso restrito a esse usuário.
-Não exponha os volumes via nginx ou servidor de arquivos. O volume de exclusões deve sobreviver à
-restauração de um backup antigo de conteúdo: na partida, o Jarvis reaplica os marcadores e remove registros
-restaurados que haviam sido esquecidos.
+## Como funciona
 
-## Lembretes persistentes e recorrentes
+```
+Telegram ──► TelegramPoller ──► Assistente ──► Claude (API)
+                                    │   ▲            │
+                                    ▼   │  "chame a ferramenta X"
+                               Ferramentas ◄─────────┘
+```
+
+1. O `TelegramPoller` pergunta ao Telegram, em loop, se chegou mensagem (long polling, sem precisar
+   de domínio nem porta aberta).
+2. O `Assistente` manda a conversa e a lista de ferramentas para o Claude.
+3. Se o Claude pedir uma ferramenta, o Java executa e devolve o resultado. Isso se repete até ele
+   responder.
+4. A resposta volta para você no Telegram — ou, se o pedido veio da HUD, é falada na tela.
+
+Todo pedido passa por um único `ReentrantLock` justo no `Assistente`: conversas do Telegram, da HUD
+e tarefas do PC são atendidas **uma por vez**, na ordem de chegada.
+
+### O prompt de sistema
+
+Toda chamada ao Claude leva o `system` em **dois blocos**, nesta ordem:
+
+| Bloco | Conteúdo | Cache |
+|---|---|---|
+| fixo | o texto de `config/personalidade.md`, byte a byte | `cache_control: ephemeral` |
+| dinâmico | data e hora com fuso, canal do pedido, retrato da tela, regras técnicas e de formato | nunca |
+
+A ordem importa: o cache de prompt da Anthropic casa **prefixo exato**, então qualquer coisa que muda
+a cada pedido (a começar pelo relógio) tem de ficar *depois* do bloco cacheado. O marcador de cache
+só é enviado quando a personalidade passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` — abaixo disso a API o
+ignoraria calada.
+
+O **canal** diz ao Jarvis como escrever: `telegram` aceita negrito, listas e blocos de código; `hud`
+e `briefing` viram áudio, então são frases curtas sem markdown; `tarefa` começa pelo resultado, com
+uma linha de status. Cada chamada ao Claude registra no log quanto consumiu:
+
+```
+Claude: entrada=812 saída=96 cache_escrito=0 cache_lido=2310
+```
+
+`cache_escrito` aparece na primeira chamada (quando o prefixo é gravado) e `cache_lido` nas
+seguintes. Se as duas ficarem sempre em zero, o cache não está pegando.
+
+## Instalação
+
+### Passo 1: pegar as credenciais
+
+1. **Bot do Telegram:** fale com o [@BotFather](https://t.me/BotFather), envie `/newbot`, escolha
+   nome e usuário. Ele te dá o **token**.
+2. **Chave do Claude:** crie em [console.anthropic.com](https://console.anthropic.com), em
+   *API Keys*. A API é paga por uso (créditos pré-pagos); adicione alguns dólares para começar.
+3. **Seu ID do Telegram:** mande qualquer mensagem para o [@userinfobot](https://t.me/userinfobot),
+   ou deixe `TELEGRAM_USUARIO_PERMITIDO=0`, suba o bot, mande um "oi" e veja o ID nos logs.
+
+### Passo 2: subir na VPS
+
+```bash
+# envie a pasta para a VPS (git clone ou scp) e entre nela
+cp .env.example .env
+nano .env                      # preencha token, chave, seu ID e os sites
+
+nano config/personalidade.md   # opcional: ajuste o jeito do Jarvis (veja abaixo)
+
+docker compose up -d --build   # compila e sobe
+docker compose logs -f         # acompanha os logs (Ctrl+C para sair)
+```
+
+Mudou o `.env` ou o código? Rode `docker compose up -d --build` de novo.
+
+Para rodar no seu PC (sem Docker), exporte as mesmas variáveis do `.env`, aponte
+`JARVIS_PERSONALIDADE_ARQUIVO=config/personalidade.md` e rode `mvn spring-boot:run`.
+
+Para validar antes de publicar: `mvn -q -B package` aqui e `npm test -- --watch=false` /
+`npm run build` em `jarvis-hud`. Os testes usam modelo, reconhecimento e síntese simulados; nenhuma
+mensagem é enviada ao Telegram. Quando for publicar, disponibilize primeiro este backend (ele mantém
+o alias SSE da HUD antiga) e depois a HUD.
+
+### A personalidade
+
+`config/personalidade.md` é o system prompt fixo: identidade, tom, o que o Jarvis faz e o que não
+faz. Ele é versionado junto com o código (o repositório é privado), mas **não entra na imagem**:
+chega ao container por volume, montado como somente leitura em `/app/config`.
+
+É justamente por isso que editar o texto **não** exige rebuild — o Jarvis compara a data de
+modificação do arquivo a cada chamada e relê quando ela muda. Se o arquivo faltar ou estiver em
+branco, o bot sobe com uma personalidade mínima de reserva e avisa no log, em vez de deixar de
+responder.
+
+Segredo nenhum entra aqui: token, chave de API e afins continuam só no `.env`.
+
+### Criando uma ferramenta nova
+
+Basta criar uma classe em `dev.jarvis.ferramentas` que implemente `Ferramenta` com `@Component`.
+O Spring encontra sozinho e o Claude passa a poder usá-la. Exemplo de esqueleto:
+
+```java
+@Component
+public class AgendamentosHojeFerramenta implements Ferramenta {
+
+    private final JsonMapper json;
+
+    public AgendamentosHojeFerramenta(JsonMapper json) {
+        this.json = json;
+    }
+
+    public String nome() { return "agendamentos_hoje"; }
+
+    public String descricao() {
+        return "Lista os agendamentos de hoje no AgendaBarber, com horário, cliente e serviço.";
+    }
+
+    public ObjectNode esquemaEntrada() {
+        ObjectNode esquema = json.createObjectNode();
+        esquema.put("type", "object");
+        esquema.putObject("properties");
+        return esquema;
+    }
+
+    public String executar(JsonNode entrada) throws Exception {
+        // chame sua API com o HttpClient (ou consulte o banco) e devolva um texto simples
+        return "09:00 - João - Corte\n10:30 - Pedro - Barba";
+    }
+}
+```
+
+Dicas: a `descricao()` é o que faz o modelo escolher a ferramenta certa, então capriche nela. E
+devolva textos curtos e objetivos: tudo que a ferramenta retorna vira tokens (custo).
+
+## As ferramentas, por área
+
+### Conversa e informação
+
+| Você pede | Ferramenta usada |
+|---|---|
+| "a API do AgendaBarber está no ar?" | `verificar_site` |
+| "como está o servidor?" | `status_servidor` |
+| "como está o tempo?" | `clima` |
+| "quais as notícias de hoje?" | `noticias` |
+| "me dá o briefing" | `briefing_do_dia` |
+| "a voz está funcionando?" | `status_voz` |
+| (na HUD) uma pergunta que precisa da sua resposta | `ouvir_resposta` |
+
+Além disso, todo dia útil às 8h ele manda um resumo de bom dia (clima, lembretes, sites e notícias),
+no cron de `RESUMO_DIARIO_CRON`. A busca na web é uma ferramenta **do servidor da Anthropic**: o
+Jarvis só manda a definição (`BUSCA_WEB_ATIVA`, `BUSCA_WEB_TIPO`, `BUSCA_WEB_MAX_USOS`) e quem
+procura é a API.
+
+### Lembretes persistentes e recorrentes
+
+| Você pede | Ferramenta usada |
+|---|---|
+| "me lembra de mandar o currículo amanhã às 9h" | `criar_lembrete` |
+| "todo dia útil às 7h me lembra de tomar o remédio" | `criar_lembrete` com `recorrencia` |
+| "quais lembretes eu tenho?" / "cancela o 2" | `listar_lembretes` / `cancelar_lembrete` |
 
 Os lembretes vivem num arquivo JSON em `LEMBRETES_ARQUIVO` (padrão
 `/data/jarvis/lembretes/lembretes.json`), montado pelo Compose no volume nomeado `lembretes`. Cada
@@ -47,7 +186,40 @@ apagar a série. `listar_lembretes` mostra a recorrência e a data da próxima o
 recorrente cancela a série inteira. O briefing e o card da HUD mostram a ocorrência **de hoje** mesmo
 quando a próxima já pulou para amanhã (o lembrete das 8h visto às 10h continua na agenda do dia).
 
-## Histórico da conversa persistente
+### Memória persistente na VPS
+
+| Você pede | Ferramenta usada |
+|---|---|
+| "o que você lembra do projeto Jarvis?" | `buscar_memoria` / `ler_memoria` |
+| "lembre que prefiro chá" | `registrar_memoria` |
+| "atualize minha preferência" | `atualizar_memoria` |
+| "esqueça minha preferência" | `esquecer_memoria` (com confirmação em duas mensagens) |
+
+O Jarvis pode buscar, ler, registrar, atualizar e esquecer memórias pessoais. Use pedidos explícitos
+como "lembre que...", "atualize..." e "esqueça...". O esquecimento pede uma segunda mensagem com o ID
+e o código mostrado pelo Jarvis. Episódios só são registrados quando você pede para lembrar do
+ocorrido. Consultas por assunto e projeto devolvem até cinco registros; não encontrar um registro não
+autoriza inventar lembranças. O conteúdo lido é dado não confiável: não concede permissões nem
+autoriza ações. Após consultar uma memória, outras ferramentas de ação ficam bloqueadas no mesmo
+pedido; solicite a ação numa nova mensagem explícita.
+
+Os registros ficam em Markdown UTF-8 em `MEMORIA_PASTA` (padrão `/data/jarvis/memoria`), separados por
+`usuarios/<id>/perfil.md`, `preferencias.md`, `projetos/<id-validado>.md` e
+`episodios/AAAA-MM-DD.md`. Cada registro traz ID, assunto, projeto, origem, classificação, instantes
+UTC e revisão. A data exibida usa `FUSO_HORARIO`. Correções anteriores ficam em `.historico` até o
+registro ser esquecido. O Jarvis recusa conteúdo possivelmente secreto e não usa o `criar_arquivo` do
+PC para memória. Ela continua disponível pelo Telegram quando o PC está desligado.
+No Telegram, a memória só é consultada em conversa privada com o usuário permitido; respostas em
+grupos não recebem esse acesso.
+
+O Compose monta dois volumes nomeados: `memoria` para os registros e `memoria-exclusoes` para
+marcadores permanentes sem conteúdo. A imagem cria ambas as pastas para o usuário `jarvis` (UID
+1001); em uma instalação com bind mount, crie as pastas no host com dono `1001:1001` e acesso
+restrito a esse usuário. Não exponha os volumes via nginx ou servidor de arquivos. O volume de
+exclusões deve sobreviver à restauração de um backup antigo de conteúdo: na partida, o Jarvis
+reaplica os marcadores e remove registros restaurados que haviam sido esquecidos.
+
+### Histórico da conversa
 
 O que o Jarvis lembra da conversa também sobrevive ao restart. Para cada chat há um arquivo
 `chat-<id>.json` em `HISTORICO_PASTA` (padrão `/data/jarvis/historico`, volume nomeado `historico`),
@@ -69,64 +241,156 @@ usuário, não só o que estava em RAM — o Jarvis só diz "esqueci" depois de 
 `/limpar` do Telegram e o `POST /api/conversa/limpar` da HUD apagam o arquivo daquele chat do mesmo
 jeito.
 
-### Backup e restauração da memória
+### A tela dirigida pelo Jarvis
 
-Execute o backup com o container parado para copiar os volumes de memória, de lembretes e do
-histórico no mesmo
-ponto no tempo. No diretório
-do Compose, agende este procedimento diariamente; o exemplo abaixo guarda o arquivo em uma pasta privada
-da VPS e descarta arquivos de conteúdo com mais de 30 dias:
+| Você pede | Ferramenta usada |
+|---|---|
+| "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
+| "põe um lo-fi para estudar" | `tocar_youtube` |
+| "abre essa página na tela" | `abrir_pagina` |
+| "fecha aquele card" / "limpa a tela" | `controlar_tela` |
 
-```bash
-set -e
-umask 077
-mkdir -p backups-memoria
-copia=$(mktemp -d)
-trap 'docker compose start jarvis; rm -rf -- "$copia"' EXIT
-docker compose stop jarvis
-mkdir -p "$copia/memoria" "$copia/exclusoes" "$copia/lembretes" "$copia/historico"
-docker run --rm --volumes-from jarvis -v "$copia:/backup" alpine:3.20 sh -c \
-  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/; cp -a /data/jarvis/lembretes/. /backup/lembretes/; cp -a /data/jarvis/historico/. /backup/historico/'
-tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes lembretes historico
-tar -C "$copia" -czf backups-memoria/exclusoes-mais-recentes.tar.gz exclusoes
-find backups-memoria -maxdepth 1 -name 'memoria-*.tar.gz' -mtime +30 -delete
-```
+A HUD é dirigida pelo Jarvis: ele abre cards e comanda os que já estão abertos. Funciona para pedido
+feito na própria HUD **e** no Telegram — "mostra na tela o vídeo X" pelo celular abre a janela na
+tela de casa.
 
-Guarde `exclusoes-mais-recentes.tar.gz` fora da VPS também e atualize essa cópia após exclusões. Para
-restaurar, mantenha o volume atual de exclusões e forneça o arquivo **mais recente** de marcadores.
-Confira os nomes dos arquivos antes de executar:
+Cinco tipos de card: `pesquisa` (ranking, ficha, lista, linha do tempo ou destaque), `video`,
+`musica`, `pagina` e `noticia`. Dois eventos no SSE:
 
-```bash
-set -e
-umask 077
-copia=$(mktemp -d)
-trap 'rm -rf -- "$copia"' EXIT
-tar -xzf backups-memoria/memoria-AAAAMMDD-HHMMSS.tar.gz -C "$copia"
-tar -xzf backups-memoria/exclusoes-mais-recentes.tar.gz -C "$copia"
-docker compose stop jarvis
-docker run --rm --volumes-from jarvis -v "$copia:/backup:ro" alpine:3.20 sh -c '
-  set -e
-  find /data/jarvis/memoria -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  cp -a /backup/memoria/. /data/jarvis/memoria/
-  cp -an /backup/exclusoes/. /data/jarvis/memoria-exclusoes/
-  # Os lembretes voltam inteiros: o Jarvis reagenda na partida e avisa o que venceu no meio.
-  find /data/jarvis/lembretes -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  cp -a /backup/lembretes/. /data/jarvis/lembretes/
-  # O histórico é conversa: restaure só se quiser o contexto de volta. Turno com mais de
-  # HISTORICO_VALIDADE_HORAS é descartado na partida, e o que foi esquecido não está aqui.
-  find /data/jarvis/historico -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  cp -a /backup/historico/. /data/jarvis/historico/
-  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes /data/jarvis/lembretes     /data/jarvis/historico
-'
-docker compose start jarvis
-```
+| Evento | Carga |
+|---|---|
+| `tela.card` | `{id, tipo, titulo, dados, origem, criadoEm}` — abre uma janela |
+| `tela.comando` | `{acao, alvo, valor}` — mexe no que já está aberto |
 
-Teste a restauração em volumes separados antes de usar em produção. Backups de conteúdo são retidos por
-até 30 dias; uma exclusão não remove imediatamente cópias antigas. Perder o volume e a cópia mais recente
-dos marcadores pode fazer um backup antigo ressuscitar informações esquecidas; recuse a restauração nessa
-situação.
+As 20 ações de `tela.comando`: `limpar`, `fechar`, `fechar_tudo`, `minimizar`, `maximizar`,
+`restaurar`, `focar`, `fixar`, `desafixar`, `abrir_historico`, `fechar_historico`,
+`mostrar_briefing`, `repetir_briefing`, `abrir_noticia`, `pausar`, `continuar`, `volume_mais`,
+`volume_menos`, `avancar` e `voltar`. As que mexem em uma janela levam o id dela em `alvo`.
 
-## Criação de arquivos e Google Sheets
+**O que a HUD precisa fazer**, e sem isso nada funciona:
+
+1. Ouvir `tela.card` e `tela.comando` no `GET /api/eventos`.
+2. Criar a janela **com o `id` que veio no card** — o id é do servidor, sorteado (`c7k2`), e é por
+   ele que o Jarvis acha o alvo depois.
+3. Repostar `POST /api/tela/estado` a cada mudança: abrir, fechar, minimizar, maximizar, fixar,
+   focar, tocar e pausar.
+
+O servidor guarda só o último retrato, por 10 minutos, e dele monta até 12 linhas no prompt —
+`[c7k2] vídeo 'Lo-fi para estudar' (tocando)`. É isso que permite ao Jarvis dizer "fechei o
+vídeo" em vez de chutar um id. Sem o POST, `controlar_tela` nunca encontra alvo.
+
+Com nenhuma HUD conectada ao SSE, as ferramentas de tela respondem "a tela não está aberta" ao
+modelo e não publicam nada — nem pelo Telegram.
+
+A fala, nesses casos, é curta de propósito ("Aqui está, senhor.", "Tela limpa."): o card já mostra
+os dados, e repetir em voz alta o que está na tela é ruído. Essa regra vive no `Canal.HUD`.
+
+O estado aceita também `resposta` e todas as janelas minimizadas, sem o antigo teto de 24. A HUD
+envia primeiro o foco e a mídia em reprodução; o contexto continua limitado a 12 linhas. `limpar`
+preserva cards fixados; `fechar_tudo` fecha inclusive os fixados. Instale esta versão da API antes
+da HUD com janelas.
+
+### O PC Windows
+
+O PC roda o [agente](../jarvis-agente-pc), que **busca** comandos na VPS por long polling. Nenhuma
+porta aberta na máquina, nenhum domínio.
+
+| Você pede | Ferramenta usada |
+|---|---|
+| "abre o Chrome" / "bloqueia a tela" / "aumenta o volume" | `controlar_pc` |
+| "tira um print" | `controlar_pc` com `captura_tela` |
+| "desliga o PC" / "reinicia" / "cancela o desligamento" | `controlar_pc` (com confirmação) |
+| "roda a rotina de testes" | `rodar_rotina` |
+| "como está o comando X?" / "cancela o comando X" | `status_operacao_pc` / `cancelar_operacao_pc` |
+
+`captura_tela` vai aos dois destinos: `sendPhoto` no Telegram e um anexo na HUD. O mime é farejado
+dos bytes, nunca aceito do agente.
+
+**PC offline responde na hora** (90 s sem contato), antes de enfileirar. Com o PC online, a
+ferramenta espera até 30 s pelo resultado; o comando segue valendo na fila. `desligar` e `reiniciar`
+pedem confirmação: uso único, 2 minutos, amarrada à ação e ao argumento — e o agente ainda espera 60
+segundos (`shutdown /t 60`), então dá para desistir com `cancelar_desligamento`.
+
+A **lista de apps liberados mora só no PC**: o agente a reporta no cabeçalho `X-Pc-Apps` de cada
+consulta, e o caminho do `.exe` nunca sai do `config.properties` dele. O modelo escolhe um nome da
+lista, ou nada.
+
+#### Operações E2 e rotinas
+
+`rodar_rotina` oferece ao modelo somente nomes, descrições e capacidades anunciados pelo agente.
+O cadastro real fica em `rotinas.properties` no PC. Toda rotina exige uma nova mensagem do usuário:
+`confirmo` ou `pode prosseguir`, por exemplo. O agente valida sua própria política local. A
+confirmação é consumida em até dois minutos e fica vinculada ao nome e ao pedido original; o modelo
+não pode confirmá-la no mesmo turno. O texto original segue ao agente para uso por stdin na rotina
+Claude.
+
+O protocolo E2 usa `/api/pc/v2`: catálogo, busca com prazo de posse, confirmação de recebimento,
+marcação de início, resultado, consulta por ID e sinal de cancelamento. O ID permanece o mesmo em
+reentregas. Estados e prazos são gravados no volume `pc-operacoes` em `PC_OPERACOES_PASTA`. Após 30
+segundos de espera na ferramenta, consulte `status_operacao_pc` pelo ID; essa espera não cancela a
+execução. O resultado tardio gera no máximo uma tentativa de aviso e continua consultável pelo ID.
+`resultado_incerto` requer decisão humana: não envie automaticamente o mesmo comando de novo.
+
+Para implantar, publique primeiro a VPS com as rotas `/api/pc/v2` e só então atualize o agente do
+Windows. As rotas `/api/pc` antigas permanecem durante a migração. O agente novo anuncia rotinas
+somente após carregar um cadastro local válido. Execute `mvn -q -B package` nos dois projetos antes
+de publicar.
+
+O E2 também transporta os resultados de `criar_arquivo`, `captura_tela`, `listar_arquivos` e
+`ler_arquivo`. O upload binário de `criar_arquivo` e as imagens ficam no volume `pc-operacoes`;
+dados estruturados e estado ficam no diário. O servidor valida ação, tipo e tamanho antes de aceitar
+o resultado. Um retry idêntico recebe a mesma confirmação. Anexos tardios são enviados ao Telegram
+ou registrados no histórico da HUD; o comando continua consultável pelo ID até a retenção terminar.
+Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`, junto do diário.
+
+#### O despertar
+
+O agente **acorda sozinho**: duas palmas, ou a palavra **"Jarvis"** dita isolada, abrem a HUD em
+tela cheia e disparam a apresentação falada. Isso acontece **sem passar pela VPS** — o agente abre o
+Chrome em `<urlHud>?inicio=1` e é a HUD que pede a introdução a `POST /api/inicializacao`. A VPS só
+entra quando a tela **já** estava aberta: aí o agente chama `POST /api/pc/falar` e o Jarvis diz "Já
+estou aqui, senhor.". Nesse endpoint o agente manda a **chave** de uma frase do catálogo fechado
+`FalaDaTela`, nunca o texto.
+
+### Arquivos no PC e Google Sheets
+
+| Você pede | Ferramenta usada |
+|---|---|
+| "cria um relatório em PDF com isso" | `criar_arquivo` |
+| "quais arquivos eu tenho?" | `listar_arquivos` |
+| "lê a tabela de exemplo" | `ler_arquivo` |
+| "muda o valor da célula C4" / "troca todas as ocorrências de X" | `editar_arquivo` |
+| "desfaz a última edição" | `desfazer_edicao` (com confirmação) |
+| "toda sexta atualiza essa planilha" | `agendar_tarefa_planilha` / `listar_tarefas_planilha` / `revogar_tarefa_planilha` |
+| "cria uma planilha no meu Google" | `criar_planilha_google` |
+
+#### Criar, listar e ler
+
+`criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX e CSV no agente do PC, dentro da pasta
+`pastaArquivos` (padrão: Documentos/Jarvis). O comando leva dados estruturados, sem caminhos
+nem código executável. O agente faz upload binário em `/api/pc/arquivos/{id}` com `PC_TOKEN`;
+o resultado JSON apenas indica o ID e o estado. O limite do arquivo é 8 MiB. O arquivo é
+enviado por `sendDocument` no Telegram e aparece como anexo temporário na HUD.
+
+`listar_arquivos` pesquisa os arquivos dessa pasta por nome e formato, com páginas de até 50 itens.
+O agente cadastra arquivos criados e também arquivos suportados que já estavam na pasta após validar
+formato, tamanho e segurança do caminho. O catálogo `.jarvis-catalogo.properties` persiste no PC;
+seu ID estável é diferente do ID temporário do upload. Cada item informa nome, formato, tamanho,
+modificação e estado (`disponivel`, `alterado` ou `removido`). Resultados com nomes parecidos são
+apresentados para escolha.
+
+`ler_arquivo` recebe exclusivamente um ID do catálogo. TXT/MD e DOCX usam `inicio` e
+`maximoCaracteres`; PDF usa `paginaInicial`, `quantidadePaginas` e `inicio` dentro da página;
+XLSX usa `aba` e intervalo de linhas/colunas; CSV usa `delimitador`, `linhaInicial` e
+`quantidadeLinhas`. A resposta traz indicador de truncamento e ponto de continuação. Uma linha
+CSV ou célula XLSX grande usa `inicioLinha` ou `inicioCelula` com o próximo deslocamento retornado;
+`fragmentoLinha` e `fragmentoCelula` transportam partes do JSON do item. A leitura limita o arquivo
+a 8 MiB, o tempo a 12 segundos e o JSON de resultado a 28.000 bytes. Fórmulas
+XLSX são devolvidas como dados com valores em cache possivelmente desatualizados; nada é executado.
+PDF digitalizado sem texto informa que OCR não está implementado. Com o agente offline, os arquivos
+originais locais não estão disponíveis. Google Sheets nativo não faz parte desta consulta.
+
+#### Editar
 
 `editar_arquivo` edita `.txt`, `.md`, `.json` e `.xlsx` diretamente na `pastaArquivos` do agente.
 Use o ID e `versaoEsperada` (SHA-256) de `listar_arquivos`/`ler_arquivo` e leia o
@@ -147,6 +411,11 @@ somente um escalar existente. O agente recusa JSON inválido, chaves repetidas, 
 ausente e tipo divergente. A serialização pode mudar espaços e apresentação lexical.
 Não há inserção, remoção, merge nem patch arbitrário de JSON.
 
+Pedidos como “edite esse arquivo” usam somente o único anexo TXT/MD da resposta
+imediatamente anterior do mesmo usuário e canal, entregue há no máximo dez minutos.
+Sem essa referência, o Jarvis pede o nome exato. Se a edição falhar, o mesmo pedido
+não cria um arquivo substituto. IDs e hashes ficam fora das mensagens comuns.
+
 No XLSX, leia a versão atual e use `buscaValor` em `ler_arquivo` para localizar a célula;
 `buscaCabecalho`, `tabela` e `aba` restringem a busca. Havendo mais de uma correspondência,
 o Jarvis pede desambiguação. A proposta mostra aba, célula, tipo e antes/depois.
@@ -164,7 +433,7 @@ não consiga preservar também são recusados. Fórmulas não são avaliadas: o 
 marcado para recálculo quando aberto. Substituir fórmula por outro tipo exige autorização
 explícita. Texto começando por `=`, `+`, `-` ou `@` continua texto.
 
-### Localização e inclusão em XLSX
+##### Localização e inclusão em XLSX
 
 Ao ler uma aba, `ler_arquivo` retorna `ultimaLinhaFisica`, `proximaLinhaFisica`,
 `intervaloFiltro` (ou null) e `tabelas` com nome/intervalo (até 50, com `tabelasTruncadas`
@@ -215,200 +484,75 @@ sem pedir endereço de célula nem nova confirmação. `revogar_tarefa_planilha`
 autorização. Se só for possível omitir gráficos numa cópia simplificada, o original fica
 intacto e a criação da cópia exige confirmação naquela execução. Tarefas perdidas durante
 uma parada não são repetidas. Os limites padrão de edição são 1 MiB por arquivo e
-resultado; XLSX também limita o ZIP a 256 entradas, 32 MiB expandidos, 16 MiB por
-entrada e 100 mil células, sem desligar as proteções do POI.
+resultado (`PC_EDICAO_MAX_BYTES` e `PC_EDICAO_MAX_BYTES_RESULTADO`), com no máximo 10
+operações por proposta (`PC_EDICAO_MAX_OPERACOES`); XLSX também limita o ZIP a 256 entradas,
+32 MiB expandidos, 16 MiB por entrada e 100 mil células, sem desligar as proteções do POI.
 
-Pedidos como “edite esse arquivo” usam somente o único anexo TXT/MD da resposta
-imediatamente anterior do mesmo usuário e canal, entregue há no máximo dez minutos.
-Sem essa referência, o Jarvis pede o nome exato. Se a edição falhar, o mesmo pedido
-não cria um arquivo substituto. IDs e hashes ficam fora das mensagens comuns.
-
-`criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX e CSV no agente do PC, dentro da pasta
-`pastaArquivos` (padrão: Documentos/Jarvis). O comando leva dados estruturados, sem caminhos
-nem código executável. O agente faz upload binário em `/api/pc/arquivos/{id}` com `PC_TOKEN`;
-o resultado JSON apenas indica o ID e o estado. O limite do arquivo é 8 MiB. O arquivo é
-enviado por `sendDocument` no Telegram e aparece como anexo temporário na HUD.
-
-`listar_arquivos` pesquisa os arquivos dessa pasta por nome e formato, com páginas de até 50 itens.
-O agente cadastra arquivos criados e também arquivos suportados que já estavam na pasta após validar
-formato, tamanho e segurança do caminho. O catálogo `.jarvis-catalogo.properties` persiste no PC;
-seu ID estável é diferente do ID temporário do upload. Cada item informa nome, formato, tamanho,
-modificação e estado (`disponivel`, `alterado` ou `removido`). Resultados com nomes parecidos são
-apresentados para escolha.
-
-`ler_arquivo` recebe exclusivamente um ID do catálogo. TXT/MD e DOCX usam `inicio` e
-`maximoCaracteres`; PDF usa `paginaInicial`, `quantidadePaginas` e `inicio` dentro da página;
-XLSX usa `aba` e intervalo de linhas/colunas; CSV usa `delimitador`, `linhaInicial` e
-`quantidadeLinhas`. A resposta traz indicador de truncamento e ponto de continuação. Uma linha
-CSV ou célula XLSX grande usa `inicioLinha` ou `inicioCelula` com o próximo deslocamento retornado;
-`fragmentoLinha` e `fragmentoCelula` transportam partes do JSON do item. A leitura limita o arquivo
-a 8 MiB, o tempo a 12 segundos e o JSON de resultado a 28.000 bytes. Fórmulas
-XLSX são devolvidas como dados com valores em cache possivelmente desatualizados; nada é executado.
-PDF digitalizado sem texto informa que OCR não está implementado. Com o agente offline, os arquivos
-originais locais não estão disponíveis. Google Sheets nativo não faz parte desta consulta.
+#### Google Sheets
 
 `criar_planilha_google` cria uma planilha online nova somente após autorização OAuth pela HUD.
 Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` e uma
 `GOOGLE_CHAVE_COFRE` de 32 bytes em base64. Cadastre a URL de callback no Google Cloud,
-habilite Drive API e Sheets API e mantenha o volume `google` para o refresh token cifrado.
+habilite Drive API e Sheets API e mantenha o volume `google` (em `GOOGLE_PASTA_CREDENCIAIS`)
+para o refresh token cifrado.
 O escopo solicitado é `drive.file`; a ferramenta não altera planilhas existentes nem habilita
 compartilhamento público. Sem configuração ou autorização Google, o Jarvis continua iniciando
 normalmente. Só `criar_planilha_google` retorna um erro para a planilha online solicitada e
 oferece XLSX local para importação; `criar_arquivo` continua disponível.
 
+### Computer use: tarefa visual no PC
 
-Assistente pessoal no Telegram, feito em Java 21 + Spring Boot 4, que usa o Claude para entender pedidos em
-linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um container Docker.
+`tarefa_no_pc` é último recurso: use somente quando resposta direta, busca, arquivo, rotina
+cadastrada ou ação fixa não resolver. A ferramenta guarda objetivo, usuário e pedido de origem;
+para um pedido interativo que possa ser feito visualmente no PC, o Jarvis deve oferecer esse caminho
+antes de alegar falta de ferramenta. Se o recurso estiver desativado ou o agente offline, deve dizer isso.
+O cadastro `app.<nome>` restringe somente `controlar_pc/abrir_app`; no computer use visual, o agente
+pode clicar no menu Iniciar para abrir outro aplicativo após a confirmação, sem comprar nem fazer login.
+Uma **nova** mensagem como `confirmo`, `confirmo a tarefa` ou `pode prosseguir` (Telegram ou HUD) inicia a tarefa sem
+devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e `rodar_rotina`
+na produção. `cancelar` encerra a intenção pendente. A confirmação vale dois minutos e serve uma vez;
+as mensagens antigas com código ainda são aceitas. Os avisos usam um nome curto derivado do objetivo,
+enquanto o ID permanece na API para consultas específicas. Pelo Telegram, status e cancelamento usam
+a última tarefa do usuário quando nenhum ID é informado. Uma confirmação ainda pendente vive no servidor
+Jarvis e não possui ID de tarefa no agente do PC: `cancelar_tarefa_no_pc` sem ID a cancela primeiro.
+Um novo pedido autenticado do mesmo usuário também substitui a confirmação anterior sem executá-la.
 
-## O que ele já faz
+**O recurso já foi usado e validado no PC real**: captura e escala no monitor principal, mudança de
+resolução, interferência por mouse/teclado, atalho local e bandeja, queda de rede, cancelamento
+remoto e uma tarefa completa até o resultado. Builds automatizados não cobrem entrada nativa do
+Windows nem disponibilidade dos modelos na conta, então é a conferência no PC que vale como prova.
 
-| Você pede no Telegram | Ferramenta usada |
-|---|---|
-| "a API do AgendaBarber está no ar?" | `verificar_site` |
-| "como está o servidor?" | `status_servidor` |
-| "me lembra de mandar o currículo amanhã às 9h" | `criar_lembrete` |
-| "quais lembretes eu tenho?" / "cancela o 2" | `listar_lembretes` / `cancelar_lembrete` |
-| "todo dia útil às 7h me lembra de tomar o remédio" | `criar_lembrete` com `recorrencia` |
-| "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
-| "põe um lo-fi para estudar" | `tocar_youtube` |
-| "o que você lembra do projeto Jarvis?" | `buscar_memoria` / `ler_memoria` |
-| "lembre que prefiro chá" | `registrar_memoria` |
-| "atualize minha preferência" | `atualizar_memoria` |
-| "esqueça minha preferência" | `esquecer_memoria` (com confirmação) |
-| "abre essa página na tela" | `abrir_pagina` |
-| "fecha aquele card" / "limpa a tela" | `controlar_tela` |
+Para ligar, `COMPUTER_USE_ATIVO=true` aqui e `computer.use.ativo=true` no `config.properties` do
+agente — os dois lados, de propósito. O padrão continua `false`, para quem clona o projeto não
+ganhar controle de mouse e teclado sem pedir. O provedor padrão é Anthropic;
+`COMPUTER_USE_PROVEDOR=openai` exige `OPENAI_API_KEY` e acesso ao modelo configurado. Revalide
+modelos e formatos de ferramenta na documentação oficial antes de trocar versões.
 
-Além disso, todo dia útil às 8h ele manda um resumo de bom dia (clima, lembretes, sites e notícias).
+Os tetos são 35 respostas do modelo (`COMPUTER_USE_MAX_CICLOS`), 75 ações individuais
+(`COMPUTER_USE_MAX_ACOES`) e cinco minutos (`COMPUTER_USE_DURACAO_SEGUNDOS`). Cada ação vai pelo E2
+com ID próprio, sem repetição após início registrado. Capturas da tarefa não são enviadas
+automaticamente ao Telegram; são descartadas do diário da VPS após a rodada ou em até cinco minutos.
+No agente, imagens de resultado não entregue expiram após cinco minutos.
 
-Ele responde no personagem descrito em `config/personalidade.md` — um arquivo de texto que você edita na
-VPS e ele relê sozinho, sem rebuild e sem reiniciar o container.
-
-## Como funciona
-
-```
-Telegram ──► TelegramPoller ──► Assistente ──► Claude (API)
-                                    │   ▲            │
-                                    ▼   │  "chame a ferramenta X"
-                               Ferramentas ◄─────────┘
-```
-
-1. O `TelegramPoller` pergunta ao Telegram, em loop, se chegou mensagem (long polling, sem precisar de domínio
-   nem porta aberta).
-2. O `Assistente` manda a conversa e a lista de ferramentas para o Claude.
-3. Se o Claude pedir uma ferramenta, o Java executa e devolve o resultado. Isso se repete até ele responder.
-4. A resposta volta para você no Telegram.
-
-### O prompt de sistema
-
-Toda chamada ao Claude leva o `system` em **dois blocos**, nesta ordem:
-
-| Bloco | Conteúdo | Cache |
-|---|---|---|
-| fixo | o texto de `config/personalidade.md`, byte a byte | `cache_control: ephemeral` |
-| dinâmico | data e hora com fuso, canal do pedido, regras técnicas e de formato | nunca |
-
-A ordem importa: o cache de prompt da Anthropic casa **prefixo exato**, então qualquer coisa que muda a cada
-pedido (a começar pelo relógio) tem de ficar *depois* do bloco cacheado. O marcador de cache só é enviado
-quando a personalidade passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` — abaixo disso a API o ignoraria calada.
-
-O **canal** diz ao Jarvis como escrever: `telegram` aceita negrito, listas e blocos de código; `hud` e
-`briefing` viram áudio, então são frases curtas sem markdown; `tarefa` começa pelo resultado, com uma
-linha de status. Cada chamada ao Claude registra no log quanto consumiu:
-
-```
-Claude: entrada=812 saída=96 cache_escrito=0 cache_lido=2310
-```
-
-`cache_escrito` aparece na primeira chamada (quando o prefixo é gravado) e `cache_lido` nas seguintes. Se as
-duas ficarem sempre em zero, o cache não está pegando.
-
-## Passo 1: pegar as credenciais
-
-1. **Bot do Telegram:** fale com o [@BotFather](https://t.me/BotFather), envie `/newbot`, escolha nome e
-   usuário. Ele te dá o **token**.
-2. **Chave do Claude:** crie em [console.anthropic.com](https://console.anthropic.com), em *API Keys*.
-   A API é paga por uso (créditos pré-pagos); adicione alguns dólares para começar.
-3. **Seu ID do Telegram:** mande qualquer mensagem para o [@userinfobot](https://t.me/userinfobot), ou deixe
-   `TELEGRAM_USUARIO_PERMITIDO=0`, suba o bot, mande um "oi" e veja o ID nos logs.
-
-## Passo 2: subir na VPS
-
-```bash
-# envie a pasta para a VPS (git clone ou scp) e entre nela
-cp .env.example .env
-nano .env                      # preencha token, chave, seu ID e os sites
-
-nano config/personalidade.md   # opcional: ajuste o jeito do Jarvis (veja abaixo)
-
-docker compose up -d --build   # compila e sobe
-docker compose logs -f         # acompanha os logs (Ctrl+C para sair)
-```
-
-Mudou o `.env` ou o código? Rode `docker compose up -d --build` de novo.
-
-Para rodar no seu PC (sem Docker), exporte as mesmas variáveis do `.env`, aponte
-`JARVIS_PERSONALIDADE_ARQUIVO=config/personalidade.md` e rode `mvn spring-boot:run`.
-
-### A personalidade
-
-`config/personalidade.md` é o system prompt fixo: identidade, tom, o que o Jarvis faz e o que não faz. Ele
-é versionado junto com o código (o repositório é privado), mas **não entra na imagem**: chega ao container
-por volume, montado como somente leitura em `/app/config`.
-
-É justamente por isso que editar o texto **não** exige rebuild — o Jarvis compara a data de modificação do
-arquivo a cada chamada e relê quando ela muda. Se o arquivo faltar ou estiver em branco, o bot sobe com uma
-personalidade mínima de reserva e avisa no log, em vez de deixar de responder.
-
-Segredo nenhum entra aqui: token, chave de API e afins continuam só no `.env`.
-
-## Criando uma ferramenta nova
-
-Basta criar uma classe em `dev.jarvis.ferramentas` que implemente `Ferramenta` com `@Component`.
-O Spring encontra sozinho e o Claude passa a poder usá-la. Exemplo de esqueleto:
-
-```java
-@Component
-public class AgendamentosHojeFerramenta implements Ferramenta {
-
-    private final JsonMapper json;
-
-    public AgendamentosHojeFerramenta(JsonMapper json) {
-        this.json = json;
-    }
-
-    public String nome() { return "agendamentos_hoje"; }
-
-    public String descricao() {
-        return "Lista os agendamentos de hoje no AgendaBarber, com horário, cliente e serviço.";
-    }
-
-    public ObjectNode esquemaEntrada() {
-        ObjectNode esquema = json.createObjectNode();
-        esquema.put("type", "object");
-        esquema.putObject("properties");
-        return esquema;
-    }
-
-    public String executar(JsonNode entrada) throws Exception {
-        // chame sua API com o HttpClient (ou consulte o banco) e devolva um texto simples
-        return "09:00 - João - Corte\n10:30 - Pedro - Barba";
-    }
-}
-```
-
-Dicas: a `descricao()` é o que faz o modelo escolher a ferramenta certa, então capriche nela. E devolva
-textos curtos e objetivos: tudo que a ferramenta retorna vira tokens (custo).
+A HUD consulta `GET /api/computer/ultima`, acompanha `computer.progresso` e pode pedir parada em
+`POST /api/computer/{id}/cancelar`. O Telegram usa `status_tarefa_no_pc` e
+`cancelar_tarefa_no_pc` sem ID para a última tarefa, ou com ID para uma tarefa específica. O atalho
+local **Ctrl+Alt+Shift+F12** e o ícone da bandeja param novas ações sem rede. A ação já iniciada pode
+terminar antes da parada; nesse caso o estado é `resultado_incerto`. O cancelamento remoto interrompe
+a espera do servidor e bloqueia a próxima ação; sua latência depende da ação em curso e da rede. Com
+rede indisponível, use a parada local. O monitor principal é o único capturado e controlado.
+Alteração de geometria ou entrada do usuário entre ações interrompe a tarefa.
 
 ## API para a HUD
 
 Além do Telegram, o Jarvis sobe um servidor web pequeno (porta `JARVIS_PORTA`, padrão 8090) para
-alimentar uma tela de HUD.
+alimentar a tela da HUD.
 
 | Rota | O que faz |
 |---|---|
 | `POST /api/briefing` | Gera um briefing e devolve o JSON. Se já existe um de menos de 60 s, devolve esse (o campo `geradoAgora` diz qual foi o caso) |
 | `GET /api/briefing/ultimo` | O último briefing gerado. `404` enquanto não houver nenhum |
-| `GET /api/eventos` | SSE unificado de briefing e conversa, com keep-alive a cada 25 s |
+| `GET /api/eventos` | SSE unificado de briefing, conversa, tela, voz e computer use, com keep-alive a cada 25 s |
 | `GET /api/briefing/eventos` | Alias do mesmo SSE, mantido para a HUD antiga |
 | `POST /api/conversa` | Recebe `{texto}` (1–8.000 caracteres); aceita com `202 {id}` e executa em virtual thread; `409` se já houver pedido HUD pendente |
 | `GET /api/conversa/ultima` | Último resultado terminal da HUD, inclusive erro; `204` enquanto não existir |
@@ -416,7 +560,15 @@ alimentar uma tela de HUD.
 | `POST /api/conversa/limpar` | Limpa histórico dos dois canais e última resposta HUD; `204`, ou `409` durante pedido HUD |
 | `GET /api/anexos/{id}` | Arquivo registrado por ferramenta; exige token, expira em uma hora; ausente/expirado retorna `404` |
 | `POST /api/tela/estado` | A HUD informa o que está aberto na tela: `{janelas:[{id, tipo, titulo, estado, fixado, emFoco, tocando}], historicoAberto, briefingNaTela}`. `204`, ou `400` com o motivo |
+| `POST /api/inicializacao` | A abertura falada: as frases que o Jarvis diz quando a tela acende, mais `sitesOk`/`sitesTotal` |
+| `GET /api/voz/status` | Provedor de voz em uso e cota restante |
+| `POST /api/voz/sintetizar` e `GET /api/voz/audio/{id}` | Síntese pela ElevenLabs e o MP3 em cache |
+| `GET /api/computer/ultima`, `GET /api/computer/{id}`, `POST /api/computer/{id}/cancelar` | A tarefa visual do PC: estado e parada |
+| `GET /api/google/oauth/iniciar` e `/api/google/oauth/callback` | A autorização do Google Sheets |
 | `GET /api/saude` | `{"status":"ok"}`. Único endpoint sem token |
+
+O agente do PC tem rotas próprias, em `/api/pc` e `/api/pc/v2`, protegidas pelo `PC_TOKEN` e não
+pelo `HUD_TOKEN`.
 
 ### Autenticação
 
@@ -434,8 +586,9 @@ consegue ler `{"erro":"token ausente ou invalido"}` em vez de mostrar um erro de
 que deixa a HUD dizer "token inválido" em vez de "API fora do ar".
 
 O `EventSource` do navegador não sabe mandar header. Somente GET de `/api/eventos`, do alias
-`/api/briefing/eventos` e de `/api/anexos/{id}` aceita também `?token=`. A HUD baixa anexos com
-Bearer e URLs de objeto locais; nunca acrescenta credenciais a links externos.
+`/api/briefing/eventos`, de `/api/anexos/{id}` e do áudio da voz aceita também `?token=` — e o
+`?token=` **não vale em `/api/pc`**. A HUD baixa anexos com Bearer e URLs de objeto locais; nunca
+acrescenta credenciais a links externos.
 
 ```js
 const fonte = new EventSource(`https://seu-dominio/api/eventos?token=${token}`);
@@ -452,9 +605,9 @@ em `/api/`.
 
 A HUD usa o mesmo `chatId` de `TELEGRAM_USUARIO_PERMITIDO` e o mesmo `Assistente`. O que você
 disser num canal continua no outro, mas respostas solicitadas pela HUD nunca são enviadas pelo
-`TelegramClient`. A execução de conversas e tarefas é serializada por `ReentrantLock`; consultas
-ao retrato público do histórico não aguardam o modelo. Um pedido HUD pode aguardar o Telegram;
-um segundo pedido HUD recebe `409`, sem fila adicional.
+`TelegramClient`. A execução de conversas e tarefas é serializada pelo `ReentrantLock` justo do
+`Assistente`; consultas ao retrato público do histórico não aguardam o modelo. Um pedido HUD pode
+aguardar o Telegram; um segundo pedido HUD recebe `409`, sem fila adicional.
 
 O SSE preserva `gerando` e `briefing` e acrescenta:
 
@@ -463,28 +616,34 @@ O SSE preserva `gerando` e `briefing` e acrescenta:
 - `conversa.resposta`: `{id, canal, texto, anexos, confirmacao, concluidoEm, erro}`.
 - `conversa.erro`: mesmo resultado terminal, com mensagem pública em `erro`.
 - `conversa.historico`: `{sessao, revisao}` para invalidar o histórico de qualquer canal.
+- `tela.card` e `tela.comando`: as janelas da HUD (acima).
+- `voz.falar`: `{texto}`, uma frase avulsa para a tela dizer, sem card nem janela.
+- `computer.progresso`: o andamento da tarefa visual no PC.
 
 Respostas do Telegram atualizam apenas o histórico na HUD. O `/limpar` também invalida esse
 histórico. São expostos somente pedidos, respostas públicas e metadados; pensamentos e resultados
-internos de ferramentas não entram nos DTOs. Tudo permanece em memória e é perdido ao reiniciar.
+internos de ferramentas não entram nos DTOs.
 
 `GET /api/conversa/historico` inclui `ultima` no mesmo retrato atômico, além de `emAndamento`.
 O identificador de sessão muda no reinício. A HUD deduplica por ID/revisão, recupera respostas
 perdidas e não repete automaticamente um POST de resultado incerto.
 
-### Extensão para anexos e confirmações
+### Anexos e confirmações
 
-`Ferramenta.executarDetalhado` adapta o retorno textual existente para `ResultadoFerramenta`.
-Uma ferramenta futura poderá devolver artefatos explícitos (`Path`, nome e MIME), referências
-HTTP/HTTPS e confirmação `{codigo, descricao, expiraEm}`. O registro copia apenas esses artefatos
-para uma pasta temporária própria: 10 MiB por arquivo, 50 MiB no total e validade de uma hora.
-Uma limpeza periódica remove expirados. Texto produzido pelo modelo nunca é interpretado como
-caminho de arquivo. Imagens raster têm preview; os demais arquivos são entregues como download.
+`Ferramenta.executarDetalhado` devolve um `ResultadoFerramenta`, que pode trazer artefatos
+explícitos (`Path`, nome e MIME), referências HTTP/HTTPS e uma confirmação
+`{codigo, descricao, expiraEm}`. O registro copia apenas esses artefatos para uma pasta temporária
+própria: 10 MiB por arquivo, 50 MiB no total e validade de uma hora. Uma limpeza periódica remove
+expirados. Texto produzido pelo modelo nunca é interpretado como caminho de arquivo. Imagens raster
+têm preview; os demais arquivos são entregues como download.
 
-Esta entrega prepara o contrato e a interface; não adiciona ferramentas de criação de arquivos,
-captura/controle de tela nem execução de ações protegidas. As ferramentas atuais não emitem
-confirmação. Os botões da HUD só aparecem com metadados explícitos, enviando `confirmo <código>`
-ou `cancelo <código>`; a ferramenta futura deverá gerar, validar e executar a ação correspondente.
+É por esse caminho que `criar_arquivo`, `captura_tela` e `ler_arquivo` entregam arquivo e imagem à
+HUD e ao Telegram. Os botões de confirmação da HUD aparecem com os metadados explícitos e enviam
+`confirmo <código>` ou `cancelo <código>`; para as ações protegidas do PC (desligar, reiniciar,
+rotina, tarefa visual, sobrescrever arquivo, desfazer edição) basta uma **nova mensagem
+autenticada**, consumida pelo servidor sem voltar ao modelo.
+
+### O JSON do briefing
 
 Cada seção vem nas **duas formas**: o `conteudo` em prosa (é o que a HUD fala, e o mesmo texto que
 vai para o Telegram) e o `dados` estruturado, para a tela desenhar número grande, lista e imagem.
@@ -545,7 +704,7 @@ vem vazio quando o feed não trouxe foto, então quem desenha precisa ter um est
 ### A saudação
 
 O cumprimento é **decidido aqui**, uma vez por briefing, a partir do instante de geração no fuso
-configurado em `JARVIS_ZONA`: **bom dia das 05h às 11h59, boa tarde das 12h às 17h59 e boa noite nos
+configurado em `FUSO_HORARIO`: **bom dia das 05h às 11h59, boa tarde das 12h às 17h59 e boa noite nos
 demais horários** (`dev.jarvis.briefing.Saudacao`). Dele sai uma **abertura canônica** — a mesma
 string no campo `abertura`, no começo do `texto` do Telegram e no primeiro trecho da narração.
 
@@ -559,7 +718,8 @@ do relógio do navegador. É campo novo: um consumidor antigo simplesmente o ign
 
 O cache do briefing (30 min no serviço, 60 s no `POST`) **não atravessa a virada da data nem a
 troca de período**: às 11h59 um briefing guardado ainda serve, às 12h00 ele é refeito, para não
-abrir com "bom dia" depois do meio-dia.
+abrir com "bom dia" depois do meio-dia. A abertura falada da HUD tem cache próprio, de 2 minutos,
+que é o que impede palmas repetidas de gerarem duas chamadas ao Claude.
 
 ### CORS e HTTPS
 
@@ -580,49 +740,16 @@ location /api/ {
 }
 ```
 
-### A tela dirigida pelo Jarvis
-
-Além de mostrar o briefing, a HUD agora é dirigida pelo Jarvis: ele abre cards e comanda os que já
-estão abertos. Funciona para pedido feito na própria HUD **e** no Telegram — "mostra na tela o
-vídeo X" pelo celular abre a janela na tela de casa.
-
-Cinco tipos de card: `pesquisa` (ranking, ficha, lista, linha do tempo ou destaque), `video`,
-`musica`, `pagina` e `noticia`. Dois eventos novos no SSE:
-
-| Evento | Carga |
-|---|---|
-| `tela.card` | `{id, tipo, titulo, dados, origem, criadoEm}` — abre uma janela |
-| `tela.comando` | `{acao, alvo, valor}` — mexe no que já está aberto |
-
-As ações de `tela.comando`: `limpar`, `fechar`, `fechar_tudo`, `minimizar`, `maximizar`,
-`restaurar`, `focar`, `fixar`, `desafixar`, `abrir_historico`, `fechar_historico`,
-`mostrar_briefing`, `repetir_briefing`, `abrir_noticia`, `pausar`, `continuar`, `volume_mais`,
-`volume_menos`, `avancar` e `voltar`. As que mexem em uma janela levam o id dela em `alvo`.
-
-**O que a HUD precisa fazer**, e sem isso nada funciona:
-
-1. Ouvir `tela.card` e `tela.comando` no `GET /api/eventos`.
-2. Criar a janela **com o `id` que veio no card** — o id é do servidor, sorteado (`c7k2`), e é por
-   ele que o Jarvis acha o alvo depois.
-3. Repostar `POST /api/tela/estado` a cada mudança: abrir, fechar, minimizar, maximizar, fixar,
-   focar, tocar e pausar.
-
-O servidor guarda só o último retrato, por 10 minutos, e dele monta até 12 linhas no prompt —
-`[c7k2] vídeo 'Lo-fi para estudar' (tocando)`. É isso que permite ao Jarvis dizer "fechei o
-vídeo" em vez de chutar um id. Sem o POST, `controlar_tela` nunca encontra alvo.
-
-Com nenhuma HUD conectada ao SSE, as ferramentas de tela respondem "a tela não está aberta" ao
-modelo e não publicam nada — nem pelo Telegram.
-
-A fala, nesses casos, é curta de propósito ("Aqui está, senhor.", "Tela limpa."): o card já mostra
-os dados, e repetir em voz alta o que está na tela é ruído. Essa regra vive no `Canal.HUD`.
-
 ## Segurança
 
 - O bot **só responde ao seu ID**; mensagens de outras pessoas são ignoradas e registradas no log.
 - **Não existe ferramenta de "executar comando"** no servidor, e não crie uma. Cada ação deve ser específica
   e limitada (ex.: `verificar_site` só acessa as URLs da lista, nunca uma URL qualquer).
-- Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar.
+- Para ações perigosas (apagar, reiniciar, pagar), peça confirmação antes de executar — e as do PC
+  exigem uma **nova mensagem autenticada**, nunca a palavra do modelo no mesmo turno.
+- **`PC_TOKEN` é separado do `HUD_TOKEN`**: um token vazado numa tela aberta não desliga a máquina.
+  Quem exige o do PC é um filtro só para `/api/pc`, e os dois conjuntos de rota são disjuntos por
+  construção.
 - **A VPS só busca endereço que ela provou ser público.** O `abrir_pagina` é a única ferramenta que
   acessa uma URL ditada pelo modelo, e ela passa pela trava de SSRF (`GuardaSsrf`): apenas http e
   https, DNS resolvido e recusado se apontar para loopback, faixa privada, link-local (inclusive o
@@ -637,6 +764,8 @@ os dados, e repetir em voz alta o que está na tela é ruído. Essa regra vive n
   se faz é limitar o dano: da página só voltam quatro metadados `og:`, nunca o HTML cru.
 - As URLs das fontes do `mostrar_na_tela` também são validadas: elas viram link clicável na tela,
   e um `javascript:` ali seria script rodando na HUD.
+- O conteúdo lido de memória, arquivo ou página é **dado não confiável**: não concede permissão nem
+  autoriza ação nenhuma.
 - O `.env` tem segredos: ele está no `.gitignore` e no `.dockerignore`; mantenha assim.
 - A `config/personalidade.md` é versionada (repositório privado) e **não é lugar de segredo**: token,
   chave de API e senha ficam só no `.env`. Ela entra no container por volume somente leitura.
@@ -652,110 +781,95 @@ pode definir um limite mensal por lá.
 Se trocar `ANTHROPIC_MODELO`, ajuste `ANTHROPIC_CACHE_MINIMO_TOKENS` junto: o menor prefixo cacheável muda
 por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 
+Fora o modelo, há três contas que podem aparecer: a **busca na web** da Anthropic (US$ 10 por 1.000
+buscas, mais os tokens dos resultados), a **ElevenLabs** quando `VOZ_PROVEDOR=elevenlabs` (com
+`VOZ_RESERVA_PCT` guardando uma fatia da cota para a voz nunca acabar no meio de um briefing) e a
+**YouTube Data API**, cuja cota diária de 10.000 unidades dá umas 100 buscas por dia.
+
+## Backup e restauração
+
+Execute o backup com o container parado para copiar os volumes de memória, de lembretes e do
+histórico no mesmo
+ponto no tempo. No diretório
+do Compose, agende este procedimento diariamente; o exemplo abaixo guarda o arquivo em uma pasta privada
+da VPS e descarta arquivos de conteúdo com mais de 30 dias:
+
+```bash
+set -e
+umask 077
+mkdir -p backups-memoria
+copia=$(mktemp -d)
+trap 'docker compose start jarvis; rm -rf -- "$copia"' EXIT
+docker compose stop jarvis
+mkdir -p "$copia/memoria" "$copia/exclusoes" "$copia/lembretes" "$copia/historico"
+docker run --rm --volumes-from jarvis -v "$copia:/backup" alpine:3.20 sh -c \
+  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/; cp -a /data/jarvis/lembretes/. /backup/lembretes/; cp -a /data/jarvis/historico/. /backup/historico/'
+tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes lembretes historico
+tar -C "$copia" -czf backups-memoria/exclusoes-mais-recentes.tar.gz exclusoes
+find backups-memoria -maxdepth 1 -name 'memoria-*.tar.gz' -mtime +30 -delete
+```
+
+Guarde `exclusoes-mais-recentes.tar.gz` fora da VPS também e atualize essa cópia após exclusões. Para
+restaurar, mantenha o volume atual de exclusões e forneça o arquivo **mais recente** de marcadores.
+Confira os nomes dos arquivos antes de executar:
+
+```bash
+set -e
+umask 077
+copia=$(mktemp -d)
+trap 'rm -rf -- "$copia"' EXIT
+tar -xzf backups-memoria/memoria-AAAAMMDD-HHMMSS.tar.gz -C "$copia"
+tar -xzf backups-memoria/exclusoes-mais-recentes.tar.gz -C "$copia"
+docker compose stop jarvis
+docker run --rm --volumes-from jarvis -v "$copia:/backup:ro" alpine:3.20 sh -c '
+  set -e
+  find /data/jarvis/memoria -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a /backup/memoria/. /data/jarvis/memoria/
+  cp -an /backup/exclusoes/. /data/jarvis/memoria-exclusoes/
+  # Os lembretes voltam inteiros: o Jarvis reagenda na partida e avisa o que venceu no meio.
+  find /data/jarvis/lembretes -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a /backup/lembretes/. /data/jarvis/lembretes/
+  # O histórico é conversa: restaure só se quiser o contexto de volta. Turno com mais de
+  # HISTORICO_VALIDADE_HORAS é descartado na partida, e o que foi esquecido não está aqui.
+  find /data/jarvis/historico -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a /backup/historico/. /data/jarvis/historico/
+  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes /data/jarvis/lembretes     /data/jarvis/historico
+'
+docker compose start jarvis
+```
+
+Teste a restauração em volumes separados antes de usar em produção. Backups de conteúdo são retidos por
+até 30 dias; uma exclusão não remove imediatamente cópias antigas. Perder o volume e a cópia mais recente
+dos marcadores pode fazer um backup antigo ressuscitar informações esquecidas; recuse a restauração nessa
+situação.
+
+O diário do E2 do PC (`PC_OPERACOES_PASTA`, volume `pc-operacoes`) deve ser restaurado **inteiro**,
+inclusive `arquivos` e `imagens`: é o que deduplica comando reentregue e sustenta a reconciliação de
+`resultado_incerto`.
+
 ## Limitações atuais
 
-- O histórico de conversa fica **em memória**: some se o container reiniciar. Lembretes e memória
-  pessoal têm persistência própria nos volumes descritos acima.
-- No Telegram, recebe somente texto. Na HUD, o navegador converte voz em texto e sintetiza a resposta.
-- Atende uma mensagem por vez.
-- O retrato da tela e o cache de buscas no YouTube ficam **em memória**: depois de um restart o
-  Jarvis fica cego para a tela até a HUD repostar o estado.
+- Lembretes, histórico da conversa, memória pessoal, diário do PC e cache de voz têm volume próprio
+  e sobrevivem ao restart. O que **não** sobrevive: o retrato da tela, o cache de buscas no YouTube,
+  a fila de comandos do PC e qualquer confirmação pendente. Depois de um restart o Jarvis fica cego
+  para a tela até a HUD repostar o estado, e uma confirmação em curso precisa ser pedida de novo.
+- No Telegram, recebe somente texto (nada de áudio ou foto). Na HUD, o navegador converte voz em
+  texto e sintetiza a resposta — ou a ElevenLabs sintetiza, com `VOZ_PROVEDOR=elevenlabs`.
+- Atende **uma execução por vez**: conversas, tarefas e limpeza passam pelo mesmo `ReentrantLock`
+  justo do `Assistente`. Um segundo pedido vindo da HUD recebe `409` em vez de entrar em fila.
 - A cota da YouTube Data API é de 10.000 unidades por dia e cada busca custa 100, ou seja umas
   100 buscas diárias. O cache de 24 h por consulta estica isso; estourando, o Jarvis avisa.
 - A formatação do Telegram cobre o básico (negrito, código e listas); itálico, links e citações ainda saem
   como texto comum.
+- O computer use é supervisionado por desenho: monitor principal só, tetos de ciclos/ações/tempo, e
+  qualquer entrada do usuário entre ações encerra a tarefa.
+- A edição de arquivo não consegue prometer compare-and-swap perfeito: um editor externo que não
+  respeite lock ainda pode alterar o arquivo entre a última checagem e o move atômico.
 
 ## Próximos passos sugeridos
 
-1. Salvar o histórico de conversa num banco (Postgres/MySQL com Spring Data JPA).
+1. Receber áudio do Telegram e transcrever, para falar com o Jarvis por voz também lá.
 2. Ferramenta que consulta a API do AgendaBarber (agendamentos do dia, faturamento).
-3. Receber áudio do Telegram e transcrever, para falar com o Jarvis por voz.
-4. Ferramentas com confirmação ("tem certeza?") para ações que alteram dados.
-
-## Validar a conversa e disponibilizar
-
-Rode `mvn -q -B package` aqui e `npm test -- --watch=false` / `npm run build` em `jarvis-hud`.
-Os testes usam modelo, reconhecimento e síntese simulados; nenhuma mensagem é enviada ao Telegram.
-Incluem aceitação assíncrona, exclusão entre canais, SSE novo/alias, recuperação, autenticação,
-anexos e metadados de confirmação simulados.
-
-Quando for publicar, disponibilize primeiro este backend (mantém o alias da HUD antiga) e depois
-a nova HUD. Não são necessárias dependências nem variáveis de ambiente adicionais. A validação
-com microfone físico deve ser feita no navegador, seguindo o roteiro do README da HUD.
-
-### Compatibilidade com janelas da HUD
-
-O estado aceita também `resposta` e todas as janelas minimizadas, sem o antigo teto de 24.
-A HUD envia primeiro o foco e a mídia em reprodução; o contexto continua limitado a 12 linhas.
-`limpar` preserva cards fixados; `fechar_tudo` fecha inclusive os fixados.
-Instale esta versão da API antes da HUD com janelas. O formato dos eventos SSE permanece igual.
-
-## Operações E2 do PC e rotinas
-
-`rodar_rotina` oferece ao modelo somente nomes, descrições e capacidades anunciados pelo agente.
-O cadastro real fica em `rotinas.properties` no PC. Toda rotina exige uma nova mensagem do usuário:
-`confirmo` ou `pode prosseguir`, por exemplo. O agente valida sua própria política local. A confirmação é consumida em
-até dois minutos e fica vinculada ao nome e ao pedido original; o modelo não pode confirmá-la
-no mesmo turno. O texto original segue ao agente para uso por stdin na rotina Claude.
-
-O protocolo E2 usa `/api/pc/v2`: catálogo, busca com prazo de posse, confirmação de recebimento,
-marcação de início, resultado, consulta por ID e sinal de cancelamento. O ID permanece o mesmo em
-reentregas. Estados e prazos são gravados no volume `pc-operacoes` em
-`PC_OPERACOES_PASTA`. Após 30 segundos de espera na ferramenta, consulte
-`status_operacao_pc` pelo ID; essa espera não cancela a execução. O resultado tardio gera no máximo
-uma tentativa de aviso e continua consultável pelo ID. `resultado_incerto` requer decisão humana:
-não envie automaticamente o mesmo comando de novo.
-
-Para implantar, publique primeiro a VPS com as rotas `/api/pc/v2` e só então atualize o agente do
-Windows. As rotas `/api/pc` antigas permanecem durante a migração. O agente novo anuncia rotinas
-somente após carregar um cadastro local válido. Execute `mvn -q -B package` nos dois projetos antes
-de publicar.
-
-O E2 também transporta os resultados de `criar_arquivo`, `captura_tela`, `listar_arquivos` e
-`ler_arquivo`. O upload binário de `criar_arquivo` e as imagens ficam no volume `pc-operacoes`;
-dados estruturados e estado ficam no diário. O servidor valida ação, tipo e tamanho antes de aceitar
-o resultado. Um retry idêntico recebe a mesma confirmação. Anexos tardios são enviados ao Telegram
-ou registrados no histórico da HUD; o comando continua consultável pelo ID até a retenção terminar.
-Ao restaurar backup, restaure o volume inteiro, inclusive `arquivos` e `imagens`, junto do diário.
-
-## Etapa 14: tarefa visual no PC
-
-`tarefa_no_pc` é último recurso: use somente quando resposta direta, busca, arquivo, rotina
-cadastrada ou ação fixa não resolver. A ferramenta guarda objetivo, usuário e pedido de origem;
-para um pedido interativo que possa ser feito visualmente no PC, o Jarvis deve oferecer esse caminho
-antes de alegar falta de ferramenta. Se o recurso estiver desativado ou o agente offline, deve dizer isso.
-O cadastro `app.<nome>` restringe somente `controlar_pc/abrir_app`; no computer use visual, o agente
-pode clicar no menu Iniciar para abrir outro aplicativo após a confirmação, sem comprar nem fazer login.
-Uma **nova** mensagem como `confirmo`, `confirmo a tarefa` ou `pode prosseguir` (Telegram ou HUD) inicia a tarefa sem
-devolver a decisão ao modelo. A mesma guarda autoriza `desligar`, `reiniciar` e `rodar_rotina`
-na produção. `cancelar` encerra a intenção pendente. A confirmação vale dois minutos e serve uma vez;
-as mensagens antigas com código ainda são aceitas. Os avisos usam um nome curto derivado do objetivo,
-enquanto o ID permanece na API para consultas específicas. Pelo Telegram, status e cancelamento usam
-a última tarefa do usuário quando nenhum ID é informado. Uma confirmação ainda pendente vive no servidor
-Jarvis e não possui ID de tarefa no agente do PC: `cancelar_tarefa_no_pc` sem ID a cancela primeiro.
-Um novo pedido autenticado do mesmo usuário também substitui a confirmação anterior sem executá-la.
-
-Por padrão `COMPUTER_USE_ATIVO=false`. Para ativar após homologação, configure também
-`computer.use.ativo=true` no `config.properties` do agente. O provedor padrão é Anthropic;
-`COMPUTER_USE_PROVEDOR=openai` exige `OPENAI_API_KEY` e acesso ao modelo configurado. Revalide
-modelos e formatos de ferramenta na documentação oficial antes de trocar versões. Os tetos são
-35 respostas do modelo, 75 ações individuais e cinco minutos. Cada ação vai pelo E2 com ID
-próprio, sem repetição após início registrado. Capturas da tarefa não são enviadas automaticamente
-ao Telegram; são descartadas do diário da VPS após a rodada ou em até cinco minutos. No agente,
-imagens de resultado não entregue expiram após cinco minutos.
-
-A HUD consulta `GET /api/computer/ultima`, acompanha `computer.progresso` e pode pedir parada em
-`POST /api/computer/{id}/cancelar`. O Telegram usa `status_tarefa_no_pc` e
-`cancelar_tarefa_no_pc` sem ID para a última tarefa, ou com ID para uma tarefa específica. O atalho local **Ctrl+Alt+Shift+F12** e o ícone da bandeja param
-novas ações sem rede. A ação já iniciada pode terminar antes da parada; nesse caso o estado é
-`resultado_incerto`. O cancelamento remoto interrompe a espera do servidor e bloqueia a próxima
-ação; sua latência depende da ação em curso e da rede. Com rede indisponível, use a parada local.
-O monitor principal é o único capturado e controlado. Alteração de geometria ou entrada do
-usuário entre ações interrompe a tarefa.
-
-Ordem de deploy: (1) publicar esta VPS com a ferramenta **desligada**; (2) atualizar o agente e
-testar o atalho local; (3) atualizar a HUD; (4) homologar com dados fictícios, ativar primeiro no
-agente e depois na VPS. Teste manual pendente: captura e escala no monitor principal, mudança de
-resolução, interferência por mouse/teclado, atalho e bandeja, queda da rede, cancelamento remoto e
-uma tarefa inofensiva até o resultado. Builds automatizados não homologam entrada nativa do
-Windows nem disponibilidade dos modelos na conta.
+3. Tirar da memória o que ainda é volátil: fila de comandos do PC e confirmações pendentes, hoje
+   perdidas num restart.
+4. Reconhecer imagem e documento recebidos no Telegram, e não só enviá-los.
