@@ -26,9 +26,31 @@ Não exponha os volumes via nginx ou servidor de arquivos. O volume de exclusõe
 restauração de um backup antigo de conteúdo: na partida, o Jarvis reaplica os marcadores e remove registros
 restaurados que haviam sido esquecidos.
 
+## Lembretes persistentes e recorrentes
+
+Os lembretes vivem num arquivo JSON em `LEMBRETES_ARQUIVO` (padrão
+`/data/jarvis/lembretes/lembretes.json`), montado pelo Compose no volume nomeado `lembretes`. Cada
+mudança é gravada num temporário na mesma pasta e trocada com `ATOMIC_MOVE`, e a versão anterior fica
+num `lembretes.json.bak` ao lado — principal corrompido na partida faz o Jarvis ler o `.bak` e avisar
+em WARN. Os instantes vão em ISO-8601 com fuso e a exibição usa `FUSO_HORARIO`. Na partida tudo é
+reagendado, e os IDs continuam do maior ID salvo: "cancela o 7" não acerta um lembrete diferente
+depois de um restart.
+
+O que venceu com o container parado é avisado na partida com o prefixo "Atrasado:" e a hora original.
+Acima de 24 horas de atraso vira um resumo único ("3 lembretes venceram enquanto eu estava fora: ..."),
+nunca uma mensagem por lembrete.
+
+A recorrência aceita `diario`, `dias_uteis`, `semanal` (com os dias da semana) e `mensal` (o dia do mês
+de `data_hora`; dia 31 cai no último dia dos meses curtos). Ao disparar, a próxima ocorrência é
+calculada e gravada **antes** de a mensagem sair — uma queda no meio pode repetir um aviso, nunca
+apagar a série. `listar_lembretes` mostra a recorrência e a data da próxima ocorrência; cancelar um
+recorrente cancela a série inteira. O briefing e o card da HUD mostram a ocorrência **de hoje** mesmo
+quando a próxima já pulou para amanhã (o lembrete das 8h visto às 10h continua na agenda do dia).
+
 ### Backup e restauração da memória
 
-Execute o backup com o container parado para copiar os dois volumes no mesmo ponto no tempo. No diretório
+Execute o backup com o container parado para copiar os volumes de memória e de lembretes no mesmo
+ponto no tempo. No diretório
 do Compose, agende este procedimento diariamente; o exemplo abaixo guarda o arquivo em uma pasta privada
 da VPS e descarta arquivos de conteúdo com mais de 30 dias:
 
@@ -39,10 +61,10 @@ mkdir -p backups-memoria
 copia=$(mktemp -d)
 trap 'docker compose start jarvis; rm -rf -- "$copia"' EXIT
 docker compose stop jarvis
-mkdir -p "$copia/memoria" "$copia/exclusoes"
+mkdir -p "$copia/memoria" "$copia/exclusoes" "$copia/lembretes"
 docker run --rm --volumes-from jarvis -v "$copia:/backup" alpine:3.20 sh -c \
-  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/'
-tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes
+  'cp -a /data/jarvis/memoria/. /backup/memoria/; cp -a /data/jarvis/memoria-exclusoes/. /backup/exclusoes/; cp -a /data/jarvis/lembretes/. /backup/lembretes/'
+tar -C "$copia" -czf "backups-memoria/memoria-$(date +%Y%m%d-%H%M%S).tar.gz" memoria exclusoes lembretes
 tar -C "$copia" -czf backups-memoria/exclusoes-mais-recentes.tar.gz exclusoes
 find backups-memoria -maxdepth 1 -name 'memoria-*.tar.gz' -mtime +30 -delete
 ```
@@ -64,7 +86,10 @@ docker run --rm --volumes-from jarvis -v "$copia:/backup:ro" alpine:3.20 sh -c '
   find /data/jarvis/memoria -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   cp -a /backup/memoria/. /data/jarvis/memoria/
   cp -an /backup/exclusoes/. /data/jarvis/memoria-exclusoes/
-  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes
+  # Os lembretes voltam inteiros: o Jarvis reagenda na partida e avisa o que venceu no meio.
+  find /data/jarvis/lembretes -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a /backup/lembretes/. /data/jarvis/lembretes/
+  chown -R 1001:1001 /data/jarvis/memoria /data/jarvis/memoria-exclusoes /data/jarvis/lembretes
 '
 docker compose start jarvis
 ```
@@ -216,6 +241,7 @@ linguagem natural e executar ferramentas reais. Roda 24h numa VPS dentro de um c
 | "como está o servidor?" | `status_servidor` |
 | "me lembra de mandar o currículo amanhã às 9h" | `criar_lembrete` |
 | "quais lembretes eu tenho?" / "cancela o 2" | `listar_lembretes` / `cancelar_lembrete` |
+| "todo dia útil às 7h me lembra de tomar o remédio" | `criar_lembrete` com `recorrencia` |
 | "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
 | "põe um lo-fi para estudar" | `tocar_youtube` |
 | "o que você lembra do projeto Jarvis?" | `buscar_memoria` / `ler_memoria` |
@@ -438,6 +464,10 @@ vai para o Telegram) e o `dados` estruturado, para a tela desenhar número grand
 O `titulo` em minúsculas é o discriminador — `clima`, `lembretes de hoje`, `sistemas`, `notícias`,
 sempre nessa ordem. Seção que falhou vem com `dados: null` e a explicação no `conteudo`.
 
+Em `lembretes de hoje`, cada item traz um campo `recorrencia` — vazio em lembrete de uma só vez, ou
+o texto da série ("todos os dias", "dias úteis", "dia 5 de cada mês"). É campo novo e opcional: a HUD
+que não o conhece continua desenhando o card como antes.
+
 ```json
 {
   "geradoEm": "2026-10-13T08:00:00-03:00",
@@ -455,7 +485,7 @@ sempre nessa ordem. Seção que falhou vem com `dados: null` e a explicação no
     {
       "titulo": "lembretes de hoje",
       "conteudo": "09:00 Enviar o currículo",
-      "dados": { "itens": [{ "hora": "09:00", "texto": "Enviar o currículo" }] }
+      "dados": { "itens": [{ "hora": "09:00", "texto": "Enviar o currículo", "recorrencia": "" }] }
     },
     {
       "titulo": "sistemas",
@@ -597,8 +627,8 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 
 ## Limitações atuais
 
-- Lembretes e histórico de conversa ficam **em memória**: somem se o container reiniciar. Os registros
-  da memória pessoal têm persistência própria nos volumes descritos acima.
+- O histórico de conversa fica **em memória**: some se o container reiniciar. Lembretes e memória
+  pessoal têm persistência própria nos volumes descritos acima.
 - No Telegram, recebe somente texto. Na HUD, o navegador converte voz em texto e sintetiza a resposta.
 - Atende uma mensagem por vez.
 - O retrato da tela e o cache de buscas no YouTube ficam **em memória**: depois de um restart o
@@ -610,7 +640,7 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 
 ## Próximos passos sugeridos
 
-1. Salvar lembretes e histórico num banco (Postgres/MySQL com Spring Data JPA).
+1. Salvar o histórico de conversa num banco (Postgres/MySQL com Spring Data JPA).
 2. Ferramenta que consulta a API do AgendaBarber (agendamentos do dia, faturamento).
 3. Receber áudio do Telegram e transcrever, para falar com o Jarvis por voz.
 4. Ferramentas com confirmação ("tem certeza?") para ações que alteram dados.

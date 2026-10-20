@@ -31,7 +31,9 @@ public class ListarLembretesFerramenta implements Ferramenta {
 
     @Override
     public String descricao() {
-        return "Lista os lembretes pendentes, com número, data/hora e texto.";
+        return "Lista os lembretes pendentes, com número, data/hora, texto e, nos "
+                + "recorrentes, de quanto em quanto tempo se repetem. A data mostrada é a da "
+                + "próxima ocorrência.";
     }
 
     @Override
@@ -51,7 +53,11 @@ public class ListarLembretesFerramenta implements Ferramenta {
         StringBuilder sb = new StringBuilder();
         for (Lembrete l : pendentes) {
             sb.append("#").append(l.id()).append(" | ").append(l.quando().format(EXIBICAO))
-                    .append(" | ").append(l.texto()).append("\n");
+                    .append(" | ").append(l.texto());
+            if (l.recorrente()) {
+                sb.append(" | repete ").append(l.repeticao().descricao());
+            }
+            sb.append("\n");
         }
         return sb.toString().trim();
     }

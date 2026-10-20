@@ -26,7 +26,9 @@ public class CancelarLembreteFerramenta implements Ferramenta {
 
     @Override
     public String descricao() {
-        return "Cancela um lembrete pendente pelo número. Se não souber o número, use listar_lembretes antes.";
+        return "Cancela um lembrete pendente pelo número. Se não souber o número, use "
+                + "listar_lembretes antes. Em lembrete recorrente, cancela a série inteira: "
+                + "não existe cancelar só uma ocorrência.";
     }
 
     @Override

@@ -18,6 +18,8 @@ services:
       - google:/data/google
       - memoria:/data/jarvis/memoria
       - memoria-exclusoes:/data/jarvis/memoria-exclusoes
+      # A agenda do dono: lembretes gravados em JSON, reagendados na partida.
+      - lembretes:/data/jarvis/lembretes
       - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
@@ -33,4 +35,5 @@ volumes:
   google:
   memoria:
   memoria-exclusoes:
+  lembretes:
   pc-operacoes:

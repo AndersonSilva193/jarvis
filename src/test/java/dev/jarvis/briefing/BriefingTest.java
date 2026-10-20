@@ -103,7 +103,8 @@ class BriefingTest {
                 .map(Lembrete::texto)
                 .toList();
 
-        assertEquals(List.of("Enviar o currículo", "Café da manhã (já passou hoje)"), deHoje);
+        // Em ordem do dia, não na ordem em que foram criados: é a agenda de hoje que a prosa lê.
+        assertEquals(List.of("Café da manhã (já passou hoje)", "Enviar o currículo"), deHoje);
     }
 
     @Test

@@ -42,7 +42,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
-| `dev.jarvis.lembretes` | `LembreteService`: agenda e dispara lembretes (em memória) |
+| `dev.jarvis.lembretes` | `LembreteService` (agenda, dispara e reagenda na partida), `LembretesEmArquivo` (o JSON com troca atômica e `.bak`), `Recorrencia`/`Repeticao` |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
@@ -309,8 +309,9 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 
 - **A fila de comandos do PC também é em memória**, com o código de confirmação: depois de um
   restart o Jarvis espera o agente reaparecer (até 25 s) e qualquer confirmação pendente se perde.
-- **Lembretes e histórico ficam em memória**: somem quando o container reinicia. O cache de
-  voz, não: ele vive no volume `/data/voz` e sobrevive ao restart.
+- **O histórico fica em memória**: some quando o container reinicia. Lembretes, não: eles vivem no
+  JSON de `LEMBRETES_ARQUIVO` (volume `lembretes`) e são reagendados na partida, com aviso de
+  "Atrasado:" para o que venceu no meio. O cache de voz também sobrevive, no volume `/data/voz`.
 - O retrato da tela e o cache de buscas no YouTube também são em memória: depois de um restart o
   Jarvis fica cego para a tela até a HUD repostar o estado.
 - Só entende texto (nada de áudio ou foto).

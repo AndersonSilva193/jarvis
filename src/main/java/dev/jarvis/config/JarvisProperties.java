@@ -34,7 +34,8 @@ public record JarvisProperties(
         Pc pc,
         ComputerUse computerUse,
         Google google,
-        Memoria memoria) {
+        Memoria memoria,
+        Lembretes lembretes) {
 
     private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
@@ -45,7 +46,7 @@ public record JarvisProperties(
             Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, null, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, null, null, null);
     }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -53,7 +54,7 @@ public record JarvisProperties(
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
             Google google) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, google, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, google, null, null);
     }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -61,7 +62,15 @@ public record JarvisProperties(
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
             Google google, Memoria memoria) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, google, memoria);
+                personalidade, voz, buscaWeb, youtube, pc, null, google, memoria, null);
+    }
+
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            ComputerUse computerUse, Google google, Memoria memoria) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, null);
     }
 
     /** Computer use fica desligado ate ser configurado e homologado no Windows. */
@@ -155,6 +164,9 @@ public record JarvisProperties(
     /** Volumes separados para registros e marcadores permanentes de exclusão. */
     public record Memoria(String pasta, String pastaExclusoes) { }
 
+    /** Arquivo JSON onde os lembretes sobrevivem ao restart do container. */
+    public record Lembretes(String arquivo) { }
+
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
     public boolean youtubeConfigurado() {
         return youtube != null && youtube.apiKey() != null && !youtube.apiKey().isBlank();
@@ -168,6 +180,12 @@ public record JarvisProperties(
     /** Se o controle do PC está configurado. Sem token, a rota do agente recusa tudo. */
     public boolean pcConfigurado() {
         return !tokenDoPc().isBlank();
+    }
+
+    /** Caminho do arquivo de lembretes. Dentro do container é o volume montado em /data/jarvis. */
+    public String arquivoDeLembretes() {
+        String caminho = lembretes == null ? null : lembretes.arquivo();
+        return caminho == null || caminho.isBlank() ? "/data/jarvis/lembretes/lembretes.json" : caminho;
     }
 
     public ZoneId zona() {

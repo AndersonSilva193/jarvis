@@ -27,8 +27,17 @@ public sealed interface DadosSecao {
     /** Os lembretes de hoje, na ordem do dia. Lista vazia = nada marcado. */
     record Lembretes(List<Item> itens) implements DadosSecao {
 
-        /** @param hora no formato HH:mm, já no fuso configurado. */
-        public record Item(String hora, String texto) {
+        /**
+         * @param hora        no formato HH:mm, já no fuso configurado.
+         * @param recorrencia como a série se repete ("todos os dias", "dias úteis"...), vazio em
+         *                    lembrete de uma só vez. Campo novo e opcional: a HUD que não o conhece
+         *                    simplesmente o ignora.
+         */
+        public record Item(String hora, String texto, String recorrencia) {
+
+            public Item(String hora, String texto) {
+                this(hora, texto, "");
+            }
         }
     }
 

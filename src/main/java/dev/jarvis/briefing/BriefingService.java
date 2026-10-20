@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -264,7 +265,7 @@ public class BriefingService {
         for (Lembrete l : deHoje) {
             String hora = l.quando().withZoneSameInstant(agora.getZone()).format(HORA);
             linhas.add(hora + " " + l.texto());
-            itens.add(new DadosSecao.Lembretes.Item(hora, l.texto()));
+            itens.add(new DadosSecao.Lembretes.Item(hora, l.texto(), l.repeticao().descricao()));
         }
         return new Conteudo(linhas.toString(), new DadosSecao.Lembretes(itens));
     }
@@ -277,9 +278,21 @@ public class BriefingService {
      */
     public static List<Lembrete> lembretesDeHoje(List<Lembrete> pendentes, ZonedDateTime agora) {
         LocalDate hoje = agora.toLocalDate();
-        return pendentes.stream()
-                .filter(l -> l.quando().withZoneSameInstant(agora.getZone()).toLocalDate().equals(hoje))
-                .toList();
+        List<Lembrete> deHoje = new ArrayList<>();
+        for (Lembrete l : pendentes) {
+            ZonedDateTime quando = l.quando().withZoneSameInstant(agora.getZone());
+            if (quando.toLocalDate().equals(hoje)) {
+                deHoje.add(l.em(quando));
+                continue;
+            }
+            // Recorrente das 8h visto às 10h já aponta para amanhã, mas a ocorrência de hoje
+            // existiu e pertence ao dia: a agenda do dono mostra o dia, não o que falta dele.
+            if (l.recorrente() && l.repeticao().ocorreEm(hoje)) {
+                deHoje.add(l.em(hoje.atTime(quando.toLocalTime()).atZone(agora.getZone())));
+            }
+        }
+        deHoje.sort(Comparator.comparing(Lembrete::quando));
+        return List.copyOf(deHoje);
     }
 
     private Conteudo secaoSistemas() {
