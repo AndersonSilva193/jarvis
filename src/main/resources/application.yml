@@ -73,7 +73,7 @@ jarvis:
     modelo-anthropic: ${COMPUTER_USE_MODELO_ANTHROPIC:claude-haiku-5-5}
     modelo-openai: ${COMPUTER_USE_MODELO_OPENAI:gpt-6.1-sol}
     openai-api-key: ${OPENAI_API_KEY:}
-    max-ciclos: ${COMPUTER_USE_MAX_CICLOS:25}
+    max-ciclos: ${COMPUTER_USE_MAX_CICLOS:35}
     max-acoes: ${COMPUTER_USE_MAX_ACOES:75}
     duracao-segundos: ${COMPUTER_USE_DURACAO_SEGUNDOS:300}
   google:

@@ -682,7 +682,7 @@ Por padrão `COMPUTER_USE_ATIVO=false`. Para ativar após homologação, configu
 `computer.use.ativo=true` no `config.properties` do agente. O provedor padrão é Anthropic;
 `COMPUTER_USE_PROVEDOR=openai` exige `OPENAI_API_KEY` e acesso ao modelo configurado. Revalide
 modelos e formatos de ferramenta na documentação oficial antes de trocar versões. Os tetos são
-25 respostas do modelo, 75 ações individuais e cinco minutos. Cada ação vai pelo E2 com ID
+35 respostas do modelo, 75 ações individuais e cinco minutos. Cada ação vai pelo E2 com ID
 próprio, sem repetição após início registrado. Capturas da tarefa não são enviadas automaticamente
 ao Telegram; são descartadas do diário da VPS após a rodada ou em até cinco minutos. No agente,
 imagens de resultado não entregue expiram após cinco minutos.

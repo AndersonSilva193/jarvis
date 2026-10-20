@@ -1,5 +1,6 @@
 package dev.jarvis.config;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -8,6 +9,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -32,6 +35,8 @@ public record JarvisProperties(
         ComputerUse computerUse,
         Google google,
         Memoria memoria) {
+
+    private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public JarvisProperties { }
@@ -237,18 +242,71 @@ public record JarvisProperties(
         return mapa;
     }
 
-    /** Converte a string de sites monitorados em um mapa nome -> URL, mantendo a ordem. */
+    /**
+     * Converte a string de sites monitorados em um mapa nome -> URL, mantendo a ordem.
+     *
+     * Nome repetido mantém a <b>primeira</b> ocorrência e avisa em WARN: antes a segunda
+     * sobrescrevia a primeira em silêncio, e um site simplesmente deixava de ser checado.
+     * Entrada mal formada (sem {@code =}, nome vazio, URL que não seja http/https) também
+     * é ignorada com WARN, em vez de virar uma requisição que falha em todo briefing.
+     */
     public Map<String, String> sitesMonitorados() {
         Map<String, String> mapa = new LinkedHashMap<>();
         if (sites == null || sites.isBlank()) {
             return mapa;
         }
         for (String par : sites.split(",")) {
-            String[] partes = par.trim().split("=", 2);
-            if (partes.length == 2 && !partes[0].isBlank() && !partes[1].isBlank()) {
-                mapa.put(partes[0].trim(), partes[1].trim());
+            String entrada = par.trim();
+            if (entrada.isEmpty()) {
+                continue;
             }
+            String[] partes = entrada.split("=", 2);
+            if (partes.length < 2) {
+                log.warn("SITES_MONITORADOS: entrada sem '=' ignorada: {}", semQuery(entrada));
+                continue;
+            }
+            String nome = partes[0].trim();
+            String url = partes[1].trim();
+            if (nome.isBlank()) {
+                log.warn("SITES_MONITORADOS: entrada sem nome ignorada (url {})", semQuery(url));
+                continue;
+            }
+            if (!urlDeSiteValida(url)) {
+                log.warn("SITES_MONITORADOS: url invalida no site '{}', entrada ignorada: {}",
+                        nome, semQuery(url));
+                continue;
+            }
+            if (mapa.containsKey(nome)) {
+                log.warn("SITES_MONITORADOS: nome '{}' repetido; mantida a primeira url e ignorada "
+                        + "a seguinte: {}", nome, semQuery(url));
+                continue;
+            }
+            mapa.put(nome, url);
         }
         return mapa;
+    }
+
+    /** Só http e https, com host: o resto nunca daria uma checagem útil. */
+    private static boolean urlDeSiteValida(String url) {
+        if (url.isBlank()) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(url);
+            String esquema = uri.getScheme();
+            return uri.getHost() != null && !uri.getHost().isBlank()
+                    && ("http".equalsIgnoreCase(esquema) || "https".equalsIgnoreCase(esquema));
+        } catch (IllegalArgumentException naoEhUri) {
+            return false;
+        }
+    }
+
+    /**
+     * Corta a query string antes de a URL entrar no log: ela é o lugar onde token e chave
+     * costumam viajar, e aviso de configuração não é motivo para escrever segredo em disco.
+     */
+    static String semQuery(String url) {
+        int interrogacao = url.indexOf('?');
+        return interrogacao < 0 ? url : url.substring(0, interrogacao) + "?...";
     }
 }
