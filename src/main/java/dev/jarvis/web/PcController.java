@@ -119,7 +119,14 @@ public class PcController {
         boolean imagem = corpo.imagemBase64() != null && !corpo.imagemBase64().isBlank();
         boolean dados = corpo.dados() != null && !corpo.dados().isMissingNode();
         String acao = operacao.orElseThrow().acao();
-        if (((arquivo || imagem || dados) && !"concluído".equals(corpo.estado()))
+        // O diagnóstico de uma edição recusada vem em 'dados' justamente quando o estado é
+        // "falhou": exigir "concluído" aqui recusaria para sempre o único resultado que o agente
+        // tem a dar, e o replay dele é a primeira coisa do laço — um 400 permanente ali trava o
+        // agente inteiro. Arquivo e imagem continuam valendo só em sucesso.
+        boolean etapaDeEdicao = List.of("preparar_edicao", "aplicar_edicao", "preparar_desfazer",
+                "aplicar_desfazer").contains(acao);
+        if (((arquivo || imagem) && !"concluído".equals(corpo.estado()))
+                || (dados && !"concluído".equals(corpo.estado()) && !etapaDeEdicao)
                 || (arquivo && !List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer")
                         .contains(acao))
                 || (imagem && !List.of("captura_tela", "computer_acao").contains(acao))

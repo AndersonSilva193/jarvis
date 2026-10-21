@@ -124,6 +124,47 @@ class PcE2HttpTest {
                 new ArquivosPcService(new PcService(reiniciado)).obter(comandoArquivo.id()).orElseThrow()));
     }
 
+    @Test void diagnosticoDeEdicaoRecusadaEAceitoMesmoComEstadoFalhou() throws Exception {
+        var json = JsonMapper.builder().build();
+        var e2 = new OperacoesPcService(json, temporaria.resolve("operacoes.json"), Clock.systemUTC());
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(new PcService(e2),
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+
+        var comando = ComandoPc.nova("preparar_edicao", "", Instant.now());
+        e2.enfileirar(comando, Duration.ofMinutes(1), Duration.ofMinutes(1), "telegram", 42);
+        iniciar(http, comando.id());
+
+        // O agente só tem o diagnóstico a entregar quando a proposta é recusada, e ele repete esse
+        // POST antes de buscar qualquer comando: um 400 aqui trava o agente para sempre.
+        String recusada = "{\"estado\":\"falhou\",\"mensagem\":\"leia o arquivo antes de propor edição\","
+                + "\"dados\":{\"codigoErro\":\"VALIDACAO_RECUSADA\",\"etapa\":\"preparar_edicao\"}}";
+        http.perform(post("/api/pc/v2/comandos/" + comando.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON).content(recusada))
+                .andExpect(status().isNoContent());
+        assertEquals("VALIDACAO_RECUSADA", e2.resultado(comando.id()).orElseThrow()
+                .dados().path("codigoErro").asText());
+
+        // O que a regra existe para barrar continua barrado: print ou arquivo só em sucesso.
+        var captura = ComandoPc.nova("captura_tela", "", Instant.now());
+        e2.enfileirar(captura, Duration.ofMinutes(1), Duration.ofMinutes(1), "hud", 42);
+        iniciar(http, captura.id());
+        byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10};
+        http.perform(post("/api/pc/v2/comandos/" + captura.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"estado\":\"falhou\",\"mensagem\":\"nao deu\",\"imagemBase64\":\""
+                        + Base64.getEncoder().encodeToString(png) + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        // E 'dados' numa ação que não é etapa de edição também segue recusado fora de "concluído".
+        var lista = ComandoPc.nova("listar_arquivos", "", Instant.now());
+        e2.enfileirar(lista, Duration.ofMinutes(1), Duration.ofMinutes(1), "hud", 42);
+        iniciar(http, lista.id());
+        http.perform(post("/api/pc/v2/comandos/" + lista.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"estado\":\"falhou\",\"mensagem\":\"nao deu\",\"dados\":{\"arquivos\":[]}}"))
+                .andExpect(status().isBadRequest());
+    }
+
     private static void iniciar(MockMvc http, String id) throws Exception {
         http.perform(get("/api/pc/v2/comandos")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.comando.id").value(id));
