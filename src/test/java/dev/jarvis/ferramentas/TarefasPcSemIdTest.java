@@ -49,9 +49,9 @@ class TarefasPcSemIdTest {
         aprovacoes.pedir("computer", "buscar academias", "Posso buscar academias?",
                 Aprovacoes.Risco.COMUM, 42, "pedido-anterior", () -> "nao iniciar");
         var ferramenta = new CancelarTarefaNoPcFerramenta(tarefas, aprovacoes, json);
-        assertEquals("Confirmacao pendente da tarefa cancelada. Pode pedir outra tarefa.",
+        assertEquals("Confirmação pendente da tarefa cancelada. Pode pedir outra tarefa.",
                 ferramenta.executarDetalhado(json.createObjectNode(), usuario).texto());
-        assertTrue(aprovacoes.tratar("confirmo", 42, "depois").orElseThrow().contains("Nao ha"));
+        assertTrue(aprovacoes.tratar("confirmo", 42, "depois").orElseThrow().contains("Não há"));
         aprovacoes.pedir("computer", "abrir Battle.net", "Posso abrir o Battle.net?",
                 Aprovacoes.Risco.COMUM, 42, "pedido-seguinte", () -> "novo pedido");
         verify(tarefas, org.mockito.Mockito.never()).ultima(42);
@@ -75,18 +75,19 @@ class TarefasPcSemIdTest {
         };
         ferramenta.executarDetalhado(json.createObjectNode().put("objetivo", "buscar academias"), anterior);
         var resposta = ferramenta.executarDetalhado(json.createObjectNode().put("objetivo", "abrir Battle.net"), novo);
-        assertTrue(resposta.texto().contains("Confirme em NOVA mensagem"));
+        assertEquals("Vou usar o monitor principal para: abrir Battle.net. Posso?", resposta.texto());
         assertEquals("tarefa nova iniciada", aprovacoes.tratar("confirmo", 42, "terceiro-pedido").orElseThrow());
     }
 
     @Test void descricaoApresentaUltimoRecursoSomenteQuandoDisponivel() {
         var ferramenta = new TarefaNoPcFerramenta(tarefas, aprovacoes, json);
         when(tarefas.disponivel()).thenReturn(false, true);
-        assertTrue(ferramenta.descricao().contains("indisponivel"));
+        assertTrue(ferramenta.descricao().contains("indisponível"));
         String disponivel = ferramenta.descricao();
-        assertTrue(disponivel.contains("Ultimo recurso"));
-        assertTrue(disponivel.contains("Nao diga que falta ferramenta"));
-        assertTrue(disponivel.contains("pedir confirmacao"));
+        assertTrue(disponivel.contains("Último recurso"));
+        assertTrue(disponivel.contains("Não diga que falta ferramenta"));
+        assertTrue(disponivel.contains("pedir confirmação"));
+        assertTrue(disponivel.contains("não peça palavra, código nem frase exata"));
         assertTrue(disponivel.contains("menu Iniciar"));
     }
 
@@ -104,8 +105,10 @@ class TarefasPcSemIdTest {
         var entrada = json.createObjectNode().put("objetivo",
                 "Abrir Battle.net pelo menu Iniciar, sem realizar compras e sem digitar senha");
         var resposta = ferramenta.executarDetalhado(entrada, contexto);
-        assertTrue(resposta.texto().contains("Confirme em NOVA mensagem"));
+        assertTrue(resposta.texto().startsWith("Vou usar o monitor principal para:"));
+        assertTrue(resposta.texto().endsWith("Posso?"));
         assertTrue(resposta.confirmacao() != null);
+        assertEquals(resposta.texto(), resposta.confirmacao().pergunta());
     }
 
     @Test void compraPagamentoESenhaComoAcaoContinuamBloqueados() {
@@ -128,6 +131,6 @@ class TarefasPcSemIdTest {
         var ferramenta = new TarefaNoPcFerramenta(tarefas, aprovacoes, json);
         var resposta = ferramenta.executarDetalhado(
                 json.createObjectNode().put("objetivo", "Abrir o Battle.net"), contexto);
-        assertEquals("Tarefa sensivel proibida no computer use.", resposta.texto());
+        assertEquals("Tarefa sensível proibida no computer use.", resposta.texto());
     }
 }

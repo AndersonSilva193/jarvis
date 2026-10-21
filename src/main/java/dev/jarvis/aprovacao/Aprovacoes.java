@@ -14,7 +14,8 @@ import dev.jarvis.conversa.Confirmacao;
  *
  * <p>Este é o <b>único</b> caminho de confirmação do Jarvis: toda ferramenta que vá mexer no PC do
  * usuário — rodar rotina, substituir arquivo, desfazer edição, desligar a máquina — pede aqui e
- * devolve ao modelo apenas "confirme em nova mensagem". Quem consome a aprovação é o
+ * devolve ao modelo apenas a {@code pergunta}, para ele repetir com o próprio tom e esperar a
+ * resposta; não há palavra, código nem frase exata a cobrar. Quem consome a aprovação é o
  * {@code Assistente.responder}, <b>antes</b> de falar com o Claude, e é isso que torna impossível o
  * modelo se autoconfirmar: ele nunca vê a decisão, só o resultado dela.
  *
@@ -33,8 +34,9 @@ import dev.jarvis.conversa.Confirmacao;
  * </ol>
  *
  * <p>A {@code pergunta} é o que vai ser mostrado ao usuário, montado em Java a partir de dado real
- * (nome da rotina, nome do arquivo, objetivo). Nunca texto escrito pelo modelo: é a pergunta que o
- * usuário responde, e deixá-la ao modelo seria deixá-lo escolher o que o "sim" significa.
+ * (nome da rotina, nome do arquivo, objetivo), no formato <i>o que vai acontecer + o impacto numa
+ * frase + "Posso?"</i>. Nunca texto escrito pelo modelo: é a pergunta que o usuário responde, e
+ * deixá-la ao modelo seria deixá-lo escolher o que o "sim" significa.
  *
  * <p>Componente próprio, e não um campo das ferramentas, para o {@code Clock} entrar pelo construtor
  * e o teste de expiração ser relógio fixo em vez de minutos de {@code sleep}.
@@ -125,24 +127,24 @@ public class Aprovacoes {
         Pendente executar = null;
         synchronized (this) {
             Pendente p = pendente;
-            if (p == null) return Optional.of("Nao ha aprovacao pendente. Nenhuma acao foi executada; "
-                    + "se uma edicao falhou, releia o arquivo e prepare uma nova proposta.");
+            if (p == null) return Optional.of("Não há aprovação pendente. Nenhuma ação foi executada; "
+                    + "se uma edição falhou, releia o arquivo e prepare uma nova proposta.");
             if (usuario <= 0 || usuario != p.usuario() || pedidoAtual == null
                     || pedidoAtual.equals(p.pedidoOrigem()))
-                return Optional.of("Aprovacao recusada: envie uma nova mensagem autenticada.");
+                return Optional.of("Aprovação recusada: envie uma nova mensagem autenticada.");
             if (!relogio.instant().isBefore(p.expira())) {
                 pendente = null;
-                return Optional.of("A aprovacao expirou; faca um novo pedido.");
+                return Optional.of("A aprovação expirou; faça um novo pedido.");
             }
             if (recebido.equals("cancelar") || recebido.equals("cancelo " + p.codigo())) {
                 pendente = null;
-                return Optional.of("Operacao cancelada.");
+                return Optional.of("Operação cancelada.");
             }
             String esperado = p.tipo().equals("rotina") ? "confirmo rotina " + p.codigo()
                     : "confirmo pc " + p.codigo();
             if (!fraseDeConfirmacao && !recebido.equals(esperado)
                     && !recebido.equals("confirmo " + p.codigo()))
-                return Optional.of("Codigo incorreto; a operacao continua pendente ate expirar ou ser cancelada.");
+                return Optional.of("Código incorreto; a operação continua pendente até expirar ou ser cancelada.");
             pendente = null;
             executar = p;
         }

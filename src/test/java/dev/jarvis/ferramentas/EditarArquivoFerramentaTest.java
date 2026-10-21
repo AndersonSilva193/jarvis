@@ -87,10 +87,14 @@ class EditarArquivoFerramentaTest {
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "acrescente x em nota.md"));
         assertNotNull(resultado.confirmacao());
+        assertEquals("Vou substituir o original de nota.md pela versão nova; o conteúdo atual sai do "
+                + "arquivo, mas dá para desfazer. Posso?", resultado.confirmacao().pergunta());
+        assertTrue(resultado.texto().endsWith(resultado.confirmacao().pergunta()),
+                "a pergunta vem depois da prévia: " + resultado.texto());
         verify(fluxo, never()).aplicarDepoisDeConfirmar(anyString(), anyString(), anyString(), anyLong());
         assertEquals("iniciada", aprovacoes.tratar("confirmo", 42, "segundo").orElseThrow());
         verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42);
-        assertTrue(aprovacoes.tratar("confirmo", 42, "terceiro").orElseThrow().contains("Nao ha"));
+        assertTrue(aprovacoes.tratar("confirmo", 42, "terceiro").orElseThrow().contains("Não há"));
     }
 
     @Test void esseArquivoUsaSomenteOAnexoAnteriorCorrespondente() throws Exception {
@@ -224,6 +228,10 @@ class EditarArquivoFerramentaTest {
         var resultado = ferramenta.executarDetalhado(pedido,
                 contexto("pedido-1", "insira uma linha em dados.xlsx"));
         assertNotNull(resultado.confirmacao());
+        assertEquals("Vou criar uma cópia simplificada de dados.xlsx; o original fica como está e a "
+                + "cópia perde o que a prévia indica. Posso?", resultado.confirmacao().pergunta());
+        assertTrue(resultado.texto().endsWith(resultado.confirmacao().pergunta()),
+                "a pergunta vem depois da prévia: " + resultado.texto());
         verify(fluxo, never()).aplicarDepoisDeConfirmar(anyString(), anyString(), anyString(), anyLong(), anyBoolean());
         aprovacoes.tratar("confirmo", 42, "pedido-2");
         verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42, false);

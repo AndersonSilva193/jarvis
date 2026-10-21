@@ -209,9 +209,10 @@ class ControlarPcFerramentaTest {
 
         ResultadoFerramenta pedido = chamar(entrada("desligar", null));
 
-        assertTrue(pedido.texto().contains("NOVA mensagem"), pedido.texto());
-        assertEquals("Posso desligar o PC agora?", pedido.confirmacao().pergunta(),
+        assertEquals("Vou desligar o PC em 60 segundos. Posso?", pedido.confirmacao().pergunta(),
                 "a pergunta é montada aqui, de dado real, e é o que o usuário responde");
+        assertEquals(pedido.confirmacao().pergunta(), pedido.texto(),
+                "o modelo recebe a pergunta para repetir, não um protocolo de palavra exata");
         assertEquals(0, pc.naFila(), "a chamada do modelo não enfileira nada");
 
         assertTrue(aprovar(true, "desligando em 60 s").contains("enviada ao PC"));
@@ -399,8 +400,10 @@ class ControlarPcFerramentaTest {
     @DisplayName("a descrição avisa quando o agente não reportou app nenhum")
     void descricaoSemApps() {
         assertTrue(ferramenta.descricao().contains("nenhum"), ferramenta.descricao());
-        assertTrue(ferramenta.descricao().contains("NOVA mensagem autenticada"),
+        assertTrue(ferramenta.descricao().contains("pergunta de aprovação"),
                 "o fluxo de aprovação tem de estar explicado para o modelo");
+        assertTrue(ferramenta.descricao().contains("sem pedir palavra, código nem frase exata"),
+                "e sem mandar o modelo cobrar uma palavra do usuário");
         assertFalse(ferramenta.esquemaEntrada().toString().contains("codigo_confirmacao"),
                 "campo que o modelo não pode preencher não entra no schema");
     }

@@ -108,7 +108,8 @@ public class ControlarPcFerramenta implements Ferramenta {
                 "foi engano", "não te chamei") — esta devolve quantos alarmes falsos já houve, \
                 número que ajuda o usuário a ajustar a sensibilidade.
 
-                desligar e reiniciar exigem NOVA mensagem autenticada do usuário. Chame uma vez: \
+                desligar e reiniciar devolvem uma pergunta de aprovação: repita a pergunta e espere \
+                a resposta do usuário, sem pedir palavra, código nem frase exata. Chame uma vez: \
                 o servidor guarda a ação e consome a aprovação diretamente, sem passar por você. \
                 Não chame a ferramenta de novo para confirmar — não há como. \
                 O PC avisa e espera 60 segundos antes de desligar de verdade, então ainda \
@@ -169,7 +170,7 @@ public class ControlarPcFerramenta implements Ferramenta {
         if ("rodar_rotina".equals(acao))
             return ResultadoFerramenta.texto("Use a ferramenta rodar_rotina para executar cadastros manuais.");
         if ("computer_acao".equals(acao))
-            return ResultadoFerramenta.texto("Acao interna do computer use; use tarefa_no_pc.");
+            return ResultadoFerramenta.texto("Ação interna do computer use; use tarefa_no_pc.");
         // Antes de qualquer outra coisa: travar o turno 30 s para no fim dizer "o PC está
         // offline" é o pior dos mundos.
         if (!pc.online()) {
@@ -186,16 +187,17 @@ public class ControlarPcFerramenta implements Ferramenta {
 
         if (ComandoPc.perigosa(acao)) {
             try {
+                String pergunta = "Vou " + acao + " o PC em 60 segundos. Posso?";
                 var confirmacao = aprovacoes.pedir("pc", acao + " o PC",
-                        "Posso " + acao + " o PC agora?", Aprovacoes.Risco.CRITICO,
+                        pergunta, Aprovacoes.Risco.CRITICO,
                         progresso.usuarioAutenticado(), progresso.idPedido(), () -> {
-                            if (!pc.online()) return "PC offline; acao nao iniciada.";
+                            if (!pc.online()) return "PC offline; ação não iniciada.";
                             ComandoPc ordem = ComandoPc.nova(acao, efetivo, Instant.now());
                             pc.enfileirar(ordem, progresso.canal(), progresso.usuarioAutenticado());
                             pc.pedirAviso(ordem.id());
-                            return "Acao confirmada. Operacao " + ordem.id() + " enviada ao PC.";
+                            return "Ação confirmada. Operação " + ordem.id() + " enviada ao PC.";
                         });
-                return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
+                return new ResultadoFerramenta(pergunta,
                         List.of(), List.of(), confirmacao, List.of(), List.of());
             } catch (IllegalArgumentException | IllegalStateException falhaConfirmacao) {
                 return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());

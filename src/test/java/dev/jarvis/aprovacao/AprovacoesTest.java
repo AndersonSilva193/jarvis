@@ -103,7 +103,7 @@ class AprovacoesTest {
                 .contains("recusada"), "outro usuário não aprova");
         assertEquals("feito 1", aprovacoes.tratar("confirmo pc " + codigo, 42, "pedido-2").orElseThrow());
         assertTrue(aprovacoes.tratar("confirmo pc " + codigo, 42, "pedido-3").orElseThrow()
-                .contains("Nao ha"), "uso único");
+                .contains("Não há"), "uso único");
         assertEquals(1, execucoes.get());
     }
 
@@ -124,10 +124,10 @@ class AprovacoesTest {
 
         assertTrue(aprovacoes.tratar("confirmo rotina " + errado, 42, "novo").orElseThrow()
                 .contains("incorreto"));
-        assertEquals("Operacao cancelada.", aprovacoes.tratar("cancelar", 42, "novo").orElseThrow());
+        assertEquals("Operação cancelada.", aprovacoes.tratar("cancelar", 42, "novo").orElseThrow());
         assertEquals(0, execucoes.get());
         assertTrue(aprovacoes.tratar("confirmo rotina " + codigo, 42, "outro").orElseThrow()
-                .contains("Nao ha"));
+                .contains("Não há"));
     }
 
     @Test
@@ -144,7 +144,7 @@ class AprovacoesTest {
 
                 assertEquals("feito 1", isolado.tratar(frase, 42, "novo").orElseThrow(),
                         tipo + ": " + frase);
-                assertTrue(isolado.tratar(frase, 42, "outro").orElseThrow().contains("Nao ha"));
+                assertTrue(isolado.tratar(frase, 42, "outro").orElseThrow().contains("Não há"));
             }
         }
     }

@@ -85,6 +85,30 @@ class PromptDeSistemaTest {
     }
 
     @Test
+    @DisplayName("a pergunta de aprovação e os três níveis de autonomia vão no bloco dinâmico")
+    void aprovacaoENiveisDeAutonomia() {
+        for (Canal canal : new Canal[] { Canal.TELEGRAM, Canal.HUD }) {
+            String dinamico = texto(montar(canal, true).get(1));
+
+            assertTrue(dinamico.contains("repita a pergunta com o"), dinamico);
+            assertTrue(dinamico.contains("Não peça palavra, código nem frase exata"), dinamico);
+            assertFalse(dinamico.contains("nova mensagem autenticada"),
+                    "o protocolo saiu do prompt: " + dinamico);
+
+            assertTrue(dinamico.contains("Níveis de autonomia:"), dinamico);
+            assertTrue(dinamico.contains("Faz e avisa, sem perguntar:"), dinamico);
+            assertTrue(dinamico.contains("Pergunta antes:"), dinamico);
+            assertTrue(dinamico.contains("Proibido:"), dinamico);
+        }
+
+        for (Canal canal : new Canal[] { Canal.BRIEFING, Canal.TAREFA }) {
+            String dinamico = texto(montar(canal, true).get(1));
+            assertFalse(dinamico.contains("Níveis de autonomia:"),
+                    canal.nome() + " não tem usuário para responder: " + dinamico);
+        }
+    }
+
+    @Test
     @DisplayName("cada canal manda a sua regra de formato")
     void regrasPorCanal() {
         assertTrue(texto(montar(Canal.TELEGRAM, true).get(1)).contains("negrito"));

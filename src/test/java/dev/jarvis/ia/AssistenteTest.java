@@ -283,7 +283,8 @@ class AssistenteTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = { false, true })
     void confirmacaoHudGanhaEscutaAutomaticaMesmoSemFerramentaDeEscuta(boolean temEscutaExplicita) throws Exception {
-        var confirmacao = new Confirmacao("1234", "reiniciar o PC", Instant.now().plusSeconds(120).toString());
+        var confirmacao = new Confirmacao("1234", "reiniciar o PC",
+                Instant.now().plusSeconds(120).toString(), "Vou reiniciar o PC em 60 segundos. Posso?");
         var explicita = new EscutaResposta(8, List.of("sim"), "outra pergunta");
         when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
                 .thenReturn(chamada("confirmar_teste", JSON.createObjectNode()))
@@ -291,7 +292,8 @@ class AssistenteTest {
         var resposta = comFerramentas(ferramentaDeConfirmacao(confirmacao, temEscutaExplicita ? explicita : null))
                 .responder(1L, "reinicie", Canal.HUD, null);
         assertEquals(confirmacao, resposta.confirmacao());
-        assertEquals(new EscutaResposta(20, List.of("confirmo", "cancelar"), "reiniciar o PC"), resposta.escuta());
+        assertEquals(new EscutaResposta(20, List.of(), "Vou reiniciar o PC em 60 segundos. Posso?"),
+                resposta.escuta(), "sem opções: qualquer fala do usuário responde a pergunta");
     }
 
     @Test void telegramNaoRecebeEscutaNemOfereceAFerramenta() throws Exception {
@@ -315,9 +317,12 @@ class AssistenteTest {
         assertEquals(3, Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar",
                 agora.plusMillis(3900).toString()), agora).tempoSegundos());
         for (String prazo : new String[] { agora.minusSeconds(1).toString(), agora.toString(), "inválido", null }) {
-            var escuta = Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar", prazo), agora);
+            var escuta = Assistente.escutaDaConfirmacao(new Confirmacao("1234", "confirmar", prazo,
+                    "Posso trocar o arquivo?"), agora);
             assertEquals(0, escuta.tempoSegundos());
-            assertEquals(List.of("confirmo", "cancelar"), escuta.opcoes());
+            assertEquals(List.of(), escuta.opcoes());
+            assertEquals("Posso trocar o arquivo?", escuta.motivo(),
+                    "a HUD mostra a pergunta que o usuário está respondendo");
         }
     }
 
@@ -442,7 +447,7 @@ class AssistenteTest {
 
     /** Monta o assistente com uma aprovação já pendente, criada pelo pedido "telegram-1". */
     private Assistente comAprovacaoPendente() {
-        aprovacoes.pedir("pc", "desligar o PC", "Posso desligar o PC?", Aprovacoes.Risco.CRITICO,
+        aprovacoes.pedir("pc", "desligar o PC", "Vou desligar o PC em 60 segundos. Posso?", Aprovacoes.Risco.CRITICO,
                 42, "telegram-1", () -> "Desligando em 60 segundos, senhor. " + desligamentos.incrementAndGet());
         return new Assistente(claude, new Ferramentas(List.of(), JSON),
                 new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
@@ -496,7 +501,7 @@ class AssistenteTest {
         String enviado = mensagensEnviadas().getFirst().toString();
         assertTrue(enviado.contains("pode, mas reinicia em vez de desligar"), enviado);
         assertTrue(enviado.contains("nota do servidor"), "o modelo precisa saber que a proposta caiu: " + enviado);
-        assertTrue(enviado.contains("Posso desligar o PC?"), enviado);
+        assertTrue(enviado.contains("Vou desligar o PC em 60 segundos. Posso?"), enviado);
         assertTrue(aprovacoes.pendenciaDe(42, "telegram-3").isEmpty(), "a proposta de antes não vale mais");
     }
 
@@ -512,7 +517,7 @@ class AssistenteTest {
         assertEquals("Faz 23 graus, senhor.", responderComoDono(agente, "qual a temperatura agora?"));
         assertEquals(0, desligamentos.get());
         assertFalse(mensagensEnviadas().getFirst().toString().contains("nota do servidor"));
-        assertEquals("Posso desligar o PC?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow(),
+        assertEquals("Vou desligar o PC em 60 segundos. Posso?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow(),
                 "quem não respondeu a pergunta não cancelou nada");
     }
 
@@ -522,10 +527,10 @@ class AssistenteTest {
         when(classificador.classificar(any(), any())).thenReturn(ClassificadorDeResposta.Decisao.DUVIDA);
         Assistente agente = comAprovacaoPendente();
 
-        assertEquals("Só para confirmar: Posso desligar o PC? Responda sim ou não.",
+        assertEquals("Só para confirmar, senhor: Vou desligar o PC em 60 segundos. Posso?",
                 responderComoDono(agente, "sei lá, você que sabe"));
         assertEquals(0, desligamentos.get());
         verify(claude, never()).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
-        assertEquals("Posso desligar o PC?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow());
+        assertEquals("Vou desligar o PC em 60 segundos. Posso?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow());
     }
 }

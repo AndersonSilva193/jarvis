@@ -32,6 +32,10 @@ class DesfazerEdicaoFerramentaTest {
         };
         var resultado = ferramenta.executarDetalhado(json.createObjectNode(), contexto);
         assertNotNull(resultado.confirmacao());
+        assertEquals("Vou restaurar nota.md para a versão anterior; a edição atual é descartada. Posso?",
+                resultado.confirmacao().pergunta());
+        assertTrue(resultado.texto().endsWith(resultado.confirmacao().pergunta()),
+                "a pergunta vem depois da prévia: " + resultado.texto());
         assertFalse(resultado.texto().contains(editId));
         assertFalse(resultado.texto().contains("a".repeat(64)));
         verify(fluxo).preparar(eq("preparar_desfazer"),

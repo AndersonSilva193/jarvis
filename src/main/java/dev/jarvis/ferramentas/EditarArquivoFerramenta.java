@@ -63,7 +63,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
             + "booleano usa true/false, não texto. Fórmulas não são recalculadas. "
             + "O usuário pode indicar o nome falado sem extensão, como 'tabela exemplo' para tabela_exemplo.xlsx; "
             + "apelidos ambíguos são recusados. "
-            + "original exige confirmação em nova mensagem; copia cria arquivo novo."; }
+            + "original devolve uma pergunta de aprovação e só substitui depois que o usuário "
+            + "responder que sim; copia cria arquivo novo."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         ObjectNode p = raiz.putObject("properties");
@@ -211,14 +212,14 @@ public class EditarArquivoFerramenta implements Ferramenta {
             try {
                 Instant prazo = Instant.parse(Json.texto(preparado.dados().path("expiraEm")))
                         .minusSeconds(30);
+                String pergunta = "Vou criar uma cópia simplificada de " + nomeArquivo
+                        + "; o original fica como está e a cópia perde o que a prévia indica. Posso?";
                 var confirmacao = aprovacoes.pedir("copia_simplificada",
                         "Criar cópia simplificada de " + nomeArquivo,
-                        "Posso criar uma cópia simplificada de " + nomeArquivo + "?",
-                        Aprovacoes.Risco.COMUM, usuarioCopia,
+                        pergunta, Aprovacoes.Risco.COMUM, usuarioCopia,
                         contexto.idPedido(), prazo, () -> fluxo.aplicarDepoisDeConfirmar(
                                 "aplicar_edicao", editId, canalCopia, usuarioCopia, false));
-                return new ResultadoFerramenta(previa
-                        + "\nO original será preservado. Confirme a perda indicada em NOVA mensagem: confirmo.",
+                return new ResultadoFerramenta(previa + "\n" + pergunta,
                         List.of(), List.of(), confirmacao, List.of(), List.of());
             } catch (IllegalArgumentException | IllegalStateException | java.time.DateTimeException e) {
                 return ResultadoFerramenta.texto(previa + "\nConfirmação indisponível: " + e.getMessage());
@@ -232,11 +233,13 @@ public class EditarArquivoFerramenta implements Ferramenta {
         try {
             Instant prazo = Instant.parse(Json.texto(preparado.dados().path("expiraEm")))
                     .minusSeconds(30);
+            String pergunta = "Vou substituir o original de " + nomeArquivo + " pela versão nova; "
+                    + "o conteúdo atual sai do arquivo, mas dá para desfazer. Posso?";
             var confirmacao = aprovacoes.pedir("edicao", "Substituir " + nomeArquivo,
-                    "Posso substituir o original de " + nomeArquivo + "?", Aprovacoes.Risco.COMUM,
+                    pergunta, Aprovacoes.Risco.COMUM,
                     usuario, contexto.idPedido(), prazo, () ->
                             fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", editId, canal, usuario));
-            return new ResultadoFerramenta(previa + "\nPara substituir o original, confirme em NOVA mensagem: confirmo.",
+            return new ResultadoFerramenta(previa + "\n" + pergunta,
                     List.of(), List.of(), confirmacao, List.of(), List.of());
         } catch (IllegalArgumentException | IllegalStateException
                 | java.time.DateTimeException e) {

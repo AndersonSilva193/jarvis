@@ -23,7 +23,8 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
     @Override public String nome() { return "desfazer_edicao"; }
     @Override public String descricao() { return "Prepara a restauração do backup de uma edição original "
             + "pelo editId; omita-o para desfazer a última edição original concluída neste servidor. "
-            + "Exige pedido explícito do usuário e nova confirmação autenticada. "
+            + "Exige pedido explícito do usuário; devolve uma pergunta de aprovação e só restaura "
+            + "depois que ele responder que sim. "
             + "Recusa arquivo alterado após a edição. Não aceita caminho de backup."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -52,15 +53,17 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
         String nome = Json.texto(preparado.dados().path("nome"));
         String canal = contexto.canal(); long usuario = contexto.usuarioAutenticado();
         try {
+            String pergunta = "Vou restaurar " + nome + " para a versão anterior; a edição atual "
+                    + "é descartada. Posso?";
             var confirmacao = aprovacoes.pedir("desfazer_edicao", "Restaurar " + nome,
-                    "Posso restaurar " + nome + " para a versão anterior?", Aprovacoes.Risco.COMUM,
+                    pergunta, Aprovacoes.Risco.COMUM,
                     usuario, contexto.idPedido(), () ->
                     fluxo.aplicarDepoisDeConfirmar("aplicar_desfazer", editId, canal, usuario));
             return new ResultadoFerramenta("Desfazer preparado para " + nome
                     + ". Prévia:\n" + Json.texto(preparado.dados().path("previa"))
                     + (preparado.dados().path("previaTruncada").asBoolean(false)
                             ? "\nPrévia truncada." : "")
-                    + ". Confirme em NOVA mensagem: confirmo.",
+                    + "\n" + pergunta,
                     List.of(), List.of(), confirmacao, List.of(), List.of());
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResultadoFerramenta.texto("Confirmação indisponível: " + e.getMessage());

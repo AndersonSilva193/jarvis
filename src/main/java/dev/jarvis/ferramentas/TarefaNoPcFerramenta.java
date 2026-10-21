@@ -33,19 +33,20 @@ public class TarefaNoPcFerramenta implements Ferramenta {
     }
     @Override public String nome() { return "tarefa_no_pc"; }
     @Override public String descricao() {
-        if (!tarefas.disponivel()) return "Computer use indisponivel agora: desativado ou agente "
-                + "do PC offline. Nao prometa executar tarefa visual enquanto estiver indisponivel.";
-        return "Ultimo recurso para executar tarefa pela interface visual do monitor principal do PC. "
-                + "Se o usuario pediu uma acao que pode ser feita no PC e resposta direta, busca, "
-                + "criar_arquivo, rotina cadastrada ou acao fixa nao resolverem, use esta ferramenta "
-                + "para pedir confirmacao. Nao diga que falta ferramenta antes de tentar este caminho. "
-                + "A lista de apps de controlar_pc/abrir_app nao limita o uso visual do menu Iniciar. "
-                + "Descreva objetivo e mudancas permitidas em escopo curto. "
-                + "A tarefa so inicia apos nova mensagem autenticada do usuario. "
-                + "Novo pedido autenticado substitui uma confirmacao anterior ainda pendente; "
-                + "se o usuario pedir cancelamento explicito, use cancelar_tarefa_no_pc sem ID antes. "
+        if (!tarefas.disponivel()) return "Computer use indisponível agora: desativado ou agente "
+                + "do PC offline. Não prometa executar tarefa visual enquanto estiver indisponível.";
+        return "Último recurso para executar tarefa pela interface visual do monitor principal do PC. "
+                + "Se o usuário pediu uma ação que pode ser feita no PC e resposta direta, busca, "
+                + "criar_arquivo, rotina cadastrada ou ação fixa não resolverem, use esta ferramenta "
+                + "para pedir confirmação. Não diga que falta ferramenta antes de tentar este caminho. "
+                + "A lista de apps de controlar_pc/abrir_app não limita o uso visual do menu Iniciar. "
+                + "Descreva objetivo e mudanças permitidas em escopo curto. "
+                + "A ferramenta devolve uma pergunta de aprovação e a tarefa só inicia depois que o "
+                + "usuário responder que sim; não peça palavra, código nem frase exata. "
+                + "Novo pedido autenticado substitui uma confirmação anterior ainda pendente; "
+                + "se o usuário pedir cancelamento explícito, use cancelar_tarefa_no_pc sem ID antes. "
                 + "Nunca use para efetuar pagamentos, compras, inserir credenciais ou abrir shell. "
-                + "Um app ter loja nao proibe apenas abri-lo.";
+                + "Um app ter loja não proíbe apenas abri-lo.";
     }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -63,17 +64,17 @@ public class TarefaNoPcFerramenta implements Ferramenta {
         String original = contexto.pedidoOriginal();
         if (objetivo.isBlank() || objetivo.length() > 500 || original == null
                 || original.isBlank() || original.length() > 8000)
-            return ResultadoFerramenta.texto("Objetivo ou pedido original invalido.");
+            return ResultadoFerramenta.texto("Objetivo ou pedido original inválido.");
         if (acaoSensivel(original) || acaoSensivel(objetivo))
-            return ResultadoFerramenta.texto("Tarefa sensivel proibida no computer use.");
+            return ResultadoFerramenta.texto("Tarefa sensível proibida no computer use.");
         try {
             long usuario = contexto.usuarioAutenticado();
             String canal = contexto.canal();
+            String pergunta = "Vou usar o monitor principal para: " + objetivo + ". Posso?";
             var confirmacao = aprovacoes.pedir("computer", "Tarefa no monitor principal: " + objetivo,
-                    "Posso executar no monitor principal: " + objetivo + "?",
-                    Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(),
+                    pergunta, Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(),
                     () -> tarefas.iniciar(objetivo, canal, usuario));
-            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
+            return new ResultadoFerramenta(pergunta,
                     List.of(), List.of(), confirmacao, List.of(), List.of());
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             return ResultadoFerramenta.texto(recusa.getMessage());

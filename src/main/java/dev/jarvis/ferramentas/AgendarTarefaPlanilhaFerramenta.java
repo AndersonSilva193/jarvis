@@ -23,8 +23,9 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
     }
     @Override public String nome() { return "agendar_tarefa_planilha"; }
     @Override public String descricao() { return "Agenda edição recorrente de um XLSX inteiro por ID "
-            + "de listar_arquivos. Exige pedido com nome exato do arquivo e confirmação autenticada "
-            + "em nova mensagem. A tarefa localiza células sozinha; busca ambígua interrompe a execução. "
+            + "de listar_arquivos. Exige pedido com nome exato do arquivo; devolve uma pergunta de "
+            + "aprovação e só agenda depois que o usuário responder que sim. "
+            + "A tarefa localiza células sozinha; busca ambígua interrompe a execução. "
             + "substituirFormula só quando solicitado explicitamente. Cron Spring de 6 campos no fuso configurado."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -57,15 +58,17 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
             String descricao = "Autorizar edições recorrentes em todo " + nome + " (" + cron + ")"
                     + ". Instrução: " + instrucao
                     + (formula ? ", inclusive substituição de fórmulas" : "");
+            String pergunta = "Vou agendar edições recorrentes em " + nome + " (" + cron + "); elas "
+                    + "vão rodar sozinhas até o senhor cancelar. Posso?";
             var confirmacao = aprovacoes.pedir("tarefa_planilha", descricao,
-                    "Posso agendar edições recorrentes em " + nome + " (" + cron + ")?",
+                    pergunta,
                     Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(), () -> {
                         try {
                             var tarefa = tarefas.registrar(usuario, id, nome, instrucao, cron, formula);
                             return "Tarefa de planilha agendada: " + tarefa.id();
                         } catch (IOException e) { return "Não agendei a tarefa: " + e.getMessage(); }
                     });
-            return new ResultadoFerramenta(descricao + ". Confirme em NOVA mensagem: confirmo.",
+            return new ResultadoFerramenta(descricao + ". " + pergunta,
                     List.of(), List.of(), confirmacao, List.of(), List.of());
         } catch (RuntimeException e) {
             return ResultadoFerramenta.texto("Agenda inválida: " + e.getMessage());

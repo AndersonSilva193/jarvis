@@ -52,11 +52,13 @@ public class RodarRotinaFerramenta implements Ferramenta {
             return ResultadoFerramenta.texto("Pedido original ausente ou acima do limite.");
         String pedidoConfirmado = pedido;
         try {
+            String pergunta = "Vou rodar a rotina " + nome + " no seu PC; ela executa código na sua "
+                    + "máquina e eu aviso quando terminar. Posso?";
             var confirmacao = aprovacoes.pedir("rotina", "Executar rotina " + nome,
-                    "Posso executar a rotina " + nome + " no seu PC?", Aprovacoes.Risco.COMUM,
+                    pergunta, Aprovacoes.Risco.COMUM,
                     contexto.usuarioAutenticado(), contexto.idPedido(), () ->
                             iniciar(nome, pedidoConfirmado, contexto));
-            return new ResultadoFerramenta("Confirme em NOVA mensagem: confirmo. Para desistir: cancelar.",
+            return new ResultadoFerramenta(pergunta,
                     java.util.List.of(), java.util.List.of(),
                     confirmacao, java.util.List.of(), java.util.List.of());
         } catch (IllegalArgumentException | IllegalStateException recusa) {
@@ -66,7 +68,7 @@ public class RodarRotinaFerramenta implements Ferramenta {
 
     private String iniciar(String nome, String pedido, OuvinteProgresso contexto) {
         if (!e2.online() || e2.rotinas().stream().noneMatch(r -> r.nome().equals(nome)))
-            return "Agente offline ou rotina removida; nao iniciei.";
+            return "Agente offline ou rotina removida; não iniciei.";
         ObjectNode dados = json.createObjectNode().put("pedido", pedido)
                 .put("confirmado", true);
         ComandoPc comando = new ComandoPc(java.util.UUID.randomUUID().toString(),

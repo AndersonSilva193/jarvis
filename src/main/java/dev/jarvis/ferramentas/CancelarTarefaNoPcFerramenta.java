@@ -37,9 +37,9 @@ public class CancelarTarefaNoPcFerramenta implements Ferramenta {
             var cancelamento = aprovacoes.cancelarTarefaPendente(
                     contexto.usuarioAutenticado(), contexto.idPedido());
             if (cancelamento == Aprovacoes.Cancelamento.CANCELADA)
-                return ResultadoFerramenta.texto("Confirmacao pendente da tarefa cancelada. Pode pedir outra tarefa.");
+                return ResultadoFerramenta.texto("Confirmação pendente da tarefa cancelada. Pode pedir outra tarefa.");
             if (cancelamento == Aprovacoes.Cancelamento.RECUSADA)
-                return ResultadoFerramenta.texto("Confirmacao pendente so pode ser cancelada em nova mensagem autenticada.");
+                return ResultadoFerramenta.texto("Confirmação pendente só pode ser cancelada em nova mensagem autenticada.");
             var ultima = tarefas.ultima(contexto.usuarioAutenticado());
             id = ultima == null ? "" : ultima.id();
         }

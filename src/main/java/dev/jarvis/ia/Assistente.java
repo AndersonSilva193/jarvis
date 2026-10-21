@@ -216,8 +216,8 @@ public class Assistente {
                     }
                     // A pergunta repetida é montada aqui, de dado real: deixá-la ao modelo seria
                     // deixá-lo escolher o que o próximo "sim" vai significar.
-                    default -> decisaoPc = java.util.Optional.of("Só para confirmar: " + emAberto
-                            + " Responda sim ou não.");
+                    default -> decisaoPc = java.util.Optional.of("Só para confirmar, senhor: "
+                            + emAberto);
                 }
             }
             if (!notaDeAjuste.isEmpty()) turno.set(0, mensagemDoUsuario(texto + notaDeAjuste));
@@ -330,7 +330,13 @@ public class Assistente {
         return elegiveis.size() == 1 ? elegiveis.getFirst().nome() : "";
     }
 
-    /** A confirmação determina a janela de escuta, inclusive quando já expirou. */
+    /**
+     * A confirmação determina a janela de escuta, inclusive quando já expirou.
+     *
+     * <p>Sem opções: a resposta à aprovação é interpretada pelo {@code ClassificadorDeResposta},
+     * então qualquer fala vale e restringir a escuta a "confirmo"/"cancelar" só devolveria a
+     * palavra exata que a pergunta natural acabou de dispensar.
+     */
     static EscutaResposta escutaDaConfirmacao(Confirmacao confirmacao, Instant agora) {
         int segundos = 0;
         if (confirmacao.expiraEm() != null) {
@@ -341,7 +347,7 @@ public class Assistente {
                 // Prazo inválido não pode abrir uma janela de confirmação sem validade.
             }
         }
-        return new EscutaResposta(segundos, List.of("confirmo", "cancelar"), confirmacao.descricao());
+        return new EscutaResposta(segundos, List.of(), confirmacao.pergunta());
     }
 
     /** Executa uma instrução avulsa sem misturar com o histórico da conversa. */
