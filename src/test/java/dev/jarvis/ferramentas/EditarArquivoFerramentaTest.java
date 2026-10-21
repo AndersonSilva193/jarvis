@@ -166,8 +166,38 @@ class EditarArquivoFerramentaTest {
         dados.put("apelidoUnico", false);
         var ambiguo = ferramenta.executarDetalhado(pedido,
                 contexto("pedido-2", "Marque Oficina Fictícia como paga na tabela exemplo"));
-        assertTrue(ambiguo.texto().contains("Mais de uma planilha"), ambiguo.texto());
+        assertTrue(ambiguo.texto().contains("Mais de um arquivo"), ambiguo.texto());
         verify(fluxo, times(1)).aplicar(anyString(), anyString(), any(), any(), anyBoolean());
+    }
+
+    @Test void nomeFaladoValeParaMarkdownENaoSoParaPlanilha() throws Exception {
+        assertTrue(EditarArquivoFerramenta.apelidoConstaDoPedido(
+                "tira os dados da Apple do assistentes ia mais usados 2026",
+                "assistentes_ia_mais_usados_2026.md"));
+        assertFalse(EditarArquivoFerramenta.apelidoConstaDoPedido(
+                "tira os dados da Apple da lista de assistentes",
+                "assistentes_ia_mais_usados_2026.md"));
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        var dados = json.createObjectNode().put("editId", EDIT)
+                .put("nome", "assistentes_ia_mais_usados_2026.md")
+                .put("previa", "- | Apple | 4 |").put("apelidoUnico", true)
+                .put("ocorrenciasSubstituidas", 2);
+        when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
+                .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
+        aplicaDevolvendo(fluxo, "assistentes_ia_mais_usados_2026.md");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
+        var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
+                + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":"
+                + "\"substituir_todas_ocorrencias\",\"textoAtual\":\"| Apple | 4 |\\n\",\"textoNovo\":\"\"}]}");
+        assertEquals("Atualizei assistentes_ia_mais_usados_2026.md (2 trechos)."
+                + " Se quiser voltar, diga desfaz.",
+                ferramenta.executarDetalhado(pedido, contexto("pedido-1",
+                        "tira os dados da Apple do assistentes ia mais usados 2026")).texto());
+        // Apelido repetido em outro arquivo continua sendo recusado.
+        dados.put("apelidoUnico", false);
+        var ambiguo = ferramenta.executarDetalhado(pedido, contexto("pedido-2",
+                "tira os dados da Apple do assistentes ia mais usados 2026"));
+        assertTrue(ambiguo.texto().contains("Mais de um arquivo"), ambiguo.texto());
     }
 
     @Test void copiaNaoSolicitadaNemChegaAoAgente() throws Exception {

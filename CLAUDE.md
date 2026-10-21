@@ -133,7 +133,11 @@ compare-and-swap perfeito. O expurgo configurável de backups limita desfazer.
 `substituir_todas_ocorrencias` troca todas as correspondências literais, com opção
 de ignorar maiúsculas, e a prévia informa a contagem. “Esse arquivo” só referencia
 o único anexo TXT/MD da resposta anterior do mesmo usuário e canal, por dez minutos;
-nomes explícitos são comparados exatamente. Se a edição falhar, o mesmo turno não
+nomes explícitos são comparados exatamente. O **nome falado** — o nome sem extensão, como
+“assistentes ia mais usados 2026” — vale para todo formato editável, e não só para planilha;
+quem garante que ele aponta para um arquivo só é o `apelidoUnico` que o agente calcula contra o
+catálogo **inteiro**, de modo que `relatorio.md` ao lado de `relatorio.xlsx` torna o apelido
+ambíguo e a edição é recusada. Se a edição falhar, o mesmo turno não
 cria outro documento. Leituras paginadas da mesma versão podem comprovar leitura
 integral para reescrita; registros de leitura expiram em dez minutos.
 `desfazer_edicao` pode omitir `editId` para a última edição original concluída

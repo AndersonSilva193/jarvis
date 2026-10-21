@@ -58,7 +58,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
             + "Essa operação mantém cabeçalho/colunas e só inclui linhas originalmente vazias; não inclui notas existentes. "
             + "localize por ler_arquivo e recuse busca ambígua. Copie tipo e valorAnterior da leitura; "
             + "booleano usa true/false, não texto. Fórmulas não são recalculadas. "
-            + "O usuário pode indicar o nome falado sem extensão, como 'tabela exemplo' para tabela_exemplo.xlsx; "
+            + "O usuário pode indicar o nome falado sem extensão em qualquer formato, como 'tabela exemplo' "
+            + "para tabela_exemplo.xlsx ou 'assistentes ia mais usados 2026' para o .md de mesmo nome; "
             + "apelidos ambíguos são recusados. "
             + "original substitui o arquivo no mesmo pedido, guardando backup para "
             + "desfazer_edicao; copia cria arquivo novo."; }
@@ -188,13 +189,13 @@ public class EditarArquivoFerramenta implements Ferramenta {
                 Json.texto(entrada.path("id")), contexto.ultimoAnexoDeArquivo());
         if (!identificado && apelidoConstaDoPedido(contexto.pedidoOriginal(), nomeArquivo)) {
             if (!preparado.dados().path("apelidoUnico").asBoolean(false))
-                return ResultadoFerramenta.texto("Mais de uma planilha corresponde a esse nome falado. "
+                return ResultadoFerramenta.texto("Mais de um arquivo corresponde a esse nome falado. "
                         + "Peça ao usuário um detalhe para distinguir o arquivo; nenhuma edição foi feita.");
             identificado = true;
         }
         if (!identificado)
-            return ResultadoFerramenta.texto("A planilha proposta não corresponde ao nome indicado no pedido. "
-                    + "Peça ao usuário um nome que a diferencie das outras; nenhuma edição foi feita.");
+            return ResultadoFerramenta.texto("O arquivo proposto não corresponde ao nome indicado no pedido. "
+                    + "Peça ao usuário um nome que o diferencie dos outros; nenhuma edição foi feita.");
         String editId = Json.texto(preparado.dados().path("editId"));
         if (!editId.matches("[0-9a-f-]{36}")) return ResultadoFerramenta.texto("Proposta sem editId válido.");
         String previa = "Prévia de " + nomeArquivo + ":\n"
@@ -229,13 +230,21 @@ public class EditarArquivoFerramenta implements Ferramenta {
         return referencia && arquivo.equals(Normalizer.normalize(ultimoAnexo, Normalizer.Form.NFKC)
                 .toLowerCase(Locale.ROOT));
     }
+    /**
+     * O nome falado — o nome do arquivo sem a extensão — vale para todo formato editável, e não
+     * só para planilha: "tira a Apple do assistentes ia mais usados 2026" é como se fala de um
+     * .md. Quem garante que o apelido aponta para um arquivo só é o {@code apelidoUnico} da
+     * proposta, conferido contra o catálogo do agente.
+     *
+     * Pedido que traz extensão ou UUID não entra aqui: ali o usuário nomeou o arquivo, e a
+     * comparação exata de {@link #arquivoConstaDoPedido} é que decide.
+     */
     static boolean apelidoConstaDoPedido(String pedido, String nome) {
-        if (pedido == null || nome == null || !nome.toLowerCase(Locale.ROOT).endsWith(".xlsx"))
-            return false;
+        if (pedido == null || nome == null || nome.lastIndexOf('.') <= 0) return false;
         String original = Normalizer.normalize(pedido, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
         if (original.matches("(?s).*\\.(?:md|txt|json|xlsx)\\b.*")
                 || original.matches("(?s).*[0-9a-f]{8}-[0-9a-f-]{27,}.*")) return false;
-        String apelido = nomeFalado(nome.substring(0, nome.length() - 5));
+        String apelido = nomeFalado(nome.substring(0, nome.lastIndexOf('.')));
         return apelido.length() >= 5 && (" " + nomeFalado(pedido) + " ")
                 .contains(" " + apelido + " ");
     }
