@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import org.springframework.stereotype.Service;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.ferramentas.ResultadoFerramenta;
@@ -15,7 +16,6 @@ import dev.jarvis.telegram.TelegramClient;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 /** Usa o E2 para preparar e aplicar edições, sem aceitar caminhos enviados pelo modelo. */
 @Service
@@ -44,21 +44,53 @@ public class FluxoEdicaoPc {
         }
     }
 
-    public String aplicarDepoisDeConfirmar(String acao, String editId, String canal, long usuario) {
-        return aplicarDepoisDeConfirmar(acao, editId, canal, usuario, true);
-    }
-
-    public String aplicarDepoisDeConfirmar(String acao, String editId, String canal,
-            long usuario, boolean original) {
-        if (!operacoes.online()) return "Agente do PC offline; edição não iniciada.";
+    /**
+     * Aplica a proposta já preparada e espera o resultado. O comando leva só o {@code editId}:
+     * caminho e conteúdo ficam no agente, que revalida o hash antes do move atômico.
+     *
+     * Espera em vez de enfileirar e sair porque a frase que volta afirma o que foi feito —
+     * responder "atualizei" antes do PC confirmar deixaria o Jarvis prometendo o que ainda pode
+     * falhar. É também o que deixa a edição já {@code concluído} para um "desfaz" na sequência.
+     *
+     * @param sucesso monta o texto a partir do nome que o agente devolveu.
+     * @param original só a sobrescrita do original vira alvo de {@link #ultimaEdicaoConcluida}:
+     *                 cópia é arquivo novo e não tem versão anterior para onde voltar.
+     */
+    public ResultadoFerramenta aplicar(String acao, String editId, OuvinteProgresso contexto,
+            UnaryOperator<String> sucesso, boolean original) throws Exception {
+        if (!operacoes.online())
+            return ResultadoFerramenta.texto("Agente do PC offline; edição não iniciada.");
         ComandoPc comando = novo(acao, json.createObjectNode().put("editId", editId));
+        ResultadoPc resultado;
         try {
-            operacoes.enfileirar(comando, Duration.ofSeconds(30), Duration.ofMinutes(2), canal, usuario);
-            operacoes.pedirAviso(comando.id());
+            var futuro = operacoes.enfileirar(comando, Duration.ofSeconds(30),
+                    Duration.ofMinutes(2), contexto.canal(), contexto.usuarioAutenticado());
             if ("aplicar_edicao".equals(acao) && original)
-                ultimasEdicoes.put(usuario, new UltimaEdicao(editId, comando.id()));
-            return "Edição autorizada. Avisarei o resultado e entregarei o arquivo.";
-        } catch (RuntimeException e) { return "Não iniciei a edição: " + e.getMessage(); }
+                ultimasEdicoes.put(contexto.usuarioAutenticado(),
+                        new UltimaEdicao(editId, comando.id()));
+            resultado = futuro.get(55, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            operacoes.pedirAviso(comando.id());
+            return ResultadoFerramenta.texto("Ainda em andamento; avisarei o resultado.");
+        } catch (RuntimeException e) {
+            return ResultadoFerramenta.texto("Não apliquei: " + e.getMessage());
+        }
+        if (!resultado.ok())
+            return ResultadoFerramenta.texto("Não apliquei: " + resultado.mensagem());
+        String nome = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
+        if (!resultado.arquivo()) return ResultadoFerramenta.texto(sucesso.apply(nome)
+                + " Salvo, mas a entrega do arquivo falhou.");
+        var arquivo = arquivos.obter(comando.id());
+        if (arquivo.isEmpty()) return ResultadoFerramenta.texto(sucesso.apply(nome)
+                + " Salvo, mas a entrega do arquivo falhou.");
+        String aviso = "";
+        if ("telegram".equals(contexto.canal()) && contexto.usuarioAutenticado() > 0)
+            try { telegram.enviarDocumento(contexto.usuarioAutenticado(),
+                    Files.readAllBytes(arquivo.get()), nome); }
+            catch (Exception e) { aviso = " Entrega pelo Telegram falhou; consulte o anexo na HUD."; }
+        return new ResultadoFerramenta(sucesso.apply(nome) + aviso,
+                List.of(new ResultadoFerramenta.Artefato(arquivo.get(), nome, mime(nome))),
+                List.of(), null, List.of(), List.of());
     }
 
     public Optional<String> ultimaEdicaoConcluida(long usuario) {
@@ -67,38 +99,6 @@ public class FluxoEdicaoPc {
         var estado = operacoes.estado(ultima.comandoId()).orElse(null);
         return estado != null && "concluído".equals(estado.estado())
                 ? Optional.of(ultima.editId()) : Optional.empty();
-    }
-
-    public ResultadoFerramenta aplicarCopia(String editId, OuvinteProgresso contexto,
-            String previa) throws Exception {
-        ComandoPc comando = novo("aplicar_edicao", json.createObjectNode().put("editId", editId));
-        ResultadoPc resultado;
-        try {
-            resultado = operacoes.enfileirar(comando, Duration.ofSeconds(30), Duration.ofMinutes(2),
-                    contexto.canal(), contexto.usuarioAutenticado()).get(55, TimeUnit.SECONDS);
-        } catch (java.util.concurrent.TimeoutException e) {
-            operacoes.pedirAviso(comando.id());
-            return ResultadoFerramenta.texto(previa
-                    + "\nCriação da cópia em andamento; avisarei o resultado.");
-        }
-        if (!resultado.ok()) return ResultadoFerramenta.texto(previa + "\nCópia não criada: " + resultado.mensagem());
-        if (!resultado.arquivo()) {
-            String nome = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
-            return ResultadoFerramenta.texto(previa + "\nCópia criada: " + nome
-                    + "; salvo, entrega falhou.");
-        }
-        var arquivo = arquivos.obter(comando.id());
-        if (arquivo.isEmpty()) return ResultadoFerramenta.texto(previa + "\nCópia criada: "
-                + resultado.mensagem() + "; salvo, entrega falhou.");
-        String nome = resultado.mensagem();
-        String aviso = "";
-        if ("telegram".equals(contexto.canal()) && contexto.usuarioAutenticado() > 0)
-            try { telegram.enviarDocumento(contexto.usuarioAutenticado(), Files.readAllBytes(arquivo.get()), nome); }
-            catch (Exception e) { aviso = " Entrega pelo Telegram falhou; consulte o anexo na HUD."; }
-        return new ResultadoFerramenta(previa + "\nCópia criada: " + nome + "." + aviso,
-                List.of(new ResultadoFerramenta.Artefato(arquivo.get(), nome,
-                        mime(nome))),
-                List.of(), null, List.of(), List.of());
     }
 
     private ComandoPc novo(String acao, JsonNode dados) {

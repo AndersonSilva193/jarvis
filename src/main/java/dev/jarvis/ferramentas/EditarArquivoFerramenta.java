@@ -2,14 +2,12 @@ package dev.jarvis.ferramentas;
 
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.pc.FluxoEdicaoPc;
-import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.pc.TarefasPlanilhaService;
 import dev.jarvis.util.Json;
@@ -21,28 +19,27 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class EditarArquivoFerramenta implements Ferramenta {
     private final FluxoEdicaoPc fluxo;
-    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
     private final int maxBytes;
     private final int maxOperacoes;
     private final TarefasPlanilhaService tarefas;
     @org.springframework.beans.factory.annotation.Autowired
-    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json,
+    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, JsonMapper json,
             JarvisProperties props, TarefasPlanilhaService tarefas) {
-        this(fluxo, aprovacoes, json,
+        this(fluxo, json,
                 props.pc() == null ? 1024 * 1024 : props.pc().edicaoMaxBytes(),
                 props.pc() == null ? 10 : props.pc().edicaoMaxOperacoes(), tarefas);
     }
-    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json) {
-        this(fluxo, aprovacoes, json, 1024 * 1024, 10, null);
+    public EditarArquivoFerramenta(FluxoEdicaoPc fluxo, JsonMapper json) {
+        this(fluxo, json, 1024 * 1024, 10, null);
     }
-    EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json,
+    EditarArquivoFerramenta(FluxoEdicaoPc fluxo, JsonMapper json,
             TarefasPlanilhaService tarefas) {
-        this(fluxo, aprovacoes, json, 1024 * 1024, 10, tarefas);
+        this(fluxo, json, 1024 * 1024, 10, tarefas);
     }
-    private EditarArquivoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json,
+    private EditarArquivoFerramenta(FluxoEdicaoPc fluxo, JsonMapper json,
             int maxBytes, int maxOperacoes, TarefasPlanilhaService tarefas) {
-        this.fluxo = fluxo; this.aprovacoes = aprovacoes; this.json = json; this.tarefas = tarefas;
+        this.fluxo = fluxo; this.json = json; this.tarefas = tarefas;
         this.maxBytes = Math.clamp(maxBytes, 1, 8 * 1024 * 1024);
         this.maxOperacoes = Math.clamp(maxOperacoes, 1, 50);
     }
@@ -63,8 +60,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
             + "booleano usa true/false, não texto. Fórmulas não são recalculadas. "
             + "O usuário pode indicar o nome falado sem extensão, como 'tabela exemplo' para tabela_exemplo.xlsx; "
             + "apelidos ambíguos são recusados. "
-            + "original devolve uma pergunta de aprovação e só substitui depois que o usuário "
-            + "responder que sim; copia cria arquivo novo."; }
+            + "original substitui o arquivo no mesmo pedido, guardando backup para "
+            + "desfazer_edicao; copia cria arquivo novo."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         ObjectNode p = raiz.putObject("properties");
@@ -207,44 +204,18 @@ public class EditarArquivoFerramenta implements Ferramenta {
                 + (Json.numero(preparado.dados().path("ocorrenciasSubstituidas")) > 0
                         ? "\nOcorrências substituídas: "
                             + Json.numero(preparado.dados().path("ocorrenciasSubstituidas")) + "." : "");
-        if (simplificar) {
-            String canalCopia = contexto.canal(); long usuarioCopia = contexto.usuarioAutenticado();
-            try {
-                Instant prazo = Instant.parse(Json.texto(preparado.dados().path("expiraEm")))
-                        .minusSeconds(30);
-                String pergunta = "Vou criar uma cópia simplificada de " + nomeArquivo
-                        + "; o original fica como está e a cópia perde o que a prévia indica. Posso?";
-                var confirmacao = aprovacoes.pedir("copia_simplificada",
-                        "Criar cópia simplificada de " + nomeArquivo,
-                        pergunta, Aprovacoes.Risco.COMUM, usuarioCopia,
-                        contexto.idPedido(), prazo, () -> fluxo.aplicarDepoisDeConfirmar(
-                                "aplicar_edicao", editId, canalCopia, usuarioCopia, false));
-                return new ResultadoFerramenta(previa + "\n" + pergunta,
-                        List.of(), List.of(), confirmacao, List.of(), List.of());
-            } catch (IllegalArgumentException | IllegalStateException | java.time.DateTimeException e) {
-                return ResultadoFerramenta.texto(previa + "\nConfirmação indisponível: " + e.getMessage());
-            }
-        }
+        // A cópia é arquivo novo e não se desfaz, então a prévia continua indo ao modelo. Na
+        // sobrescrita do original ela não decide mais nada — o backup do agente é que garante a
+        // volta —, e o que volta é só a frase curta.
         if ("copia".equals(Json.texto(entrada.path("destino"))))
-            return fluxo.aplicarCopia(editId, contexto, previa);
-        String canal = contexto.canal(); long usuario = contexto.usuarioAutenticado();
-        if (automatica) return ResultadoFerramenta.texto(previa + "\n"
-                + fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", editId, canal, usuario));
-        try {
-            Instant prazo = Instant.parse(Json.texto(preparado.dados().path("expiraEm")))
-                    .minusSeconds(30);
-            String pergunta = "Vou substituir o original de " + nomeArquivo + " pela versão nova; "
-                    + "o conteúdo atual sai do arquivo, mas dá para desfazer. Posso?";
-            var confirmacao = aprovacoes.pedir("edicao", "Substituir " + nomeArquivo,
-                    pergunta, Aprovacoes.Risco.COMUM,
-                    usuario, contexto.idPedido(), prazo, () ->
-                            fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", editId, canal, usuario));
-            return new ResultadoFerramenta(previa + "\n" + pergunta,
-                    List.of(), List.of(), confirmacao, List.of(), List.of());
-        } catch (IllegalArgumentException | IllegalStateException
-                | java.time.DateTimeException e) {
-            return ResultadoFerramenta.texto(previa + "\nConfirmação indisponível: " + e.getMessage());
-        }
+            return fluxo.aplicar("aplicar_edicao", editId, contexto,
+                    nome -> previa + "\nCópia criada: " + nome + ".", false);
+        long ocorrencias = Json.numero(preparado.dados().path("ocorrenciasSubstituidas"));
+        long trechos = ocorrencias > 0 ? ocorrencias : entrada.path("operacoes").size();
+        return fluxo.aplicar("aplicar_edicao", editId, contexto,
+                nome -> "Atualizei " + nome + " (" + trechos
+                        + (trechos == 1 ? " trecho" : " trechos")
+                        + "). Se quiser voltar, diga desfaz.", true);
     }
     static boolean arquivoConstaDoPedido(String pedido, String nome, String id, String ultimoAnexo) {
         String texto = Normalizer.normalize(pedido, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);

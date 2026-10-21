@@ -3,10 +3,10 @@ package dev.jarvis.ferramentas;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.FluxoEdicaoPc;
-import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.pc.TarefasPlanilhaService;
 import tools.jackson.databind.json.JsonMapper;
@@ -17,12 +17,23 @@ class EditarArquivoFerramentaTest {
     private static final String EDIT = "22222222-2222-2222-2222-222222222222";
     private static final String HASH = "a".repeat(64);
 
+    /**
+     * Faz o {@code aplicar} devolver o que o lambda da ferramenta monta. É o que deixa o teste
+     * conferir a frase real que chega ao modelo, e não só a chamada.
+     */
+    @SuppressWarnings("unchecked")
+    private void aplicaDevolvendo(FluxoEdicaoPc fluxo, String nome) throws Exception {
+        when(fluxo.aplicar(anyString(), anyString(), any(), any(), anyBoolean())).thenAnswer(
+                chamada -> ResultadoFerramenta.texto(
+                        ((UnaryOperator<String>) chamada.getArgument(3)).apply(nome)));
+    }
+
     @Test void errosEstruturadosNaoGeramConfirmacaoNemRepeticao() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
         var diagnostico = json.createObjectNode().put("codigoErro", "POSICAO_DIVERGENTE");
         when(fluxo.preparar(eq("preparar_edicao"), any(), any())).thenReturn(
                 new ResultadoPc(ID, false, "posição da nova linha divergente; linha esperada 10", null, null, false, diagnostico));
-        var ferramenta = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json);
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.createObjectNode().put("id", ID).put("versaoEsperada", HASH).put("destino", "original");
         pedido.putArray("operacoes").addObject().put("tipo", "acrescentar_linha").put("aba", "Academias").put("linhaEsperada", 4);
         var resultado = ferramenta.executarDetalhado(pedido, contexto("novo", "adicione na tabela exemplo"));
@@ -36,25 +47,24 @@ class EditarArquivoFerramentaTest {
                 .texto().contains("consulte o estado"));
     }
 
-    @Test void expansaoDeFiltroUsaPropostaImutavelEConfirmacaoExistentes() throws Exception {
+    @Test void expansaoDeFiltroUsaPropostaImutavelDoAgente() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
         var dados = json.createObjectNode().put("editId", EDIT).put("nome", "tabela_exemplo.xlsx")
                 .put("apelidoUnico", true).put("previa", "Academias!A4 (vazio → texto): null → academia; filtro A1:H3 → A1:H4")
                 .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString());
         when(fluxo.preparar(eq("preparar_edicao"), any(), any())).thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
-        when(fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42L)).thenReturn("iniciada");
-        var aprovacoes = new Aprovacoes();
-        var ferramenta = new EditarArquivoFerramenta(fluxo, aprovacoes, json);
+        aplicaDevolvendo(fluxo, "tabela_exemplo.xlsx");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.createObjectNode().put("id", ID).put("versaoEsperada", HASH).put("destino", "original");
         var ops = pedido.putArray("operacoes");
         ops.addObject().put("tipo", "preencher_celula_vazia").put("aba", "Academias").put("celula", "A4")
                 .put("tipoAnterior", "vazio").putNull("valorAnterior").put("tipoNovo", "texto").put("valorNovo", "academia");
         ops.addObject().put("tipo", "expandir_filtro").put("aba", "Academias").put("intervaloAnterior", "A1:H3").put("intervaloNovo", "A1:H4");
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "adicione academia na tabela exemplo"));
-        assertNotNull(resultado.confirmacao());
-        assertTrue(resultado.texto().contains("A1:H4"));
-        assertEquals("iniciada", aprovacoes.tratar("confirmo", 42, "segundo").orElseThrow());
-        verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42L);
+        assertNull(resultado.confirmacao());
+        assertEquals("Atualizei tabela_exemplo.xlsx (2 trechos). Se quiser voltar, diga desfaz.",
+                resultado.texto());
+        verify(fluxo).aplicar(eq("aplicar_edicao"), eq(EDIT), any(), any(), eq(true));
         var esquema = ferramenta.esquemaEntrada().path("properties").path("operacoes").path("items");
         assertTrue(esquema.path("properties").path("tipo").path("enum").toString().contains("expandir_filtro"));
         assertTrue(esquema.path("allOf").toString().contains("intervaloAnterior"));
@@ -71,7 +81,7 @@ class EditarArquivoFerramentaTest {
             @Override public String ultimoAnexoDeArquivo() { return ultimoAnexo; }
         };
     }
-    @Test void confirmacaoUsaEditIdDaPropostaSemRepassarOperacoes() throws Exception {
+    @Test void aplicacaoUsaEditIdDaPropostaSemRepassarOperacoes() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
         var dados = json.createObjectNode().put("editId", EDIT).put("nome", "nota.md")
                 .put("previa", "- velho\n+ novo").put("versaoAnterior", HASH)
@@ -79,22 +89,17 @@ class EditarArquivoFerramentaTest {
                 .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString());
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
-        when(fluxo.aplicarDepoisDeConfirmar(eq("aplicar_edicao"), eq(EDIT), eq("telegram"), eq(42L)))
-                .thenReturn("iniciada");
-        Aprovacoes aprovacoes = new Aprovacoes();
-        var ferramenta = new EditarArquivoFerramenta(fluxo, aprovacoes, json);
+        aplicaDevolvendo(fluxo, "nota.md");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "acrescente x em nota.md"));
-        assertNotNull(resultado.confirmacao());
-        assertEquals("Vou substituir o original de nota.md pela versão nova; o conteúdo atual sai do "
-                + "arquivo, mas dá para desfazer. Posso?", resultado.confirmacao().pergunta());
-        assertTrue(resultado.texto().endsWith(resultado.confirmacao().pergunta()),
-                "a pergunta vem depois da prévia: " + resultado.texto());
-        verify(fluxo, never()).aplicarDepoisDeConfirmar(anyString(), anyString(), anyString(), anyLong());
-        assertEquals("iniciada", aprovacoes.tratar("confirmo", 42, "segundo").orElseThrow());
-        verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42);
-        assertTrue(aprovacoes.tratar("confirmo", 42, "terceiro").orElseThrow().contains("Não há"));
+        assertNull(resultado.confirmacao());
+        assertEquals("Atualizei nota.md (1 trecho). Se quiser voltar, diga desfaz.", resultado.texto());
+        assertFalse(resultado.texto().contains(EDIT));
+        assertFalse(resultado.texto().contains(HASH));
+        // Só o editId atravessa: o comando de aplicação não leva operação nem conteúdo.
+        verify(fluxo).aplicar(eq("aplicar_edicao"), eq(EDIT), any(), any(), eq(true));
     }
 
     @Test void esseArquivoUsaSomenteOAnexoAnteriorCorrespondente() throws Exception {
@@ -105,14 +110,16 @@ class EditarArquivoFerramentaTest {
                 .put("ocorrenciasSubstituidas", 3);
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
-        var ferramenta = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json);
+        aplicaDevolvendo(fluxo, "relatorio.md");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"substituir_todas_ocorrencias\",\"textoAtual\":\"Chat GPT\",\"textoNovo\":\"você\",\"ignorarMaiusculas\":true}]}");
 
         var aceito = ferramenta.executarDetalhado(pedido,
                 contexto("pedido-1", "edite esse arquivo onde tiver Chat GPT", "relatorio.md"));
-        assertNotNull(aceito.confirmacao());
-        assertTrue(aceito.texto().contains("Ocorrências substituídas: 3"));
+        // A contagem vem das ocorrências que o agente substituiu, não do número de operações.
+        assertEquals("Atualizei relatorio.md (3 trechos). Se quiser voltar, diga desfaz.",
+                aceito.texto());
         assertFalse(aceito.texto().contains(EDIT));
         assertFalse(aceito.texto().contains(HASH));
 
@@ -147,23 +154,25 @@ class EditarArquivoFerramentaTest {
                 .put("apelidoUnico", true);
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
-        var ferramenta = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json);
+        aplicaDevolvendo(fluxo, "tabela_exemplo.xlsx");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"atualizar_celula\","
                 + "\"aba\":\"Clientes\",\"celula\":\"E3\",\"tipoAnterior\":\"booleano\","
                 + "\"valorAnterior\":false,\"tipoNovo\":\"booleano\",\"valorNovo\":true}]}");
         var contexto = contexto("pedido-1", "Marque Oficina Fictícia como paga na tabela exemplo");
-        assertNotNull(ferramenta.executarDetalhado(pedido, contexto).confirmacao());
+        assertTrue(ferramenta.executarDetalhado(pedido, contexto).texto()
+                .startsWith("Atualizei tabela_exemplo.xlsx"));
         dados.put("apelidoUnico", false);
-        var ambiguo = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json)
-                .executarDetalhado(pedido, contexto("pedido-2", "Marque Oficina Fictícia como paga na tabela exemplo"));
+        var ambiguo = ferramenta.executarDetalhado(pedido,
+                contexto("pedido-2", "Marque Oficina Fictícia como paga na tabela exemplo"));
         assertTrue(ambiguo.texto().contains("Mais de uma planilha"), ambiguo.texto());
-        assertNull(ambiguo.confirmacao());
+        verify(fluxo, times(1)).aplicar(anyString(), anyString(), any(), any(), anyBoolean());
     }
 
     @Test void copiaNaoSolicitadaNemChegaAoAgente() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
-        var ferramenta = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json);
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"copia\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
         var resultado = ferramenta.executarDetalhado(pedido,
@@ -179,15 +188,15 @@ class EditarArquivoFerramentaTest {
                 .put("versaoProposta", "b".repeat(64));
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
-        var ferramenta = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json);
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"acrescentar_ao_final\",\"texto\":\"x\"}]}");
         var resultado = ferramenta.executarDetalhado(pedido, contexto("primeiro", "acrescente x em nota.md"));
         assertTrue(resultado.texto().contains("não corresponde"));
-        verify(fluxo, never()).aplicarCopia(anyString(), any(), anyString());
+        verify(fluxo, never()).aplicar(anyString(), anyString(), any(), any(), anyBoolean());
     }
 
-    @Test void tarefaAutorizadaAplicaSemNovaConfirmacao() throws Exception {
+    @Test void tarefaAutorizadaAplicaDireto() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
         TarefasPlanilhaService tarefas = mock(TarefasPlanilhaService.class);
         var dados = json.createObjectNode().put("editId", EDIT).put("nome", "dados.xlsx")
@@ -195,7 +204,8 @@ class EditarArquivoFerramentaTest {
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
         when(tarefas.autorizada("tarefa-1", 42, ID, "dados.xlsx", false)).thenReturn(true);
-        var ferramenta = new EditarArquivoFerramenta(fluxo, new Aprovacoes(), json, tarefas);
+        aplicaDevolvendo(fluxo, "dados.xlsx");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json, tarefas);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"original\",\"operacoes\":[{\"tipo\":\"atualizar_celula\","
                 + "\"aba\":\"Dados\",\"celula\":\"A2\",\"tipoAnterior\":\"numero\","
@@ -208,32 +218,29 @@ class EditarArquivoFerramentaTest {
             @Override public String idTarefaPlanilha() { return "tarefa-1"; }
         };
         assertNull(ferramenta.executarDetalhado(pedido, contexto).confirmacao());
-        verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "tarefa", 42);
+        verify(fluxo).aplicar(eq("aplicar_edicao"), eq(EDIT), eq(contexto), any(), eq(true));
     }
 
-    @Test void copiaSimplificadaSemprePedeConfirmacaoDaExecucao() throws Exception {
+    @Test void copiaSimplificadaCriaArquivoNovoSemAprovacao() throws Exception {
         FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
-        when(fluxo.aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42, false))
-                .thenReturn("iniciada");
         var dados = json.createObjectNode().put("editId", EDIT).put("nome", "dados.xlsx")
                 .put("previa", "Cópia simplificada: 1 gráfico será omitido")
                 .put("expiraEm", java.time.Instant.now().plusSeconds(120).toString());
         when(fluxo.preparar(eq("preparar_edicao"), any(), any()))
                 .thenReturn(new ResultadoPc(ID, true, "ok", null, null, false, dados));
-        var aprovacoes = new Aprovacoes();
-        var ferramenta = new EditarArquivoFerramenta(fluxo, aprovacoes, json);
+        aplicaDevolvendo(fluxo, "dados-simplificado.xlsx");
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json);
         var pedido = json.readTree("{\"id\":\"" + ID + "\",\"versaoEsperada\":\"" + HASH
                 + "\",\"destino\":\"copia\",\"simplificar\":true,\"operacoes\":[{\"tipo\":\"inserir_linha\","
                 + "\"aba\":\"Dados\",\"linha\":2}]}");
         var resultado = ferramenta.executarDetalhado(pedido,
                 contexto("pedido-1", "insira uma linha em dados.xlsx"));
-        assertNotNull(resultado.confirmacao());
-        assertEquals("Vou criar uma cópia simplificada de dados.xlsx; o original fica como está e a "
-                + "cópia perde o que a prévia indica. Posso?", resultado.confirmacao().pergunta());
-        assertTrue(resultado.texto().endsWith(resultado.confirmacao().pergunta()),
-                "a pergunta vem depois da prévia: " + resultado.texto());
-        verify(fluxo, never()).aplicarDepoisDeConfirmar(anyString(), anyString(), anyString(), anyLong(), anyBoolean());
-        aprovacoes.tratar("confirmo", 42, "pedido-2");
-        verify(fluxo).aplicarDepoisDeConfirmar("aplicar_edicao", EDIT, "telegram", 42, false);
+        assertNull(resultado.confirmacao());
+        // A cópia não se desfaz, então a prévia continua indo ao modelo — e ela não entra em
+        // ultimasEdicoes, o que é o `false` do último argumento.
+        assertTrue(resultado.texto().contains("1 gráfico será omitido"), resultado.texto());
+        assertTrue(resultado.texto().endsWith("Cópia criada: dados-simplificado.xlsx."),
+                resultado.texto());
+        verify(fluxo).aplicar(eq("aplicar_edicao"), eq(EDIT), any(), any(), eq(false));
     }
 }

@@ -1,30 +1,26 @@
 package dev.jarvis.ferramentas;
 
-import java.util.List;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.FluxoEdicaoPc;
-import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-/** Restaura somente backup conhecido de edição original, após confirmação autenticada. */
+/** Restaura somente backup conhecido de edição original, por pedido explícito do usuário. */
 @Component
 public class DesfazerEdicaoFerramenta implements Ferramenta {
     private final FluxoEdicaoPc fluxo;
-    private final Aprovacoes aprovacoes;
     private final JsonMapper json;
-    public DesfazerEdicaoFerramenta(FluxoEdicaoPc fluxo, Aprovacoes aprovacoes, JsonMapper json) {
-        this.fluxo = fluxo; this.aprovacoes = aprovacoes; this.json = json;
+    public DesfazerEdicaoFerramenta(FluxoEdicaoPc fluxo, JsonMapper json) {
+        this.fluxo = fluxo; this.json = json;
     }
     @Override public String nome() { return "desfazer_edicao"; }
-    @Override public String descricao() { return "Prepara a restauração do backup de uma edição original "
+    @Override public String descricao() { return "Restaura o backup de uma edição original "
             + "pelo editId; omita-o para desfazer a última edição original concluída neste servidor. "
-            + "Exige pedido explícito do usuário; devolve uma pergunta de aprovação e só restaura "
-            + "depois que ele responder que sim. "
+            + "Exige pedido explícito do usuário. "
             + "Recusa arquivo alterado após a edição. Não aceita caminho de backup."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -44,29 +40,15 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
                         .matches("(?s).*(desfa[cç]|desfazer|restaur|revert).*(edi[cç]|arquivo|altera[cç]|vers[aã]o).*"))
             return ResultadoFerramenta.texto("Desfazer requer pedido explícito e uma edição original "
                     + "concluída neste servidor. Para outra edição, informe o ID técnico.");
+        // A preparação é o que confere que o backup existe e que o arquivo não mudou depois da
+        // edição; só o editId atravessa, e o caminho do backup nunca sai do agente.
         ResultadoPc preparado;
         try { preparado = fluxo.preparar("preparar_desfazer",
                 json.createObjectNode().put("editId", editId), contexto); }
         catch (IllegalStateException e) { return ResultadoFerramenta.texto(e.getMessage()); }
         if (!preparado.ok() || preparado.dados() == null)
             return ResultadoFerramenta.texto("Não preparei o desfazer: " + preparado.mensagem());
-        String nome = Json.texto(preparado.dados().path("nome"));
-        String canal = contexto.canal(); long usuario = contexto.usuarioAutenticado();
-        try {
-            String pergunta = "Vou restaurar " + nome + " para a versão anterior; a edição atual "
-                    + "é descartada. Posso?";
-            var confirmacao = aprovacoes.pedir("desfazer_edicao", "Restaurar " + nome,
-                    pergunta, Aprovacoes.Risco.COMUM,
-                    usuario, contexto.idPedido(), () ->
-                    fluxo.aplicarDepoisDeConfirmar("aplicar_desfazer", editId, canal, usuario));
-            return new ResultadoFerramenta("Desfazer preparado para " + nome
-                    + ". Prévia:\n" + Json.texto(preparado.dados().path("previa"))
-                    + (preparado.dados().path("previaTruncada").asBoolean(false)
-                            ? "\nPrévia truncada." : "")
-                    + "\n" + pergunta,
-                    List.of(), List.of(), confirmacao, List.of(), List.of());
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            return ResultadoFerramenta.texto("Confirmação indisponível: " + e.getMessage());
-        }
+        return fluxo.aplicar("aplicar_desfazer", editId, contexto,
+                nome -> "Voltei " + nome + " para a versão anterior.", false);
     }
 }

@@ -119,9 +119,14 @@ colidindo com janela que ainda está na tela.
 
 Edição de arquivos comuns: `editar_arquivo` aceita apenas IDs catalogados de TXT/MD,
 `versaoEsperada` SHA-256 e operações fechadas. A proposta é preparada no agente,
-com prévia e `editId`. Sobrescrita do original e `desfazer_edicao` passam por
-`Aprovacoes` em nova mensagem autenticada; o commit recebe apenas `editId`, nunca
-caminho ou conteúdo refeito pelo modelo. Cópia é criada no mesmo pedido após a prévia.
+com prévia e `editId`. Dentro da `pastaArquivos`, sobrescrita do original, cópia e
+`desfazer_edicao` são aplicadas **no mesmo pedido, sem `Aprovacoes`**: o agente guarda backup
+protegido de cada versão, então nada ali é irreversível — e um "Posso?" por edição, mais outro
+para voltar atrás, era atrito sem contrapartida. O `FluxoEdicaoPc.aplicar` **espera** o resultado
+antes de responder, porque a frase que volta afirma o que foi feito ("Atualizei nota.md (2
+trechos). Se quiser voltar, diga desfaz."), e é isso que deixa a edição já concluída para um
+"desfaz" na sequência; o commit recebe apenas `editId`, nunca caminho ou conteúdo refeito pelo
+modelo. A prévia segue indo ao modelo na cópia, que não se desfaz.
 O agente guarda backup protegido, revalida hash antes do move atômico e recusa
 conflitos. A janela residual contra editores externos sem lock impede prometer
 compare-and-swap perfeito. O expurgo configurável de backups limita desfazer.
