@@ -30,7 +30,20 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento",
             "modo_repouso", "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo",
             "rodar_rotina", "computer_acao", "preparar_edicao", "aplicar_edicao",
-            "preparar_desfazer", "aplicar_desfazer");
+            "preparar_desfazer", "aplicar_desfazer",
+            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira");
+
+    /**
+     * As três da lixeira: levam o pedido todo em {@code dados} e respondem em {@code dados}.
+     *
+     * <p>Conjunto nomeado, e não três literais repetidos, porque são <b>dois</b> portões
+     * conferindo a mesma coisa — o {@code PcController} no caminho E2 e o {@code PcService} no
+     * caminho antigo. Ação que responda estruturado e fique fora de um dos dois recebe 400 para
+     * sempre, e como o replay do resultado é a primeira coisa do laço do agente, ele travaria
+     * inteiro.
+     */
+    public static final Set<String> LIXEIRA = Set.of("mover_para_lixeira", "restaurar_da_lixeira",
+            "listar_lixeira");
 
     /** As irreversíveis, que exigem aprovação {@code CRITICO} em nova mensagem autenticada. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

@@ -370,6 +370,7 @@ class ControlarPcFerramentaTest {
         for (String acao : ComandoPc.ACOES) {
             if ("criar_arquivo".equals(acao) || "rodar_rotina".equals(acao)
                     || "computer_acao".equals(acao)
+                    || ComandoPc.LIXEIRA.contains(acao)
                     || java.util.List.of("preparar_edicao", "aplicar_edicao",
                             "preparar_desfazer", "aplicar_desfazer").contains(acao)) continue; // ferramentas próprias
             assertTrue(comApps.contains(acao), "ação '" + acao + "' fora do enum");

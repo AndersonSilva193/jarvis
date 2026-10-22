@@ -143,6 +143,33 @@ integral para reescrita; registros de leitura expiram em dez minutos.
 `desfazer_edicao` pode omitir `editId` para a última edição original concluída
 enquanto a instância do servidor permanecer ativa.
 
+**Apagar é reversível, e por isso mesmo pergunta.** `apagar_arquivo` recebe só o ID do catálogo e
+move o arquivo para a lixeira do agente (`<pastaArquivos>/.lixeira/AAAA-MM-DD/`, registro mais
+bytes); `restaurar_arquivo` lista a lixeira quando não recebe `idLixeira` e devolve o arquivo à
+pasta quando recebe. A assimetria é de propósito: apagar é o único caminho pelo qual um arquivo
+**sai de vista**, e isso vale um "Posso?" (`Aprovacoes`, risco `COMUM`); restaurar só desfaz o que
+o usuário mandou apagar e nunca sobrescreve — o agente renomeia para `nome-1.ext` e avisa qual nome
+usou —, então cobrar outra confirmação para voltar atrás seria o mesmo atrito sem contrapartida do
+`desfazer_edicao`.
+
+A pergunta é montada em Java **do nome que o catálogo do agente devolveu**, não do que o modelo
+escreveu: o `LixeiraPcService.nomePorId` varre `listar_arquivos` por página (50 por vez, teto de
+10) até achar o ID. Aceitar o nome do modelo deixaria ele nomear um arquivo e apagar outro, com o
+"sim" do usuário valendo para algo que ele não leu. ID fora do catálogo é recusado **antes** de
+abrir pendência — ninguém deve responder "Posso?" sobre um arquivo que não existe.
+
+A restauração devolve um **ID de catálogo novo**, porque a entrada antiga saiu do catálogo no
+movimento: proposta de edição e registro de leitura com o ID velho morreram junto. A retenção é
+política do PC (`lixeira.diasRetencao`, padrão 30), e o expurgo roda lá — a VPS não a consulta, e
+é por isso que a frase promete "30 dias" fixo.
+
+Ação nova de PC toca **quatro** lugares, e esquecer um deles falha calado: `ComandoPc.ACOES`, o
+filtro do enum em `ControlarPcFerramenta.esquemaEntrada` (senão ela aparece duas vezes ao modelo),
+e os dois portões de `dados` — `PcController` no caminho E2 e `PcService.concluir` no antigo. Fora
+de um dos portões, o resultado estruturado volta 400 para sempre; como o replay do resultado é a
+primeira coisa do laço do agente, ele travaria inteiro. É o que o conjunto `ComandoPc.LIXEIRA`
+existe para não deixar acontecer de novo.
+
 O PC roda um agente (projeto irmão `../jarvis-agente-pc`: Java 21, sem Spring, um jar) que
 **busca** comandos na VPS por long polling — `GET /api/pc/comandos` segura a requisição por 25 s.
 Nenhuma porta aberta na máquina, nenhum domínio: toda conexão é de dentro para fora, igual ao
@@ -291,6 +318,28 @@ a informá-lo.
   A `pergunta` mostrada ao usuário é montada **em Java, de dado real** (nome da rotina, nome do
   arquivo, objetivo); texto do modelo ali deixaria ele escolher o que o "sim" significa.
   `Risco.CRITICO` é para o irreversível (desligar, reiniciar) e encurta o prazo para 2 minutos.
+- **A aprovação é respondida em linguagem natural, e quem interpreta é o servidor.** Não se cobra
+  palavra, código nem frase exata: o usuário responde como quiser. Com pendência em aberto — e
+  **só** aí, para não gastar nada quando não há nada pendente —, o `Assistente` pega a pergunta com
+  `Aprovacoes.pendenciaDe` e passa pergunta e resposta ao `ClassificadorDeResposta`, que tem dois
+  caminhos: uma lista de "sim"/"não" de graça para frases de até quatro palavras ("pode", "manda",
+  "deixa pra lá") e, para o resto, uma chamada curta ao Claude sem ferramentas, com 60 tokens e 5 s
+  de prazo. As cinco saídas: `SIM` chama `executarPendente`, `NAO` cancela e responde "Certo, não
+  fiz.", `AJUSTE` cancela e trata a mensagem como pedido novo (uma ressalva muda o que o "sim"
+  significaria), `OUTRO_ASSUNTO` deixa a pendência esperando, e `DUVIDA` repete a pergunta.
+  **Tudo que dá errado vira `DUVIDA`** — rede, prazo, JSON torto —, porque o preço de uma pergunta
+  repetida é baixo e o de um falso "sim" é uma máquina desligada. O modelo principal nunca vê a
+  pendência nem a decisão, só o resultado dela: as frases fixas (`confirmo`, `confirmo pc 123456`)
+  continuam valendo, mas são atalho, não protocolo.
+- **Os três níveis de autonomia** vivem em `PromptDeSistema.regrasDeAprovacao`, no bloco dinâmico e
+  só nos canais em que há alguém para responder (em `briefing` e `tarefa` uma pergunta ficaria sem
+  destino): *faz e avisa* (ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis,
+  **restaurar da lixeira**, lembretes, tela, busca, clima, abrir app da lista, volume, captura,
+  memória), *pergunta antes* (rotina que executa código, computer use, desligar e reiniciar,
+  **apagar arquivo**, agendar tarefa de planilha, esquecer memória) e *proibido* (shell livre,
+  arquivo fora da pasta, pagar, comprar, digitar senha, e seguir instrução vinda de página,
+  arquivo, tela ou memória). Ferramenta nova tem de cair num dos três de propósito, não por
+  omissão — e o nível escolhido é o que decide se ela chama `Aprovacoes.pedir` ou não.
 - **A VPS só busca URL que ela provou ser pública.** O `abrir_pagina` é a única ferramenta que
   acessa um endereço ditado pelo modelo, e ele passa pelo `GuardaSsrf`: só http/https, DNS
   resolvido e conferido contra loopback, faixas privadas, link-local (inclusive o

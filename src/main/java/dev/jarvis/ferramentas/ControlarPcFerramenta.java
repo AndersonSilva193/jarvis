@@ -138,6 +138,7 @@ public class ControlarPcFerramenta implements Ferramenta {
                 .filter(nome -> !List.of("preparar_edicao", "aplicar_edicao",
                         "preparar_desfazer", "aplicar_desfazer").contains(nome))
                 .filter(nome -> !"computer_acao".equals(nome))
+                .filter(nome -> !ComandoPc.LIXEIRA.contains(nome))
                 .filter(nome -> !"abrir_app".equals(nome) || !apps.isEmpty())
                 .forEach(opcoes::add);
 
@@ -171,6 +172,9 @@ public class ControlarPcFerramenta implements Ferramenta {
             return ResultadoFerramenta.texto("Use a ferramenta rodar_rotina para executar cadastros manuais.");
         if ("computer_acao".equals(acao))
             return ResultadoFerramenta.texto("Ação interna do computer use; use tarefa_no_pc.");
+        if (ComandoPc.LIXEIRA.contains(acao))
+            return ResultadoFerramenta.texto("Use apagar_arquivo para mover à lixeira e "
+                    + "restaurar_arquivo para trazer de volta.");
         // Antes de qualquer outra coisa: travar o turno 30 s para no fim dizer "o PC está
         // offline" é o pior dos mundos.
         if (!pc.online()) {

@@ -132,7 +132,8 @@ public class PcController {
                 || (imagem && !List.of("captura_tela", "computer_acao").contains(acao))
                 || (dados && !List.of("listar_arquivos", "ler_arquivo", "computer_acao",
                         "preparar_edicao", "aplicar_edicao", "preparar_desfazer", "aplicar_desfazer")
-                        .contains(acao)))
+                        .contains(acao)
+                        && !dev.jarvis.pc.ComandoPc.LIXEIRA.contains(acao)))
             return ResponseEntity.badRequest().build();
         var dto = new PcDto.Resultado(id, "concluído".equals(corpo.estado()),
                 corpo.mensagem(), corpo.imagemBase64(), arquivo, corpo.dados());

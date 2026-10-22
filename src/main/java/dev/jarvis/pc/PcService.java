@@ -166,7 +166,8 @@ public class PcService {
             return false;
         }
         if (resultado.dados() != null && !List.of("listar_arquivos", "ler_arquivo")
-                .contains(pendente.comando().acao())) {
+                .contains(pendente.comando().acao())
+                && !ComandoPc.LIXEIRA.contains(pendente.comando().acao())) {
             pendente.resposta().complete(new ResultadoPc(resultado.comandoId(), false,
                     "dados inesperados para esta ação", null, null));
             return false;
