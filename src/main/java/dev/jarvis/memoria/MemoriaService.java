@@ -11,6 +11,8 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
@@ -19,6 +21,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -49,6 +52,18 @@ public class MemoriaService {
     public static final int LIMITE_RESUMO = 1_500;
     /** Teto da lista de assuntos entregue ao anotador: ela é prompt, e 500 linhas custariam caro. */
     public static final int LIMITE_ASSUNTOS = 120;
+    /** Registros por página do {@link #listar}: é o que cabe numa resposta falada sem virar lista telefônica. */
+    public static final int POR_PAGINA = 20;
+    /** Páginas alcançáveis pelo {@link #listar}, o bastante para o {@link #LIMITE_REGISTROS}. */
+    public static final int LIMITE_PAGINAS = LIMITE_REGISTROS / POR_PAGINA;
+    /**
+     * Corte do conteúdo na listagem. Menos que o do resumo de propósito: 20 linhas de 240
+     * caracteres estouram o {@link #LIMITE_CONTEXTO} e a listagem morreria em "orçamento esgotado".
+     */
+    private static final int LINHA_DA_LISTA = 120;
+    /** A ordem em que as categorias aparecem na listagem — a mesma do {@link #validarCategoria}. */
+    private static final List<String> ORDEM_CATEGORIA =
+            List.of("perfil", "preferencias", "projeto", "episodio");
     /**
      * O anotador só grava o que o usuário disse, então o tipo não é escolha dele nem do modelo:
      * {@code observacao_verificada} pede evidência de ferramenta local e {@code hipotese} seria
@@ -68,6 +83,12 @@ public class MemoriaService {
     public record Achado(String id, String assunto, String projeto, String tipo, String trecho, long revisao) { }
     /** O que o anotador gravou, para o aviso da resposta seguinte e para o desfazer. */
     public record Anotacao(String id, String assunto, String conteudo, boolean atualizado) { }
+    /** Um registro como o dono o lê: sem id, sem revisão, sem classificação. */
+    public record Ficha(String categoria, String projeto, String assunto, String trecho) { }
+    /** Uma página do {@link #listar}, com o total para a ferramenta poder dizer quanto sobrou. */
+    public record Listagem(List<Ficha> fichas, int total, int pagina) { }
+    /** O que o {@link #desfazerUltimaEscrita} fez: {@code revertido} distingue voltar de apagar. */
+    public record Desfeito(String assunto, boolean revertido) { }
 
     private final Path raiz;
     private final Path exclusoes;
@@ -204,8 +225,44 @@ public class MemoriaService {
 
     /** Uma linha e curto: o resumo é prompt, e um registro gordo comeria o espaço de todos os outros. */
     private static String umaLinha(String conteudo) {
+        return umaLinha(conteudo, 240);
+    }
+
+    private static String umaLinha(String conteudo, int teto) {
         String plano = conteudo.replaceAll("\\s+", " ").trim();
-        return plano.length() <= 240 ? plano : plano.substring(0, 240) + "…";
+        return plano.length() <= teto ? plano : plano.substring(0, teto) + "…";
+    }
+
+    /**
+     * O que o Jarvis sabe, do jeito que o dono pede para ver: "o que você sabe sobre mim?" ou "o que
+     * você sabe do agendabarber?".
+     *
+     * <p>Devolve {@link Ficha} — categoria, projeto, assunto e conteúdo curto — e <b>nenhum id nem
+     * revisão</b>: isto existe para ser falado, e um UUID no meio da frase é texto de máquina. Quem
+     * precisa de id para corrigir ou esquecer continua usando {@link #buscar}.
+     *
+     * <p>Com {@code projeto} informado, só aquele projeto entra: quem pergunta de um projeto não
+     * está pedindo o perfil inteiro. Página de {@link #POR_PAGINA} registros, ordenada por
+     * categoria e assunto para a saída ser estável entre chamadas.
+     */
+    public Listagem listar(long usuario, String projeto, int pagina) throws IOException {
+        validarUsuario(usuario);
+        String escopo = projeto == null || projeto.isBlank() ? "" : validarProjeto(projeto);
+        int pedida = pagina <= 0 ? 1 : Math.min(pagina, LIMITE_PAGINAS);
+        List<Registro> registros = new ArrayList<>();
+        for (Registro r : todos(usuario)) {
+            if (escopo.isEmpty() || escopo.equals(r.projeto())) registros.add(r);
+        }
+        registros.sort(Comparator.comparingInt((Registro r) -> ORDEM_CATEGORIA.indexOf(r.categoria()))
+                .thenComparing(Registro::projeto)
+                .thenComparing(r -> normalizar(r.assunto())));
+        int inicio = Math.min((pedida - 1) * POR_PAGINA, registros.size());
+        int fim = Math.min(inicio + POR_PAGINA, registros.size());
+        List<Ficha> fichas = registros.subList(inicio, fim).stream()
+                .map(r -> new Ficha(r.categoria(), r.projeto(), r.assunto(),
+                        umaLinha(r.conteudo(), LINHA_DA_LISTA)))
+                .toList();
+        return new Listagem(fichas, registros.size(), pedida);
     }
 
     public Registro ler(long usuario, String id) throws IOException {
@@ -224,8 +281,13 @@ public class MemoriaService {
         String classe = validarTipo(tipo);
         String fonte = validarTexto(origem, 80, "origem");
         String idPedido = validarTexto(pedido, 120, "pedido");
-        return comBloqueio(usuario,
-                () -> registrarTravado(usuario, cat, proj, nome, corpo, classe, fonte, idPedido));
+        return comBloqueio(usuario, () -> {
+            // Pedido explícito do dono mata a recusa anterior daquele assunto: um "não anota isso"
+            // de ontem não pode impedir o "lembre que..." de hoje. Vale só aqui, e não no
+            // anotar: é o anotador que a recusa existe para segurar.
+            liberarAssunto(usuario, cat, proj, nome);
+            return registrarTravado(usuario, cat, proj, nome, corpo, classe, fonte, idPedido);
+        });
     }
 
     /**
@@ -304,6 +366,10 @@ public class MemoriaService {
      * não aponta ID. É o que impede o modelo de mirar uma escrita num registro que ele escolheu.
      *
      * O {@code tipo} é fixo em {@code declaracao_usuario}, e não é escolha do chamador.
+     *
+     * Assunto que o dono recusou ({@code desfazer_anotacao}) estoura {@link Recusado} antes de
+     * qualquer escrita: sem isso o anotador reencontraria o mesmo assunto na conversa seguinte e
+     * gravaria de novo o que acabou de ser tirado.
      */
     public Anotacao anotar(long usuario, String categoria, String projeto, String assunto,
                            String conteudo, String origem, String pedido) throws IOException {
@@ -315,6 +381,8 @@ public class MemoriaService {
         String fonte = validarTexto(origem, 80, "origem");
         String idPedido = validarTexto(pedido, 120, "pedido");
         return comBloqueio(usuario, () -> {
+            if (marcadorDeAssunto(usuario, cat, proj, nome))
+                throw new Recusado("Assunto recusado pelo usuário");
             for (Registro r : todos(usuario)) {
                 if (!mesmoAssunto(r, cat, proj, nome)) continue;
                 if (r.conteudo().equals(corpo) && r.tipo().equals(TIPO_DO_ANOTADOR)) return null;
@@ -358,6 +426,123 @@ public class MemoriaService {
             apagarHistorico(usuario, id);
             return true;
         });
+    }
+
+    /**
+     * Desfaz a <b>última escrita</b> num registro, que é o que "não anota isso" pede.
+     *
+     * <p>Quem decide entre voltar e apagar é o <b>disco</b>, não um sinalizador de quem chamou: se
+     * existe a revisão anterior em {@code .historico}, a anotação foi um <i>upsert</i> sobre um fato
+     * que já estava ali, e apagar o registro levaria embora também o que o dono nunca pediu para
+     * esquecer. Volta a versão anterior e pronto — o assunto <b>não</b> é recusado, porque o que o
+     * dono recusou foi o conteúdo novo.
+     *
+     * <p>Sem revisão anterior o registro nasceu agora: sai pelo mesmo caminho permanente do
+     * {@link #esquecer} (marcador por id no volume de exclusões) e o <b>assunto</b> também fica
+     * marcado como recusado, para o anotador não regravá-lo na conversa seguinte.
+     *
+     * <p>Não confere revisão de propósito: aqui não há revisão escolhida por modelo a conferir, e a
+     * última escrita é justamente a que se quer desfazer. Devolve {@code null} se o registro já não
+     * existe.
+     */
+    public Desfeito desfazerUltimaEscrita(long usuario, String id) throws IOException {
+        validarUsuario(usuario); validarId(id);
+        return comBloqueio(usuario, () -> {
+            Registro atual = ler(usuario, id);
+            if (atual == null) return null;
+            Path arquivo = arquivo(usuario, atual);
+            Path anterior = pastaUsuario(usuario).resolve(".historico").resolve(id)
+                    .resolve((atual.revisao() - 1) + ".md");
+            if (Files.exists(anterior, LinkOption.NOFOLLOW_LINKS)) {
+                List<Registro> versao = lerArquivo(anterior);
+                if (versao.size() == 1 && versao.getFirst().id().equals(id)) {
+                    List<Registro> lista = lerArquivo(arquivo);
+                    lista.replaceAll(r -> r.id().equals(id) ? versao.getFirst() : r);
+                    gravar(arquivo, lista);
+                    conferirArquivo(anterior);
+                    Files.delete(anterior);
+                    apagarHistoricoVazio(usuario, id);
+                    return new Desfeito(atual.assunto(), true);
+                }
+            }
+            Path marca = pastaExclusoes(usuario).resolve(id + ".md");
+            gravarTexto(marca, "<!-- exclusao " + id + " " + relogio.instant() + " -->\n");
+            recusarAssunto(usuario, atual.categoria(), atual.projeto(), atual.assunto());
+            List<Registro> lista = lerArquivo(arquivo);
+            lista.removeIf(r -> r.id().equals(id));
+            gravar(arquivo, lista);
+            apagarHistorico(usuario, id);
+            return new Desfeito(atual.assunto(), false);
+        });
+    }
+
+    /**
+     * O assunto que o dono recusou, marcado no volume de exclusões: é o que o {@link #anotar}
+     * consulta. Entra em {@code assuntos/<sha256>.md} porque o assunto é texto do usuário — 64
+     * caracteres hexadecimais não têm como virar caminho. O conteúdo traz a chave normalizada, que
+     * ninguém parseia e serve só para alguém entender o arquivo olhando.
+     */
+    public boolean assuntoRecusado(long usuario, String categoria, String projeto, String assunto)
+            throws IOException {
+        validarUsuario(usuario);
+        String cat = validarCategoria(categoria);
+        String proj = "projeto".equals(cat) ? validarProjeto(projeto) : "";
+        return marcadorDeAssunto(usuario, cat, proj, validarTexto(assunto, 120, "assunto"));
+    }
+
+    private void recusarAssunto(long usuario, String cat, String proj, String assunto)
+            throws IOException {
+        String chave = chaveDoAssunto(cat, proj, assunto);
+        gravarTexto(arquivoDoAssunto(usuario, chave),
+                "<!-- assunto-recusado " + chave + " " + relogio.instant() + " -->\n");
+    }
+
+    private void liberarAssunto(long usuario, String cat, String proj, String assunto)
+            throws IOException {
+        Path marca = arquivoDoAssunto(usuario, chaveDoAssunto(cat, proj, assunto));
+        if (!Files.exists(marca, LinkOption.NOFOLLOW_LINKS)) return;
+        conferirComponentes(marca);
+        conferirArquivo(marca);
+        Files.delete(marca);
+    }
+
+    private boolean marcadorDeAssunto(long usuario, String cat, String proj, String assunto)
+            throws IOException {
+        Path marca = arquivoDoAssunto(usuario, chaveDoAssunto(cat, proj, assunto));
+        if (!Files.exists(marca, LinkOption.NOFOLLOW_LINKS)) return false;
+        conferirDiretorio(exclusoes);
+        conferirDiretorio(exclusoes.resolve("usuarios"));
+        conferirDiretorio(pastaExclusoes(usuario));
+        conferirDiretorio(marca.getParent());
+        conferirArquivo(marca);
+        return true;
+    }
+
+    private Path arquivoDoAssunto(long usuario, String chave) {
+        byte[] resumo;
+        try {
+            resumo = MessageDigest.getInstance("SHA-256").digest(chave.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException ausente) {
+            throw new IllegalStateException("SHA-256 indisponível", ausente);
+        }
+        return pastaExclusoes(usuario).resolve("assuntos")
+                .resolve(HexFormat.of().formatHex(resumo) + ".md");
+    }
+
+    /** A mesma chave do {@link #mesmoAssunto}: categoria, projeto e assunto sem acento nem caixa. */
+    private static String chaveDoAssunto(String cat, String proj, String assunto) {
+        return cat + "|" + proj + "|" + normalizar(assunto);
+    }
+
+    /** A pasta do histórico do registro, quando a última revisão guardada acabou de ser consumida. */
+    private void apagarHistoricoVazio(long usuario, String id) throws IOException {
+        Path historico = pastaUsuario(usuario).resolve(".historico").resolve(id);
+        if (!Files.exists(historico, LinkOption.NOFOLLOW_LINKS)) return;
+        conferirDiretorio(historico);
+        try (DirectoryStream<Path> arquivos = Files.newDirectoryStream(historico)) {
+            if (arquivos.iterator().hasNext()) return;
+        }
+        Files.delete(historico);
     }
 
     private void apagarHistorico(long usuario, String id) throws IOException {
@@ -569,5 +754,13 @@ public class MemoriaService {
     }
     public static class Conflito extends IllegalStateException {
         public Conflito(String mensagem) { super(mensagem); }
+    }
+    /**
+     * Assunto que o dono mandou tirar e o anotador tentou gravar de novo. Classe própria, e não um
+     * {@link Conflito}, para o anotador poder contá-la separado no log: "conflito" é o assunto que
+     * mudou de conteúdo, isto é o assunto que o dono não quer.
+     */
+    public static class Recusado extends IllegalStateException {
+        public Recusado(String mensagem) { super(mensagem); }
     }
 }

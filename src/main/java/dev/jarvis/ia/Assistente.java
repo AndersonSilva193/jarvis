@@ -24,6 +24,7 @@ import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.aprovacao.ClassificadorDeResposta;
 import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
 import dev.jarvis.memoria.AnotadorDeMemoria;
+import dev.jarvis.memoria.EsquecimentosDeMemoria;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -59,6 +60,8 @@ public class Assistente {
     private final HistoricoEmArquivo arquivo;
     /** Opcional: nulo nos construtores enxutos, como o resto das peças de borda desta classe. */
     private final AnotadorDeMemoria anotador;
+    /** O recado de que o {@code esquecer_memoria} aprovado apagou algo fora deste turno. */
+    private final EsquecimentosDeMemoria esquecimentos;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
@@ -96,11 +99,20 @@ public class Assistente {
                 classificador, null);
     }
 
-    @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
             AnotadorDeMemoria anotador) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, anotador, new EsquecimentosDeMemoria());
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
+            AnotadorDeMemoria anotador, EsquecimentosDeMemoria esquecimentos) {
+        this.esquecimentos = esquecimentos;
         this.anotador = anotador;
         this.classificador = classificador;
         this.arquivo = arquivo;
@@ -199,8 +211,6 @@ public class Assistente {
 
             List<ResultadoFerramenta> resultados = new ArrayList<>();
             String resposta;
-            var confirmacaoMemoria = java.util.regex.Pattern.compile(
-                    "(?i)^confirmo esquecer ([0-9a-f-]{36}) ([0-9]{6})$").matcher(texto.trim());
             var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id);
             // Só quando o texto não é um código nem uma frase fixa é que vale classificar: a
             // pergunta pendente é a única coisa que a mensagem pode estar respondendo, e sem
@@ -233,24 +243,15 @@ public class Assistente {
                 }
             }
             if (!notaDeAjuste.isEmpty()) turno.set(0, mensagemDoUsuario(texto + notaDeAjuste));
+            // A aprovação consumida pode ter sido a de esquecer memória, e quem apagou foi o
+            // Supplier — que roda com o contexto do turno em que a pendência nasceu. O recado
+            // chega por aqui para o apagamento do histórico deste turno acontecer logo abaixo.
+            if (decisaoPc.isPresent() && progresso.usuarioAutenticado() > 0) {
+                esquecimentos.drenar(progresso.usuarioAutenticado()).ifPresent(
+                        e -> progresso.marcarMemoriaEsquecida(e.id(), e.revisao()));
+            }
             if (decisaoPc.isPresent()) {
                 resposta = decisaoPc.get();
-                turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
-            } else if (confirmacaoMemoria.matches() && progresso.usuarioAutenticado() > 0) {
-                ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
-                        .put("id", "esquecer_" + id).put("name", "esquecer_memoria");
-                chamada.putObject("input").put("id", confirmacaoMemoria.group(1))
-                        .put("codigo", confirmacaoMemoria.group(2));
-                OuvinteProgresso autenticado = new OuvinteProgresso() {
-                    @Override public String idPedido() { return id; }
-                    @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
-                    @Override public String canal() { return canal.nome(); }
-                    @Override public String pedidoOriginal() { return texto; }
-                    @Override public void marcarMemoriaEsquecida(String memoriaId, long revisao) {
-                        progresso.marcarMemoriaEsquecida(memoriaId, revisao);
-                    }
-                };
-                resposta = Json.texto(ferramentas.executar(chamada, autenticado, resultados::add).path("content"));
                 turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
             } else if (ComandoDeRepouso.reconhece(texto)) {
                 ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
@@ -293,8 +294,10 @@ public class Assistente {
                 if (resultado.escuta() != null) escuta = resultado.escuta();
             }
             Instant agora = Instant.now();
-            if (progresso.memoriaEsquecida()) resposta = "Memória esquecida: id="
-                    + progresso.idMemoriaEsquecida() + " revisão=" + progresso.revisaoMemoriaEsquecida();
+            // Nada a sobrescrever aqui: o esquecimento não é mais disparado por um turno do modelo.
+            // Quem apaga é o Supplier do Aprovacoes, e a frase que volta ("Esqueci: cidade.") já é
+            // escrita em Java — reescrevê-la com id e revisão só devolveria texto de máquina a quem
+            // pediu para esquecer falando normalmente.
             if (canal != Canal.HUD) escuta = null;
             else if (confirmacao != null) escuta = escutaDaConfirmacao(confirmacao, agora);
             // O aviso do anotador entra só nesta string: a mensagem do assistente dentro de `turno`

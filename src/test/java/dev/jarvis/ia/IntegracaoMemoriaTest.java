@@ -199,6 +199,58 @@ class IntegracaoMemoriaTest {
         assertNull(seguinte.fala());
     }
 
+    /**
+     * O esquecimento ponta a ponta, do jeito que o dono fala: ele pede, o Jarvis pergunta, ele
+     * responde "pode" — e só então o registro sai do disco, junto com o histórico da conversa.
+     *
+     * <p>O "pode" nunca chega ao modelo: quem decide é o {@code ClassificadorDeResposta}, e quem
+     * apaga é o {@code Supplier} do {@code Aprovacoes}. O {@code EsquecimentosDeMemoria} é o que faz
+     * o apagamento do histórico acontecer no turno certo.
+     */
+    @Test void esquecerPeloCaminhoNaturalApagaRegistroEHistorico() throws Exception {
+        var memoria = new MemoriaService(pasta.resolve("memoria6"), pasta.resolve("exclusoes6"), json,
+                Clock.systemUTC(), ZoneId.of("America/Sao_Paulo"));
+        var registro = memoria.registrar(42, "projeto", "jarvis", "front", "Usa Angular",
+                "declaracao_usuario", "usuario:telegram", "t0");
+        var aprovacoes = new dev.jarvis.aprovacao.Aprovacoes();
+        var esquecimentos = new dev.jarvis.memoria.EsquecimentosDeMemoria();
+        var historico = dev.jarvis.conversa.HistoricoEmArquivo.desligado();
+        var conversas = new dev.jarvis.conversa.RegistroConversas(evento -> { });
+
+        ClaudeClient claude = mock(ClaudeClient.class);
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("esquecer_memoria",
+                        json.createObjectNode().put("id", registro.id())))
+                .thenReturn(resposta("Posso apagar isso da memória?"));
+        var ferramentas = new Ferramentas(List.of(new dev.jarvis.ferramentas.EsquecerMemoriaFerramenta(
+                memoria, json, aprovacoes, esquecimentos)), json);
+        var assistente = new Assistente(claude, ferramentas,
+                new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
+                        json, props(), memoria),
+                json, conversas, new dev.jarvis.conversa.AnexosService(),
+                BuscaWebServidor.desligada(), aprovacoes, historico,
+                dev.jarvis.aprovacao.ClassificadorDeResposta.semModelo(), null, esquecimentos);
+
+        assistente.responderTelegram(42, 42, 200, "esquece que eu uso Angular no Jarvis");
+
+        assertNotNull(memoria.ler(42, registro.id()), "a chamada do modelo não apaga nada");
+        assertEquals("Vou apagar da memória: 'front: Usa Angular'. Posso?",
+                aprovacoes.pendenciaDe(42, "telegram-201").orElseThrow());
+        assertFalse(conversas.historico(42).trocas().isEmpty(), "a conversa está guardada");
+
+        // "pode" é uma das respostas que a lista de graça do classificador já resolve.
+        String resposta = assistente.responderTelegram(42, 42, 201, "pode");
+
+        assertEquals("Esqueci: front.", resposta);
+        assertNull(memoria.ler(42, registro.id()));
+        assertTrue(conversas.historico(42).trocas().isEmpty(),
+                "esquecer a memória continua levando o histórico da conversa junto");
+        // Duas chamadas, as duas do primeiro turno (pedido e fala da pergunta). O turno do "pode"
+        // não fala com o modelo: ele nunca vê a decisão, só o resultado dela.
+        verify(claude, times(2)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class));
+    }
+
     /** Pedido da HUD como o ConversaService o faz: reservado no registro antes de ir ao Assistente. */
     private static dev.jarvis.conversa.OuvinteProgresso daHud(
             dev.jarvis.conversa.RegistroConversas registro, String texto) {

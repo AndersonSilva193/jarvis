@@ -1,41 +1,118 @@
 package dev.jarvis.ferramentas;
 
+import java.util.List;
+
 import org.springframework.stereotype.Component;
+
+import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.conversa.OuvinteProgresso;
-import dev.jarvis.memoria.ConfirmacaoEsquecimento;
+import dev.jarvis.memoria.EsquecimentosDeMemoria;
 import dev.jarvis.memoria.MemoriaService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+/**
+ * Apaga um registro da memória, depois de o usuário autorizar.
+ *
+ * <p>É a única ferramenta de memória que passa pelo {@link Aprovacoes}, e a assimetria com corrigir
+ * e desfazer é de propósito: corrigir deixa a versão anterior no {@code .historico} e
+ * {@code desfazer_anotacao} só tira o que o Jarvis acabou de gravar, mas esquecer é o único caminho
+ * pelo qual um fato <b>sai de vista</b> — e leva o histórico da conversa junto. Risco
+ * {@link Aprovacoes.Risco#COMUM}: é definitivo, mas não é desligar a máquina.
+ *
+ * <p>A pergunta é montada em Java, do <b>registro que está no disco</b>, nunca do que o modelo
+ * escreveu. É o que garante que o "sim" do usuário vale para a lembrança que ele leu na frase.
+ *
+ * <p>Quem apaga de verdade é o {@code Supplier}, com id e revisão capturados na hora do pedido, e o
+ * {@code Assistente} o roda fora do alcance do modelo. O recado de que o apagamento aconteceu vai
+ * pelo {@link EsquecimentosDeMemoria}: o {@code Supplier} roda num turno cujo {@code progresso} ele
+ * não conhece, e é o {@code progresso} daquele turno que decide apagar o histórico da conversa.
+ */
 @Component
 public class EsquecerMemoriaFerramenta extends FerramentaMemoria {
-    private final ConfirmacaoEsquecimento confirmacao;
-    public EsquecerMemoriaFerramenta(MemoriaService memoria, JsonMapper json,
-                                    ConfirmacaoEsquecimento confirmacao) {
-        super(memoria, json); this.confirmacao = confirmacao;
+
+    /** Teto do conteúdo citado na pergunta: ela é para o usuário reconhecer, não para reler tudo. */
+    private static final int CURTO = 80;
+
+    private final Aprovacoes aprovacoes;
+    private final EsquecimentosDeMemoria esquecimentos;
+
+    public EsquecerMemoriaFerramenta(MemoriaService memoria, JsonMapper json, Aprovacoes aprovacoes,
+            EsquecimentosDeMemoria esquecimentos) {
+        super(memoria, json);
+        this.aprovacoes = aprovacoes;
+        this.esquecimentos = esquecimentos;
     }
+
     @Override public String nome() { return "esquecer_memoria"; }
-    @Override public String descricao() { return "Esquece um registro pelo ID após duas mensagens explícitas do usuário. Primeiro peça confirmação; em nova mensagem, o usuário deve dizer exatamente 'confirmo esquecer <id> <código>'. Nunca confirme por conta própria."; }
-    @Override public ObjectNode esquemaEntrada() {
-        ObjectNode s = base(); ObjectNode p = s.putObject("properties");
-        p.putObject("id").put("type", "string"); p.putObject("revisao").put("type", "integer");
-        p.putObject("codigo").put("type", "string").put("description", "Somente na segunda mensagem do usuário");
-        s.putArray("required").add("id"); return s;
+
+    @Override public String descricao() {
+        return """
+                Apaga para sempre um registro da memória, pelo id que buscar_memoria devolve. Use \
+                em "esquece que eu uso Angular no projeto X", "apaga isso da sua memória".
+
+                Devolve uma pergunta de aprovação: repita a pergunta com o seu tom e espere a \
+                resposta do usuário, sem pedir palavra, código nem frase exata. Chame uma vez só — \
+                o servidor guarda a ação e consome a aprovação sem passar por você, então chamar de \
+                novo não confirma nada. Não diga que esqueceu antes de o usuário responder.
+
+                Se foi você que anotou aquilo agora há pouco, use desfazer_anotacao, que não \
+                incomoda o usuário com uma pergunta. Se não tiver o id, use buscar_memoria; com \
+                registros parecidos, pergunte qual antes, nunca escolha sozinho.\
+                """;
     }
-    @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso) throws Exception {
-        long u = usuario(progresso); String id = texto(entrada, "id"); String codigo = texto(entrada, "codigo");
-        if (codigo.isEmpty()) {
-            exigirPedidoDeEsquecer(progresso);
-            var r = memoria.ler(u, id);
-            if (r == null) return resposta("Memória não encontrada.");
-            String desafio = confirmacao.pedir(u, id, r.revisao(), pedido(progresso));
-            return resposta("Para esquecer id=" + id + " revisão=" + r.revisao()
-                    + ", peça ao usuário uma NOVA mensagem: confirmo esquecer " + id + " " + desafio);
+
+    @Override public ObjectNode esquemaEntrada() {
+        ObjectNode s = base();
+        s.putObject("properties").putObject("id").put("type", "string")
+                .put("description", "ID do registro, como buscar_memoria devolve.");
+        s.putArray("required").add("id");
+        return s;
+    }
+
+    @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso)
+            throws Exception {
+        long u = usuario(progresso);
+        String id = texto(entrada, "id");
+        var r = memoria.ler(u, id);
+        // Pendência sobre registro que não existe faria o usuário responder "Posso?" sobre nada.
+        if (r == null) return resposta("Não achei esse registro na memória; nada foi apagado.");
+
+        long revisao = r.revisao();
+        String assunto = r.assunto();
+        String pergunta = "Vou apagar da memória: '" + assunto + ": " + curto(r.conteudo())
+                + "'. Posso?";
+        try {
+            var confirmacao = aprovacoes.pedir("memoria", "esquecer " + assunto, pergunta,
+                    Aprovacoes.Risco.COMUM, u, pedido(progresso),
+                    () -> apagar(u, id, revisao, assunto));
+            return new ResultadoFerramenta(pergunta, List.of(), List.of(), confirmacao,
+                    List.of(), List.of());
+        } catch (IllegalArgumentException | IllegalStateException recusa) {
+            return resposta(recusa.getMessage());
         }
-        long rev = confirmacao.confirmar(u, id, codigo, pedido(progresso), progresso.pedidoOriginal());
-        if (!memoria.esquecer(u, id, rev)) return resposta("Não havia memória ativa com esse ID.");
-        progresso.marcarMemoriaEsquecida(id, rev);
-        return resposta("Memória esquecida: id=" + id + " revisão=" + rev);
+    }
+
+    /**
+     * O que roda quando o {@code Assistente} consome a aprovação — fora do alcance do modelo, com
+     * id, revisão e assunto capturados do momento do pedido.
+     */
+    private String apagar(long usuario, String id, long revisao, String assunto) {
+        try {
+            if (!memoria.esquecer(usuario, id, revisao))
+                return "Aquele registro já não estava na memória.";
+        } catch (MemoriaService.Conflito mudou) {
+            return "Não apaguei " + assunto + ": " + mudou.getMessage();
+        } catch (Exception falha) {
+            return "Não consegui apagar " + assunto + " da memória.";
+        }
+        esquecimentos.marcar(usuario, id, revisao);
+        return "Esqueci: " + assunto + ".";
+    }
+
+    private static String curto(String conteudo) {
+        String plano = conteudo.replaceAll("\\s+", " ").trim();
+        return plano.length() <= CURTO ? plano : plano.substring(0, CURTO) + "…";
     }
 }

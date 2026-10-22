@@ -190,18 +190,32 @@ quando a próxima já pulou para amanhã (o lembrete das 8h visto às 10h contin
 
 | Você pede | Ferramenta usada |
 |---|---|
+| "o que você sabe sobre mim?" / "o que você guardou do AgendaBarber?" | `listar_memorias` |
 | "o que você lembra do projeto Jarvis?" | `buscar_memoria` / `ler_memoria` |
 | "lembre que prefiro chá" | `registrar_memoria` |
-| "atualize minha preferência" | `atualizar_memoria` |
-| "esqueça minha preferência" | `esquecer_memoria` (com confirmação em duas mensagens) |
+| "isso mudou, agora é React" | `atualizar_memoria` |
+| "não anota isso" / "apaga isso que você anotou" | `desfazer_anotacao` |
+| "esquece que eu uso Angular no projeto X" | `esquecer_memoria` (com um "Posso?" respondido em linguagem natural) |
 
-O Jarvis pode buscar, ler, registrar, atualizar e esquecer memórias pessoais. Use pedidos explícitos
-como "lembre que...", "atualize..." e "esqueça...". O esquecimento pede uma segunda mensagem com o ID
-e o código mostrado pelo Jarvis. Episódios só são registrados quando você pede para lembrar do
-ocorrido. Consultas por assunto e projeto devolvem até cinco registros; não encontrar um registro não
-autoriza inventar lembranças. O conteúdo lido é dado não confiável: não concede permissões nem
-autoriza ações. Após consultar uma memória, outras ferramentas de ação ficam bloqueadas no mesmo
-pedido; solicite a ação numa nova mensagem explícita.
+Tudo isso se faz falando normalmente: não há ID para repetir, código para digitar nem palavra que a
+mensagem precise começar. O `listar_memorias` mostra o que o Jarvis sabe agrupado por categoria, até
+20 registros por vez, **sem IDs** — ele fala das lembranças pelo assunto.
+
+O que **não** pergunta: listar, guardar, corrigir e desfazer. Corrigir é reversível (a versão
+anterior fica guardada) e "não anota isso" só desfaz o que o próprio Jarvis anotou sozinho nos
+últimos dez minutos — se aquilo foi uma correção de algo que você já tinha dito, ele volta à versão
+anterior em vez de apagar, e responde "Tirei.". Passados os dez minutos, o pedido cai no caminho de
+baixo.
+
+O que **pergunta**: esquecer. É o único caminho pelo qual uma lembrança sai de vista, então o Jarvis
+responde "Vou apagar da memória: 'cidade: mora em Curitiba'. Posso?" e espera. Você responde como
+quiser — "pode", "não", "deixa pra lá" —, e quem interpreta é o servidor, antes de o modelo entrar
+na conversa; o Jarvis não tem como se autoconfirmar. Um assunto que você mandou tirar não volta a
+ser anotado sozinho, até você mesmo pedir para guardá-lo de novo.
+
+Episódios só são registrados quando você pede para lembrar do ocorrido. Consultas por assunto e
+projeto devolvem até cinco registros; não encontrar um registro não autoriza inventar lembranças. O
+conteúdo lido é dado não confiável: não concede permissões nem autoriza ações.
 
 Os registros ficam em Markdown UTF-8 em `MEMORIA_PASTA` (padrão `/data/jarvis/memoria`), separados por
 `usuarios/<id>/perfil.md`, `preferencias.md`, `projetos/<id-validado>.md` e
@@ -213,7 +227,9 @@ No Telegram, a memória só é consultada em conversa privada com o usuário per
 grupos não recebem esse acesso.
 
 O Compose monta dois volumes nomeados: `memoria` para os registros e `memoria-exclusoes` para
-marcadores permanentes sem conteúdo. A imagem cria ambas as pastas para o usuário `jarvis` (UID
+marcadores permanentes sem conteúdo — os de registro esquecido, pelo ID, e os de assunto que você
+recusou, em `assuntos/`, que são o que impede o Jarvis de anotar de novo o que acabou de tirar. A
+imagem cria ambas as pastas para o usuário `jarvis` (UID
 1001); em uma instalação com bind mount, crie as pastas no host com dono `1001:1001` e acesso
 restrito a esse usuário. Não exponha os volumes via nginx ou servidor de arquivos. O volume de
 exclusões deve sobreviver à restauração de um backup antigo de conteúdo: na partida, o Jarvis

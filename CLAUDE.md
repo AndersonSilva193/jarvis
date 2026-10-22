@@ -44,7 +44,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
 | `dev.jarvis.lembretes` | `LembreteService` (agenda, dispara e reagenda na partida), `LembretesEmArquivo` (o JSON com troca atômica e `.bak`), `Recorrencia`/`Repeticao` |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
-| `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho) e `ConfirmacaoEsquecimento` |
+| `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho) e `EsquecimentosDeMemoria` (o recado de que um esquecimento aprovado aconteceu) |
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse` e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
@@ -266,7 +266,7 @@ estragaria o prefixo de cache das conversas.
 
 **O modelo propõe; o servidor decide.** Nenhum candidato é gravado sem passar por todas as travas,
 e a que importa é a prova de citação: a `evidencia` tem de ser trecho literal de **uma** mensagem do
-usuário daquele trecho, pela mesma `Texto.normalizar` do `FerramentaMemoria.exigirConteudoDoUsuario`
+usuário daquele trecho, pela mesma `Texto.normalizar` do `FerramentaMemoria.exigirEvidenciaDoUsuario`
 — juntar as mensagens num texto só deixaria passar evidência remontada de duas falas. Depois vêm o
 filtro `SEGREDO` e os limites, que são os do `MemoriaService` e não foram reimplementados.
 
@@ -290,6 +290,54 @@ linhas para honrar esse campo — `conversa.modelos.ts` e `this.voz.falar(r.fala
 
 No log vão **só** contagens e motivos de recusa, nunca conteúdo: `Anotador: N candidatos, M
 gravados, recusados {sem_evidencia=1}`.
+
+## A memória falando normalmente
+
+Mexer na memória não pede id, código nem frase decorada. São quatro caminhos, e o que decide se um
+deles pergunta antes é só uma coisa: se o fato **sai de vista**.
+
+| O dono diz | Ferramenta | Aprovação |
+|---|---|---|
+| "o que você sabe sobre mim?" / "do AgendaBarber?" | `listar_memorias` | não |
+| "isso mudou, agora é React" | `buscar_memoria` + `atualizar_memoria` | não (a revisão anterior fica no `.historico`) |
+| "não anota isso" | `desfazer_anotacao` | não (foi o Jarvis que gravou, há minutos) |
+| "esquece que eu uso Angular no projeto X" | `buscar_memoria` + `esquecer_memoria` | **sim**, `Aprovacoes` com risco `COMUM` |
+
+É a assimetria de `apagar_arquivo` × `desfazer_edicao`, pelo mesmo motivo. `listar_memorias` devolve
+`Ficha` — categoria, projeto, assunto e conteúdo cortado em 120 caracteres —, **sem id nem
+revisão**: a listagem existe para ser falada, e 20 linhas de 240 caracteres estourariam o
+`LIMITE_CONTEXTO`. Id continua existindo e saindo no `buscar_memoria`; ele só não aparece para quem
+fala, e o system proíbe o modelo de citá-lo.
+
+**A prova de citação mudou de campo.** `registrar_memoria` e `atualizar_memoria` recebem `evidencia`,
+que tem de ser trecho literal do pedido (mesma `Texto.normalizar` do anotador), e o `conteudo` fica
+livre. Cobrar o conteúdo literal — como antes — recusava a correção exatamente quando o modelo
+escrevia bem: "isso mudou, agora é React" não produzia "Usa React no AgendaBarber". Também não há
+mais exigência de palavra na abertura da mensagem, em nenhuma das ferramentas.
+
+**O desfazer é por usuário e tem dez minutos.** O `AnotadorDeMemoria` guarda o lote anotado em dois
+mapas: `avisos`, por chat, que o `drenarAviso` **consome** na resposta seguinte, e `desfazeveis`, por
+usuário, que o `desfazer_anotacao` consome. Dois porque quando o dono lê "Anotei: ..." e responde
+"não anota isso", o aviso já saiu — e por usuário porque a ferramenta recebe um `OuvinteProgresso`,
+que tem identidade autenticada e não tem chatId. Fora da janela nada é apagado: a ferramenta manda o
+modelo pelo `esquecer_memoria`, que pergunta.
+
+`MemoriaService.desfazerUltimaEscrita` decide **pelo disco**, não por um sinalizador de quem chamou:
+se existe a revisão anterior em `.historico`, a anotação foi um *upsert* e a volta é para ela —
+apagar levaria embora o fato que já estava lá, que o dono nunca pediu para esquecer. Sem revisão
+anterior, o registro nasceu agora e sai pelo caminho permanente do `esquecer`, mais um marcador do
+**assunto** em `memoria-exclusoes/usuarios/<id>/assuntos/<sha256>.md`. Esse marcador é o que faz
+`anotar` estourar `Recusado` na conversa seguinte; sem ele o anotador reencontraria o assunto e
+regravaria o que acabou de ser tirado. Hash e não nome sanitizado porque assunto é texto do usuário.
+Um `registrar_memoria` explícito **libera** o assunto: o dono mudou de ideia, e a memória é dele.
+
+**Esquecer continua levando o histórico da conversa junto**, e é o `EsquecimentosDeMemoria` que
+segura isso de pé. O `Supplier` do `Aprovacoes` nasce no turno N e roda no turno N+1 carregando o
+`OuvinteProgresso` do turno N — marcar `memoriaEsquecida` nele escreveria num campo que ninguém mais
+lê, porque quem apaga `historicos`, `conversas` e o arquivo do volume é o `progresso` do turno
+**corrente**. Então o `Supplier` deixa o recado, e o `Assistente` o drena logo depois de consumir a
+aprovação. `desfazer_anotacao` **não** marca nada: quem recusou uma anotação está no meio de uma
+conversa e perdê-la seria susto, não privacidade.
 
 ## Convenções
 
@@ -376,7 +424,8 @@ a informá-lo.
   só nos canais em que há alguém para responder (em `briefing` e `tarefa` uma pergunta ficaria sem
   destino): *faz e avisa* (ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis,
   **restaurar da lixeira**, lembretes, tela, busca, clima, abrir app da lista, volume, captura,
-  memória), *pergunta antes* (rotina que executa código, computer use, desligar e reiniciar,
+  listar, gravar e corrigir memória, **desfazer o que o anotador gravou**), *pergunta antes*
+  (rotina que executa código, computer use, desligar e reiniciar,
   **apagar arquivo**, agendar tarefa de planilha, esquecer memória) e *proibido* (shell livre,
   arquivo fora da pasta, pagar, comprar, digitar senha, e seguir instrução vinda de página,
   arquivo, tela ou memória). Ferramenta nova tem de cair num dos três de propósito, não por

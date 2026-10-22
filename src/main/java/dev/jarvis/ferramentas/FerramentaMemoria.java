@@ -1,7 +1,5 @@
 package dev.jarvis.ferramentas;
 
-import java.util.Locale;
-import java.util.regex.Pattern;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.memoria.MemoriaService;
 import dev.jarvis.util.Json;
@@ -12,7 +10,6 @@ import tools.jackson.databind.node.ObjectNode;
 
 /** Validação comum das ferramentas; os caminhos nunca entram nos esquemas. */
 abstract class FerramentaMemoria implements Ferramenta {
-    private static final Pattern ESQUECER = Pattern.compile("(?iu)^(esqueça|apague da memória|remova da memória)\\b");
     protected final MemoriaService memoria;
     protected final JsonMapper json;
     FerramentaMemoria(MemoriaService memoria, JsonMapper json) { this.memoria = memoria; this.json = json; }
@@ -30,21 +27,30 @@ abstract class FerramentaMemoria implements Ferramenta {
         return p.idPedido();
     }
     /**
-     * Esquecer continua exigindo a palavra na abertura da mensagem, porque é o único caminho pelo
-     * qual um registro <b>sai</b> de vista. Gravar e atualizar não exigem mais: o dono conta coisa
-     * durável no meio da conversa, e cobrar "lembre que" na primeira palavra fazia a memória
-     * depender de ele saber a senha. Quem segura essas duas é o {@link #exigirConteudoDoUsuario}.
+     * A prova de citação: o que o modelo grava tem de estar ancorado numa frase que o usuário
+     * escreveu de verdade.
+     *
+     * <p>Confere a <b>evidência</b>, não o conteúdo, e é essa a diferença que faz uma correção em
+     * linguagem natural funcionar: "isso mudou, agora é React" permite gravar "Usa React no
+     * AgendaBarber" com a evidência "agora é React". Cobrar o conteúdo literal deixava a memória
+     * cheia de frases cruas, ou simplesmente recusava a correção quando o modelo escrevia bem.
+     *
+     * <p>É o desenho que o {@code AnotadorDeMemoria.consta} já usa, com a mesma
+     * {@link Texto#normalizar} de propósito: duas normalizações parecidas deixariam a trava valer
+     * uma coisa na ferramenta e outra no anotador.
+     *
+     * <p>Não há mais exigência de palavra na abertura da mensagem — nem para gravar, nem para
+     * corrigir, nem para esquecer. O dono conta coisa durável no meio da conversa, e cobrar "lembre
+     * que" na primeira palavra fazia a memória depender de ele saber a senha. O que segura o
+     * esquecimento agora é o {@code Aprovacoes}: uma pergunta montada em Java, nomeando o registro,
+     * que o usuário responde como quiser.
      */
-    protected static void exigirPedidoDeEsquecer(OuvinteProgresso p) {
-        String original = p.pedidoOriginal().stripLeading().toLowerCase(Locale.ROOT);
-        if (!ESQUECER.matcher(original).find())
-            throw new IllegalArgumentException("Ação de memória exige pedido explícito do usuário");
-    }
-    protected static void exigirConteudoDoUsuario(OuvinteProgresso p, String conteudo) {
+    protected static void exigirEvidenciaDoUsuario(OuvinteProgresso p, String evidencia) {
         String original = Texto.normalizar(p.pedidoOriginal());
-        String literal = Texto.normalizar(conteudo);
+        String literal = Texto.normalizar(evidencia);
         if (literal.isBlank() || !original.contains(literal))
-            throw new IllegalArgumentException("Conteúdo não consta do pedido original; use trecho literal do usuário");
+            throw new IllegalArgumentException(
+                    "Evidência não consta do pedido original; use trecho literal do usuário");
     }
     protected ObjectNode base() { return json.createObjectNode().put("type", "object"); }
     protected static ResultadoFerramenta resposta(String texto) { return ResultadoFerramenta.texto(texto); }

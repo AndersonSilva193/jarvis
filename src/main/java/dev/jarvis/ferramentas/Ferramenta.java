@@ -38,6 +38,8 @@ public interface Ferramenta {
             case "criar_lembrete" -> "criando o lembrete";
             case "cancelar_lembrete" -> "cancelando o lembrete";
             case "listar_lembretes" -> "consultando os lembretes";
+            case "listar_memorias" -> "consultando a memória";
+            case "desfazer_anotacao" -> "tirando a anotação";
             case "briefing_do_dia" -> "preparando o briefing";
             case "status_voz" -> "consultando a cota de voz";
             case "tocar_youtube" -> "procurando no YouTube";

@@ -204,6 +204,39 @@ class AnotadorDeMemoriaTest {
         org.mockito.Mockito.verifyNoInteractions(claude);
     }
 
+    @Test void assuntoRecusadoPeloDonoNaoVoltaAserAnotado() throws Exception {
+        var memoria = memoria();
+        var antes = memoria.anotar(DONO, "perfil", "", "editor", "Usa o VS Code",
+                "anotador:telegram", "a0");
+        memoria.desfazerUltimaEscrita(DONO, antes.id());
+        var anotador = anotador(memoria, candidatos(
+                candidato("perfil", "editor", "Usa o VS Code", "uso o VS Code")));
+
+        conversar(anotador, "uso o VS Code");
+        assertTrue(anotador.aguardar(Duration.ofSeconds(5)), "a análise terminou");
+
+        assertTrue(memoria.assuntos(DONO).isEmpty(),
+                "anotar de novo o que o dono mandou tirar seria desfazer o desfazer");
+        assertEquals("", anotador.drenarAviso(DONO));
+    }
+
+    @Test void oQueFoiAnotadoFicaAlcancavelParaODesfazer() throws Exception {
+        var memoria = memoria();
+        var anotador = anotador(memoria, candidatos(
+                candidato("perfil", "editor", "Usa o VS Code", "uso o VS Code")));
+        conversar(anotador, "uso o VS Code");
+        assertTrue(anotador.aguardar(Duration.ofSeconds(5)), "a análise terminou");
+
+        // O aviso é consumido pela resposta ao usuário; o desfazer não pode depender dele.
+        assertEquals("Anotei: Usa o VS Code.", anotador.drenarAviso(DONO));
+
+        var desfazivel = anotador.consumirDesfazivel(DONO);
+        assertTrue(desfazivel.isPresent(), "ainda dá para dizer 'não anota isso'");
+        assertEquals(memoria.assuntos(DONO).getFirst().id(), desfazivel.get().ids().getFirst());
+        assertTrue(anotador.consumirDesfazivel(DONO).isEmpty(), "uma vez só");
+        assertTrue(anotador.consumirDesfazivel(0).isEmpty(), "sem usuário não há o que desfazer");
+    }
+
     @Test void listaDeAssuntosNaoLevaConteudoAoPrompt() throws Exception {
         var memoria = memoria();
         memoria.registrar(DONO, "perfil", "", "cidade", "Mora em Curitiba", "declaracao_usuario",

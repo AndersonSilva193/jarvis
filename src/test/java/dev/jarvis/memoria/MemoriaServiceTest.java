@@ -177,6 +177,103 @@ class MemoriaServiceTest {
         }
     }
 
+    @Test void listaAgrupadaPaginaDeVinteESemIdNenhum() throws Exception {
+        var s = abrir();
+        s.registrar(42, "perfil", "", "cidade", "Curitiba", "declaracao_usuario", "telegram", "p1");
+        s.registrar(42, "projeto", "agendabarber", "stack", "Angular no front",
+                "declaracao_usuario", "telegram", "p2");
+        s.registrar(42, "projeto", "outro", "banco", "Postgres", "declaracao_usuario", "telegram", "p3");
+        for (int i = 1; i <= 22; i++) {
+            s.registrar(42, "preferencias", "", "gosto " + i, "detalhe " + i,
+                    "declaracao_usuario", "telegram", "g" + i);
+        }
+
+        var primeira = s.listar(42, "", 1);
+
+        assertEquals(25, primeira.total(), "o total conta tudo, não só a página");
+        assertEquals(MemoriaService.POR_PAGINA, primeira.fichas().size());
+        assertEquals("perfil", primeira.fichas().getFirst().categoria(), "perfil vem primeiro");
+        assertEquals(5, s.listar(42, "", 2).fichas().size());
+        assertEquals(MemoriaService.LIMITE_PAGINAS, s.listar(42, "", 999).pagina(),
+                "página absurda é limitada, não estoura");
+        assertTrue(s.listar(42, "", 999).fichas().isEmpty());
+
+        var doProjeto = s.listar(42, "agendabarber", 1);
+
+        assertEquals(1, doProjeto.total(), "quem pergunta de um projeto não pediu o perfil inteiro");
+        assertEquals("stack", doProjeto.fichas().getFirst().assunto());
+        assertEquals("Angular no front", doProjeto.fichas().getFirst().trecho());
+    }
+
+    @Test void listaCortaConteudoLongoParaCaberNoOrcamento() throws Exception {
+        var s = abrir();
+        s.registrar(42, "perfil", "", "história", "x".repeat(500), "declaracao_usuario", "telegram", "p1");
+
+        String trecho = s.listar(42, "", 1).fichas().getFirst().trecho();
+
+        assertTrue(trecho.length() < 200, "20 linhas de 240 estourariam o orçamento: " + trecho.length());
+        assertTrue(trecho.endsWith("…"));
+    }
+
+    @Test void assuntoRecusadoSeguraOAnotadorEPedidoExplicitoLibera() throws Exception {
+        var s = abrir();
+        var anotado = s.anotar(42, "perfil", "", "editor", "Usa o VS Code", "anotador:telegram", "a1");
+        assertNotNull(anotado);
+
+        s.desfazerUltimaEscrita(42, anotado.id());
+
+        assertTrue(s.assuntoRecusado(42, "perfil", "", "editor"));
+        assertThrows(MemoriaService.Recusado.class, () -> s.anotar(42, "perfil", "", "editor",
+                "Usa o VS Code", "anotador:telegram", "a2"));
+        assertTrue(s.listar(42, "", 1).fichas().isEmpty(), "o anotador não regravou nada");
+
+        // Pedido explícito do dono mata a recusa: ele mudou de ideia, e a memória é dele.
+        var pedido = s.registrar(42, "perfil", "", "editor", "Usa o VS Code",
+                "declaracao_usuario", "usuario:telegram", "t1");
+
+        assertFalse(s.assuntoRecusado(42, "perfil", "", "editor"));
+        assertNotNull(s.ler(42, pedido.id()));
+        assertNotNull(s.anotar(42, "perfil", "", "editor", "Usa o VS Code e o Zed",
+                "anotador:telegram", "a3"), "liberado, o anotador volta a poder atualizar");
+    }
+
+    @Test void desfazerApagaAnotacaoNovaPeloCaminhoPermanente() throws Exception {
+        var s = abrir();
+        var anotado = s.anotar(42, "preferencias", "", "bebida", "Chá sem açúcar",
+                "anotador:telegram", "a1");
+
+        var desfeito = s.desfazerUltimaEscrita(42, anotado.id());
+
+        assertFalse(desfeito.revertido(), "revisão 1 não tem versão anterior para onde voltar");
+        assertEquals("bebida", desfeito.assunto());
+        assertNull(s.ler(42, anotado.id()));
+        // O mesmo marcador do esquecer: é ele que impede um backup antigo de ressuscitar o registro.
+        assertTrue(Files.readString(pasta.resolve("exclusoes/usuarios/42/" + anotado.id() + ".md"))
+                .contains(anotado.id()));
+        assertTrue(s.assuntoRecusado(42, "preferencias", "", "bebida"));
+        assertNull(s.desfazerUltimaEscrita(42, anotado.id()), "o que já saiu não tem o que desfazer");
+    }
+
+    @Test void desfazerVoltaAVersaoAnteriorQuandoAAnotacaoFoiAtualizacao() throws Exception {
+        var s = abrir();
+        var antes = s.registrar(42, "perfil", "", "editor", "Usa o VS Code",
+                "declaracao_usuario", "usuario:telegram", "t1");
+        assertTrue(s.anotar(42, "perfil", "", "editor", "Usa o Cursor", "anotador:telegram", "a1")
+                .atualizado());
+        assertEquals(2, s.ler(42, antes.id()).revisao());
+
+        var desfeito = s.desfazerUltimaEscrita(42, antes.id());
+
+        assertTrue(desfeito.revertido());
+        assertEquals("Usa o VS Code", s.ler(42, antes.id()).conteudo(),
+                "apagar levaria embora o fato que o dono nunca pediu para esquecer");
+        assertEquals(1, s.ler(42, antes.id()).revisao());
+        assertFalse(s.assuntoRecusado(42, "perfil", "", "editor"),
+                "o dono recusou o conteúdo novo, não o assunto");
+        assertFalse(Files.exists(pasta.resolve("memoria/usuarios/42/.historico/" + antes.id())),
+                "a revisão guardada foi consumida pela volta");
+    }
+
     @Test void buscaLimitaResultados() throws Exception {
         var s = abrir();
         for (int i = 0; i < 8; i++) s.registrar(42, "perfil", "", "item " + i,

@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
  * buscas no YouTube ("Lo-Fi  Para Estudar" e "lo-fi para estudar" são a mesma busca), o
  * {@code abrir_noticia}, onde o modelo repete o título ditado em voz alta — e "eleicao 2026"
  * tem de achar "Eleição 2026" — e a <b>prova de citação</b> da memória, onde um trecho só é
- * aceito se constar do que o usuário escreveu ({@code FerramentaMemoria.exigirConteudoDoUsuario}
+ * aceito se constar do que o usuário escreveu ({@code FerramentaMemoria.exigirEvidenciaDoUsuario}
  * e o {@code AnotadorDeMemoria} usam esta mesma função, de propósito: duas normalizações
  * parecidas deixariam a trava valer uma coisa na ferramenta e outra no anotador).
  *

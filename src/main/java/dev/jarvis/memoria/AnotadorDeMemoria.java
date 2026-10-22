@@ -45,6 +45,9 @@ import tools.jackson.databind.node.ArrayNode;
  *
  * O que foi anotado entra numa fila por chat e sai numa linha na resposta seguinte
  * ({@link #drenarAviso}) — memória que cresce calada é memória que o dono não consegue corrigir.
+ * E porque ele precisa poder dizer "não", o mesmo lote fica alcançável por
+ * {@link #consumirDesfazivel} durante dez minutos: é o que o {@code desfazer_anotacao} tira sem
+ * pedir aprovação, já que foi o Jarvis quem gravou aquilo agora.
  */
 @Component
 public class AnotadorDeMemoria {
@@ -60,6 +63,12 @@ public class AnotadorDeMemoria {
     private static final Duration PRAZO = Duration.ofSeconds(20);
     /** Aviso velho é descartado: "Anotei" no dia seguinte não explica mais nada. */
     private static final Duration VALIDADE_AVISO = Duration.ofHours(1);
+    /**
+     * Quanto tempo "não anota isso" ainda alcança o que acabou de ser anotado. Passado isso, o
+     * pedido cai no caminho com aprovação: o dono está falando de uma lembrança antiga, e aí o
+     * Jarvis tem de perguntar antes de tirar.
+     */
+    private static final Duration JANELA_DESFAZER = Duration.ofMinutes(10);
     private static final int CURTO = 80;
 
     private static final String SISTEMA = """
@@ -114,6 +123,15 @@ public class AnotadorDeMemoria {
     /** O que foi anotado, esperando a próxima resposta. Os ids e o instante servem ao desfazer. */
     public record Anotado(List<String> ids, List<String> conteudos, Instant quando) { }
     private final Map<Long, Anotado> avisos = new HashMap<>();
+    /**
+     * O mesmo, para o {@code desfazer_anotacao}, e por <b>usuário</b> em vez de chat: a ferramenta
+     * recebe um {@code OuvinteProgresso}, que tem a identidade autenticada e não tem chatId — e a
+     * memória é por usuário de qualquer forma.
+     *
+     * <p>Mapa separado porque {@link #drenarAviso} <b>consome</b> o aviso: quando o dono lê "Anotei"
+     * e responde "não anota isso", aquele já saiu. O desfazer não pode depender dele.
+     */
+    private final Map<Long, Anotado> desfazeveis = new HashMap<>();
 
     @Autowired
     public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
@@ -187,6 +205,7 @@ public class AnotadorDeMemoria {
                 fechados.put(chave, entrada.getValue().mensagens());
             }
             avisos.entrySet().removeIf(e -> expirado(e.getValue(), agora));
+            desfazeveis.entrySet().removeIf(e -> foraDaJanela(e.getValue(), agora));
         }
         fechados.forEach(this::despachar);
     }
@@ -260,8 +279,10 @@ public class AnotadorDeMemoria {
         log.info("Anotador: {} candidatos, {} gravados, recusados {}", candidatos.size(), ids.size(), motivos);
 
         if (!ids.isEmpty()) {
+            Anotado anotado = new Anotado(List.copyOf(ids), List.copyOf(conteudos), relogio.instant());
             synchronized (this) {
-                avisos.put(chave.chat(), new Anotado(List.copyOf(ids), List.copyOf(conteudos), relogio.instant()));
+                avisos.put(chave.chat(), anotado);
+                desfazeveis.put(chave.usuario(), anotado);
             }
         }
     }
@@ -287,6 +308,9 @@ public class AnotadorDeMemoria {
             ids.add(anotada.id());
             conteudos.add(anotada.conteudo());
             return null;
+        } catch (MemoriaService.Recusado e) {
+            // O dono já mandou tirar este assunto. Anotar de novo seria desfazer o desfazer.
+            return "assunto_recusado";
         } catch (MemoriaService.Conflito e) {
             return "conflito";
         } catch (IllegalArgumentException e) {
@@ -299,7 +323,7 @@ public class AnotadorDeMemoria {
     /**
      * A prova de citação: a evidência tem de aparecer literalmente em <b>uma</b> mensagem do
      * usuário deste trecho, pela mesma normalização de
-     * {@code FerramentaMemoria.exigirConteudoDoUsuario}. Juntar as mensagens num texto só deixaria
+     * {@code FerramentaMemoria.exigirEvidenciaDoUsuario}. Juntar as mensagens num texto só deixaria
      * passar evidência remontada de duas falas distintas.
      */
     private static boolean consta(String evidencia, List<String> mensagens) {
@@ -387,15 +411,26 @@ public class AnotadorDeMemoria {
         return "Anotei " + curtos.size() + " coisas: " + String.join("; ", curtos) + ".";
     }
 
-    /** O que foi anotado por último nesta conversa, com os ids, para um "desfaz" na sequência. */
-    public synchronized Optional<Anotado> ultimoAnotado(long chatId) {
-        Anotado anotado = avisos.get(chatId);
-        return anotado == null || expirado(anotado, relogio.instant()) ? Optional.empty()
+    /**
+     * O que foi anotado para este usuário há pouco, com os ids, para o {@code desfazer_anotacao}.
+     *
+     * <p>Consome: um segundo "não anota isso" não tem mais o que tirar, e tentar de novo sobre ids
+     * que já saíram só geraria uma resposta errada. Vazio depois de {@link #JANELA_DESFAZER} — daí
+     * para a frente o caminho é {@code esquecer_memoria}, com aprovação.
+     */
+    public synchronized Optional<Anotado> consumirDesfazivel(long usuario) {
+        if (usuario <= 0) return Optional.empty();
+        Anotado anotado = desfazeveis.remove(usuario);
+        return anotado == null || foraDaJanela(anotado, relogio.instant()) ? Optional.empty()
                 : Optional.of(anotado);
     }
 
     private static boolean expirado(Anotado anotado, Instant agora) {
         return Duration.between(anotado.quando(), agora).compareTo(VALIDADE_AVISO) > 0;
+    }
+
+    private static boolean foraDaJanela(Anotado anotado, Instant agora) {
+        return Duration.between(anotado.quando(), agora).compareTo(JANELA_DESFAZER) > 0;
     }
 
     private static String curto(String conteudo) {
