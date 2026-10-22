@@ -158,6 +158,11 @@ escreveu: o `LixeiraPcService.nomePorId` varre `listar_arquivos` por página (50
 "sim" do usuário valendo para algo que ele não leu. ID fora do catálogo é recusado **antes** de
 abrir pendência — ninguém deve responder "Posso?" sobre um arquivo que não existe.
 
+Atenção a uma diferença de chave fácil de errar: `listar_arquivos` devolve os itens em
+**`arquivos`**, e `listar_lixeira` devolve em **`itens`**. Teste com agente de mentira não pega
+isso sozinho — se o falso agente responde com a chave que o código espera, ele só prova que o
+código concorda com o próprio engano. Agente de mentira copia a forma do agente real.
+
 A restauração devolve um **ID de catálogo novo**, porque a entrada antiga saiu do catálogo no
 movimento: proposta de edição e registro de leitura com o ID velho morreram junto. A retenção é
 política do PC (`lixeira.diasRetencao`, padrão 30), e o expurgo roda lá — a VPS não a consulta, e

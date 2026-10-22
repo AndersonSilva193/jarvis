@@ -67,7 +67,9 @@ public class LixeiraPcService {
                     .put("pagina", pagina).put("tamanhoPagina", TAMANHO_PAGINA);
             ResultadoPc resultado = executar("listar_arquivos", pedido, contexto);
             if (!resultado.ok() || resultado.dados() == null) return Optional.empty();
-            for (JsonNode item : resultado.dados().path("itens"))
+            // "arquivos", não "itens": o catálogo e a lixeira têm chaves diferentes, e confundi-las
+            // faz a varredura achar uma lista vazia e jurar que o arquivo não existe.
+            for (JsonNode item : resultado.dados().path("arquivos"))
                 if (id.equalsIgnoreCase(Json.texto(item.path("id"))))
                     return Optional.of(Json.texto(item.path("nome")));
             if (!resultado.dados().path("temMais").asBoolean(false)) return Optional.empty();

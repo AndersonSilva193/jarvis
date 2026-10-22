@@ -76,11 +76,21 @@ class ApagarArquivoFerramentaTest {
                 ComandoPc c = comando.get();
                 recebidos.add(c);
                 if ("listar_arquivos".equals(c.acao())) {
-                    ObjectNode dados = JSON.createObjectNode();
-                    dados.put("temMais", false);
-                    var itens = dados.putArray("itens");
+                    // A forma exata do CatalogoDeArquivos.listar do agente: os itens vêm em
+                    // "arquivos" (só a lixeira usa "itens"), com os mesmos campos que ele manda.
+                    ObjectNode dados = JSON.createObjectNode()
+                            .put("total", nomeCatalogado == null ? 0 : 1)
+                            .put("pagina", 1).put("tamanhoPagina", 50);
+                    var arquivos = dados.putArray("arquivos");
                     if (nomeCatalogado != null)
-                        itens.addObject().put("id", ID).put("nome", nomeCatalogado);
+                        arquivos.addObject().put("id", ID).put("nome", nomeCatalogado)
+                                .put("formato", nomeCatalogado.substring(
+                                        nomeCatalogado.lastIndexOf('.') + 1))
+                                .put("tamanho", 128)
+                                .put("modificadoEm", "2026-10-21T12:00:00Z")
+                                .put("versaoEsperada", "a".repeat(64))
+                                .put("estado", "disponivel");
+                    dados.put("temMais", false);
                     pc.concluir(new ResultadoPc(c.id(), true, "ok", null, null, false, dados));
                 } else {
                     ObjectNode dados = JSON.createObjectNode().put("nome", nomeCatalogado);
