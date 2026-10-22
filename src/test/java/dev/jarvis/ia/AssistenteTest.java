@@ -401,6 +401,29 @@ class AssistenteTest {
     }
 
     @Test
+    @DisplayName("ler memória não bloqueia a ferramenta seguinte no mesmo pedido")
+    void buscarMemoriaNaoBloqueiaAFerramentaSeguinte() throws Exception {
+        // A trava antiga era por nome de ferramenta, então o dublê basta para provar que ela saiu.
+        Ferramenta buscar = ferramentaDeFluxo("buscar_memoria",
+                "{\"achados\":[{\"assunto\":\"cidade\",\"trecho\":\"Curitiba\"}]}");
+        Ferramenta lembrete = ferramentaDeFluxo("criar_lembrete", "Lembrete criado para amanhã.");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("buscar_memoria", JSON.createObjectNode().put("consulta", "cidade")))
+                .thenReturn(chamada("criar_lembrete", JSON.createObjectNode().put("texto", "feira")))
+                .thenReturn(respostaComPensamento("Lembrete criado, senhor."));
+
+        var resposta = comFerramentas(buscar, lembrete).responder(1L, "qual minha cidade? cria um lembrete",
+                Canal.TELEGRAM, null);
+
+        assertEquals("Lembrete criado, senhor.", resposta.texto());
+        ArgumentCaptor<ArrayNode> mensagens = ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude, times(3)).criarMensagem(any(ArrayNode.class), mensagens.capture(), any(ArrayNode.class));
+        assertTrue(mensagens.getValue().toString().contains("Lembrete criado para amanhã."),
+                "a segunda ferramenta rodou de verdade: " + mensagens.getValue());
+        assertFalse(mensagens.getValue().toString().contains("não autoriza outras ferramentas"));
+    }
+
+    @Test
     @DisplayName("pause_turn continua o mesmo turno, com os blocos da busca inalterados")
     void pausaContinuaOTurno() throws Exception {
         when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))

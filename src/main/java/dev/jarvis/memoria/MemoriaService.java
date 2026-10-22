@@ -25,6 +25,8 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import jakarta.annotation.PostConstruct;
@@ -38,10 +40,14 @@ import tools.jackson.databind.node.ObjectNode;
 /** Armazém Markdown da memória. Nenhuma entrada do modelo é interpretada como caminho. */
 @Service
 public class MemoriaService {
+    private static final Logger log = LoggerFactory.getLogger(MemoriaService.class);
     public static final int LIMITE_CONTEUDO = 2_000;
     public static final int LIMITE_REGISTROS = 500;
     public static final int LIMITE_CONTEXTO = 4_000;
     public static final int LIMITE_BUSCA = 5;
+    /** Teto do resumo que vai para o system, aviso de corte incluído. */
+    public static final int LIMITE_RESUMO = 1_500;
+    private static final String AVISO_RESUMO = "(há mais registros; use buscar_memoria)\n";
     private static final Pattern ID = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     private static final Pattern PROJETO = Pattern.compile("[a-z0-9][a-z0-9-]{0,49}");
     private static final Pattern BLOCO = Pattern.compile("(?s)<!-- jarvis:inicio (\\{[^\\n]*}) -->\\n(.*?)\\n<!-- jarvis:fim -->\\n?");
@@ -128,6 +134,68 @@ public class MemoriaService {
             return achados.stream().limit(LIMITE_BUSCA)
                     .map(a -> new Achado(a.id(), a.assunto(), a.projeto(), a.tipo(), "", a.revisao())).toList();
         return achados.stream().limit(LIMITE_BUSCA).toList();
+    }
+
+    /**
+     * O que o Jarvis sabe sobre o usuário, compacto, para o bloco <b>dinâmico</b> do system.
+     *
+     * <p>Entram todos os registros de {@code perfil} e de {@code preferencias} e os de
+     * {@code projeto} cujo identificador ou assunto aparece na mensagem do pedido (comparação sem
+     * acento e sem maiúsculas, a mesma de {@link #buscar}). {@code episodio} fica de fora de
+     * propósito: é justamente o que sobra para {@code buscar_memoria}.
+     *
+     * <p>Teto de {@link #LIMITE_RESUMO} caracteres, aviso de corte incluído. Quem cai fora é sempre
+     * o registro mais antigo, e o aviso vai para o modelo porque um resumo truncado em silêncio o
+     * faria afirmar que não existe o que foi cortado.
+     *
+     * <p>Não propaga erro: memória ilegível devolve resumo vazio. Isto roda na montagem do system de
+     * todo pedido autenticado — um arquivo torto não pode derrubar o turno.
+     */
+    public String resumoParaContexto(long usuario, String mensagem) {
+        if (usuario <= 0) return "";
+        List<Registro> registros;
+        try {
+            registros = todos(usuario);
+        } catch (IOException | RuntimeException e) {
+            log.warn("Memória indisponível para o contexto do usuário {}: {}", usuario, e.getMessage());
+            return "";
+        }
+        String alvo = normalizar(mensagem == null ? "" : mensagem);
+        List<String> linhas = registros.stream()
+                .filter(r -> switch (r.categoria()) {
+                    case "perfil", "preferencias" -> true;
+                    case "projeto" -> citadoNaMensagem(alvo, r);
+                    default -> false;
+                })
+                // Mais novo primeiro: assim o corte por tamanho tira sempre o mais antigo.
+                .sorted(Comparator.comparing(Registro::criadoEm).reversed())
+                .map(r -> "- " + r.assunto() + ": " + umaLinha(r.conteudo()) + "\n")
+                .toList();
+        int total = linhas.stream().mapToInt(String::length).sum();
+        int teto = total <= LIMITE_RESUMO ? LIMITE_RESUMO : LIMITE_RESUMO - AVISO_RESUMO.length();
+        StringBuilder resumo = new StringBuilder();
+        boolean cortou = false;
+        for (String linha : linhas) {
+            if (resumo.length() + linha.length() > teto) { cortou = true; break; }
+            resumo.append(linha);
+        }
+        if (cortou) resumo.append(AVISO_RESUMO);
+        return resumo.toString();
+    }
+
+    /** Projeto citado: o identificador ou o assunto do registro aparece na mensagem do pedido. */
+    private static boolean citadoNaMensagem(String alvo, Registro r) {
+        if (alvo.isEmpty()) return false;
+        String projeto = normalizar(r.projeto());
+        String assunto = normalizar(r.assunto());
+        return (!projeto.isEmpty() && alvo.contains(projeto))
+                || (!assunto.isEmpty() && alvo.contains(assunto));
+    }
+
+    /** Uma linha e curto: o resumo é prompt, e um registro gordo comeria o espaço de todos os outros. */
+    private static String umaLinha(String conteudo) {
+        String plano = conteudo.replaceAll("\\s+", " ").trim();
+        return plano.length() <= 240 ? plano : plano.substring(0, 240) + "…";
     }
 
     public Registro ler(long usuario, String id) throws IOException {

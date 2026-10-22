@@ -16,9 +16,73 @@ import tools.jackson.databind.json.JsonMapper;
 class MemoriaServiceTest {
     @TempDir Path pasta;
     private MemoriaService abrir() {
+        return abrir(Clock.fixed(Instant.parse("2026-10-17T02:30:00Z"), ZoneId.of("UTC")));
+    }
+
+    private MemoriaService abrir(Clock relogio) {
         return new MemoriaService(pasta.resolve("memoria"), pasta.resolve("exclusoes"),
-                JsonMapper.builder().build(), Clock.fixed(Instant.parse("2026-10-17T02:30:00Z"), ZoneId.of("UTC")),
-                ZoneId.of("America/Sao_Paulo"));
+                JsonMapper.builder().build(), relogio, ZoneId.of("America/Sao_Paulo"));
+    }
+
+    /** Relógio que anda: sem criadoEm diferente não existe "o mais antigo" para cortar. */
+    private static final class RelogioQueAnda extends Clock {
+        private Instant agora = Instant.parse("2026-10-17T02:30:00Z");
+        @Override public ZoneId getZone() { return ZoneId.of("UTC"); }
+        @Override public Clock withZone(ZoneId zona) { return this; }
+        @Override public Instant instant() { return agora; }
+        void avancar() { agora = agora.plusSeconds(60); }
+    }
+
+    @Test void resumoTrazPerfilPreferenciasEProjetoCitado() throws Exception {
+        var s = abrir();
+        s.registrar(42, "perfil", "", "cidade", "Curitiba", "declaracao_usuario", "telegram", "t1");
+        s.registrar(42, "preferencias", "", "bebida", "Café sem açúcar", "declaracao_usuario", "telegram", "t2");
+        s.registrar(42, "projeto", "jarvis", "deploy", "Roda na VPS", "declaracao_usuario", "telegram", "t3");
+        s.registrar(42, "projeto", "outro", "servidor", "Roda no notebook", "declaracao_usuario", "telegram", "t4");
+        s.registrar(42, "projeto", "cliente", "orçamento", "Cinco mil por mês", "declaracao_usuario", "telegram", "t5");
+        s.registrar(42, "episodio", "", "almoço", "Comeu pizza na terça", "declaracao_usuario", "telegram", "t6");
+
+        String resumo = s.resumoParaContexto(42, "como vai o deploy do JÁRVIS?");
+
+        assertTrue(resumo.contains("- cidade: Curitiba"), resumo);
+        assertTrue(resumo.contains("- bebida: Café sem açúcar"), resumo);
+        assertTrue(resumo.contains("Roda na VPS"), "projeto citado pelo identificador entra: " + resumo);
+        assertFalse(resumo.contains("notebook"), "projeto não citado fica fora: " + resumo);
+        assertFalse(resumo.contains("Cinco mil"), "projeto não citado fica fora: " + resumo);
+        assertFalse(resumo.contains("pizza"), "episódio é o que sobra para o buscar_memoria: " + resumo);
+        assertFalse(resumo.contains("jarvis"), "sem id nem metadado no resumo: " + resumo);
+        // O assunto também serve de gancho, e a comparação ignora acento e maiúscula.
+        assertTrue(s.resumoParaContexto(42, "e o ORCAMENTO?").contains("Cinco mil por mês"));
+    }
+
+    @Test void resumoCortaOsMaisAntigosEAvisa() throws Exception {
+        var relogio = new RelogioQueAnda();
+        var s = abrir(relogio);
+        String recheio = "x".repeat(200);
+        for (int i = 1; i <= 12; i++) {
+            s.registrar(42, "preferencias", "", "assunto " + i, "pref" + i + " " + recheio,
+                    "declaracao_usuario", "telegram", "t" + i);
+            relogio.avancar();
+        }
+
+        String resumo = s.resumoParaContexto(42, "qualquer coisa");
+
+        assertTrue(resumo.length() <= MemoriaService.LIMITE_RESUMO,
+                "o teto vale com o aviso dentro; veio " + resumo.length());
+        assertTrue(resumo.contains("pref12 "), "o mais novo fica: " + resumo);
+        assertFalse(resumo.contains("pref1 "), "o mais antigo é o primeiro a cair: " + resumo);
+        assertTrue(resumo.endsWith("(há mais registros; use buscar_memoria)\n"),
+                "cortar em silêncio faria o modelo jurar que o resto não existe: " + resumo);
+    }
+
+    @Test void resumoVazioSemUsuarioAutenticado() throws Exception {
+        var s = abrir();
+        s.registrar(42, "perfil", "", "cidade", "Curitiba", "declaracao_usuario", "telegram", "t1");
+
+        assertEquals("", s.resumoParaContexto(0, "qual minha cidade?"));
+        assertEquals("", s.resumoParaContexto(43, "qual minha cidade?"), "memória é por usuário");
+        assertTrue(s.resumoParaContexto(42, "").contains("Curitiba"),
+                "perfil não depende do que a mensagem diz");
     }
 
     @Test void persisteNaVpsSemDependerDoPcEIsolaUsuariosProjetos() throws Exception {
