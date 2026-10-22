@@ -61,12 +61,15 @@ public class TarefasComputerUse {
     private final TelegramClient telegram;
     private final RegistroConversas conversas;
     private final ApplicationEventPublisher eventos;
+    private final java.util.function.Supplier<ProvedorComputerUse> fabricaDeProvedor;
 
     private static final class Tarefa {
         final String id, nome, objetivo, canal, inicio;
         final long usuario;
         final AtomicBoolean cancelar = new AtomicBoolean();
         volatile String estado = "pendente", motivo = "", comandoAtual;
+        /** Nulo enquanto a tarefa avança; o motivo do travamento depois que o detector acusa. */
+        volatile String travamento;
         volatile Thread executora;
         volatile int ciclos, acoes;
         volatile long tokensEntrada, tokensSaida;
@@ -82,11 +85,30 @@ public class TarefasComputerUse {
                 tokensEntrada, tokensSaida, motivo, inicio); }
     }
 
+    /** O {@code @Autowired} é obrigatório: com dois construtores, o Spring procuraria um sem argumentos. */
+    @org.springframework.beans.factory.annotation.Autowired
     public TarefasComputerUse(OperacoesPcService e2, SistemaDoJarvis sistema, JarvisProperties props,
             JsonMapper json, HttpClient http, TelegramClient telegram,
             RegistroConversas conversas, ApplicationEventPublisher eventos) {
+        this(e2, sistema, props, json, http, telegram, conversas, eventos, null);
+    }
+    /**
+     * O construtor do teste: a fábrica nula cai no provedor escolhido pela configuração, que é o
+     * caminho de produção. Trocar o provedor é a única forma de exercitar o laço sem rede — os dois
+     * adaptadores leem a chave da API já no construtor.
+     */
+    TarefasComputerUse(OperacoesPcService e2, SistemaDoJarvis sistema, JarvisProperties props,
+            JsonMapper json, HttpClient http, TelegramClient telegram,
+            RegistroConversas conversas, ApplicationEventPublisher eventos,
+            java.util.function.Supplier<ProvedorComputerUse> fabricaDeProvedor) {
         this.e2 = e2; this.sistema = sistema; this.props = props; this.json = json;
         this.http = http; this.telegram = telegram; this.conversas = conversas; this.eventos = eventos;
+        this.fabricaDeProvedor = fabricaDeProvedor != null ? fabricaDeProvedor : this::provedorConfigurado;
+    }
+    private ProvedorComputerUse provedorConfigurado() {
+        return "openai".equalsIgnoreCase(props.computerUse().provedor())
+                ? new ProvedorOpenAiComputerUse(http, json, props)
+                : new ProvedorAnthropicComputerUse(http, json, props);
     }
     public boolean disponivel() {
         return props.computerUse() != null && props.computerUse().ativo() && e2.online();
@@ -125,10 +147,9 @@ public class TarefasComputerUse {
     private void executar(Tarefa t) {
         t.executora = Thread.currentThread();
         Instant fim = Instant.now().plusSeconds(Math.clamp(props.computerUse().duracaoSegundos(), 1, 300));
+        DetectorDeTravamento detector = new DetectorDeTravamento();
         try {
-            ProvedorComputerUse provedor = "openai".equalsIgnoreCase(props.computerUse().provedor())
-                    ? new ProvedorOpenAiComputerUse(http, json, props)
-                    : new ProvedorAnthropicComputerUse(http, json, props);
+            ProvedorComputerUse provedor = fabricaDeProvedor.get();
             t.provedor = provedor.nome(); t.modelo = provedor.modelo(); t.estado = "executando";
             publicar(t);
             if (++t.acoes > Math.clamp(props.computerUse().maxAcoes(), 1, 75))
@@ -184,6 +205,9 @@ public class TarefasComputerUse {
                     t.comandoAtual = null;
                     if (!resultado.ok()) throw new IllegalStateException("PC recusou acao: " + resultado.mensagem());
                     if (!resultado.temImagem()) throw new IllegalStateException("PC respondeu sem captura");
+                    if (detector.registrar(chamada.nome(), chamada.entrada(), resultado.imagem()))
+                        t.travamento = detector.motivo();
+                    conferirLimites(t, fim);
                     resultados.add(new ProvedorComputerUse.Resultado(chamada.id(),
                             resultado.imagem(), chamada.nome(), false));
                     publicar(t);
@@ -209,9 +233,9 @@ public class TarefasComputerUse {
             t.imagens.forEach(e2::descartarImagemComputer);
             ocupada.set(false);
             log.info("computer use {}: provedor={} modelo={} estado={} duracao_s={} ciclos={} acoes={} "
-                    + "tokens_entrada={} tokens_saida={}", t.id, t.provedor, t.modelo, t.estado,
+                    + "tokens_entrada={} tokens_saida={} travou={}", t.id, t.provedor, t.modelo, t.estado,
                     Duration.between(Instant.parse(t.inicio), Instant.now()).toSeconds(),
-                    t.ciclos, t.acoes, t.tokensEntrada, t.tokensSaida);
+                    t.ciclos, t.acoes, t.tokensEntrada, t.tokensSaida, t.travamento != null);
             publicar(t);
             String aviso = avisoFim(t.nome, t.estado, t.motivo);
             try {
@@ -222,6 +246,7 @@ public class TarefasComputerUse {
     }
     private void conferirLimites(Tarefa t, Instant fim) {
         if (t.cancelar.get()) throw new IllegalStateException("cancelada pelo usuario");
+        if (t.travamento != null) throw new IllegalStateException(t.travamento);
         if (!Instant.now().isBefore(fim)) throw new IllegalStateException("limite de cinco minutos atingido");
         if (t.ciclos > Math.clamp(props.computerUse().maxCiclos(), 1, MAX_CICLOS))
             throw new IllegalStateException("limite de ciclos atingido");
