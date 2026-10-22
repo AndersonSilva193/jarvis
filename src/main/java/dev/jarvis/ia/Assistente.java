@@ -23,6 +23,7 @@ import dev.jarvis.ferramentas.Ferramentas;
 import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.aprovacao.ClassificadorDeResposta;
 import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
+import dev.jarvis.memoria.AnotadorDeMemoria;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -56,6 +57,8 @@ public class Assistente {
     private final Aprovacoes aprovacoes;
     private final ClassificadorDeResposta classificador;
     private final HistoricoEmArquivo arquivo;
+    /** Opcional: nulo nos construtores enxutos, como o resto das peças de borda desta classe. */
+    private final AnotadorDeMemoria anotador;
     private final ReentrantLock execucao = new ReentrantLock(true);
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
@@ -86,10 +89,19 @@ public class Assistente {
                 ClassificadorDeResposta.semModelo());
     }
 
-    @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, null);
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
+            AnotadorDeMemoria anotador) {
+        this.anotador = anotador;
         this.classificador = classificador;
         this.arquivo = arquivo;
         this.claude = claude;
@@ -285,8 +297,19 @@ public class Assistente {
                     + progresso.idMemoriaEsquecida() + " revisão=" + progresso.revisaoMemoriaEsquecida();
             if (canal != Canal.HUD) escuta = null;
             else if (confirmacao != null) escuta = escutaDaConfirmacao(confirmacao, agora);
+            // O aviso do anotador entra só nesta string: a mensagem do assistente dentro de `turno`
+            // fica intacta, então ele nunca chega ao histórico do modelo nem ao prefixo de cache.
+            // `fala` guarda a resposta sem o aviso — ele é para ler na tela, não para ouvir.
+            String fala = null;
+            if (anotador != null && !progresso.memoriaEsquecida()) {
+                String aviso = anotador.drenarAviso(chatId);
+                if (!aviso.isEmpty()) {
+                    fala = resposta;
+                    resposta = resposta + "\n" + aviso;
+                }
+            }
             RespostaConversa publica = new RespostaConversa(id, canal.nome(), resposta, publicados,
-                    confirmacao, agora.toString(), null, escuta);
+                    confirmacao, agora.toString(), null, escuta, fala);
 
             // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
             if (progresso.memoriaEsquecida()) {
@@ -310,6 +333,10 @@ public class Assistente {
                 // gravação em si sai numa thread virtual, fora do caminho da resposta.
                 arquivo.agendar(chatId, usuarioPorChat.getOrDefault(chatId, 0L),
                         new ArrayList<>(historico), conversas.trocas(chatId));
+                // O anotador recebe o texto do usuário, nunca a resposta nem saída de ferramenta.
+                if (anotador != null) {
+                    anotador.registrarTurno(chatId, progresso.usuarioAutenticado(), canal.nome(), texto);
+                }
             }
             return publica;
         } finally { execucao.unlock(); }

@@ -7,10 +7,16 @@ import java.util.regex.Pattern;
 /**
  * Comparação de texto escrito por gente: sem acento, sem maiúscula e sem espaço sobrando.
  *
- * Serve a dois lugares onde a grafia exata não pode decidir o resultado: a chave do cache de
- * buscas no YouTube ("Lo-Fi  Para Estudar" e "lo-fi para estudar" são a mesma busca) e o
+ * Serve a lugares onde a grafia exata não pode decidir o resultado: a chave do cache de
+ * buscas no YouTube ("Lo-Fi  Para Estudar" e "lo-fi para estudar" são a mesma busca), o
  * {@code abrir_noticia}, onde o modelo repete o título ditado em voz alta — e "eleicao 2026"
- * tem de achar "Eleição 2026".
+ * tem de achar "Eleição 2026" — e a <b>prova de citação</b> da memória, onde um trecho só é
+ * aceito se constar do que o usuário escreveu ({@code FerramentaMemoria.exigirConteudoDoUsuario}
+ * e o {@code AnotadorDeMemoria} usam esta mesma função, de propósito: duas normalizações
+ * parecidas deixariam a trava valer uma coisa na ferramenta e outra no anotador).
+ *
+ * A pontuação é preservada — só o acento, a caixa e o espaço sobrando saem. Comparação de
+ * citação não pode ignorar pontuação, senão o modelo poderia remontar a frase do usuário.
  */
 public final class Texto {
 

@@ -47,6 +47,14 @@ public class MemoriaService {
     public static final int LIMITE_BUSCA = 5;
     /** Teto do resumo que vai para o system, aviso de corte incluído. */
     public static final int LIMITE_RESUMO = 1_500;
+    /** Teto da lista de assuntos entregue ao anotador: ela é prompt, e 500 linhas custariam caro. */
+    public static final int LIMITE_ASSUNTOS = 120;
+    /**
+     * O anotador só grava o que o usuário disse, então o tipo não é escolha dele nem do modelo:
+     * {@code observacao_verificada} pede evidência de ferramenta local e {@code hipotese} seria
+     * palpite gravado como fato.
+     */
+    private static final String TIPO_DO_ANOTADOR = "declaracao_usuario";
     private static final String AVISO_RESUMO = "(há mais registros; use buscar_memoria)\n";
     private static final Pattern ID = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     private static final Pattern PROJETO = Pattern.compile("[a-z0-9][a-z0-9-]{0,49}");
@@ -58,6 +66,8 @@ public class MemoriaService {
                            String tipo, String origem, Instant criadoEm, Instant atualizadoEm,
                            long revisao, String ultimoPedido) { }
     public record Achado(String id, String assunto, String projeto, String tipo, String trecho, long revisao) { }
+    /** O que o anotador gravou, para o aviso da resposta seguinte e para o desfazer. */
+    public record Anotacao(String id, String assunto, String conteudo, boolean atualizado) { }
 
     private final Path raiz;
     private final Path exclusoes;
@@ -214,27 +224,41 @@ public class MemoriaService {
         String classe = validarTipo(tipo);
         String fonte = validarTexto(origem, 80, "origem");
         String idPedido = validarTexto(pedido, 120, "pedido");
-        return comBloqueio(usuario, () -> {
-            List<Registro> existentes = todos(usuario);
-            for (Registro r : existentes) {
-                if (r.categoria().equals(cat) && r.projeto().equals(proj)
-                        && normalizar(r.assunto()).equals(normalizar(nome))) {
-                    if (r.conteudo().equals(corpo) && r.tipo().equals(classe)) return r;
-                    throw new Conflito("Assunto já registrado em " + r.id() + " revisão " + r.revisao()
-                            + ". Peça uma atualização ou esclareça a contradição.");
-                }
+        return comBloqueio(usuario,
+                () -> registrarTravado(usuario, cat, proj, nome, corpo, classe, fonte, idPedido));
+    }
+
+    /**
+     * O corpo de {@link #registrar}, já validado e <b>já dentro</b> do bloqueio. Existe separado
+     * porque o {@link #anotar} precisa decidir entre criar e atualizar sem tomar o
+     * {@code FileLock} duas vezes — dois {@code FileLock} do mesmo arquivo no mesmo processo
+     * estouram {@code OverlappingFileLockException}.
+     */
+    private Registro registrarTravado(long usuario, String cat, String proj, String nome,
+            String corpo, String classe, String fonte, String idPedido) throws IOException {
+        List<Registro> existentes = todos(usuario);
+        for (Registro r : existentes) {
+            if (mesmoAssunto(r, cat, proj, nome)) {
+                if (r.conteudo().equals(corpo) && r.tipo().equals(classe)) return r;
+                throw new Conflito("Assunto já registrado em " + r.id() + " revisão " + r.revisao()
+                        + ". Peça uma atualização ou esclareça a contradição.");
             }
-            if (existentes.size() >= LIMITE_REGISTROS) throw new IllegalArgumentException("Limite de registros atingido");
-            Instant agora = relogio.instant();
-            Registro novo = new Registro(UUID.randomUUID().toString(), cat, proj, nome, corpo, classe,
-                    fonte, agora, agora, 1, idPedido);
-            Path arquivo = arquivo(usuario, novo);
-            List<Registro> lista = lerArquivo(arquivo);
-            if (lista.size() >= 100) throw new IllegalArgumentException("Limite de registros neste arquivo atingido");
-            lista.add(novo);
-            gravar(arquivo, lista);
-            return novo;
-        });
+        }
+        if (existentes.size() >= LIMITE_REGISTROS) throw new IllegalArgumentException("Limite de registros atingido");
+        Instant agora = relogio.instant();
+        Registro novo = new Registro(UUID.randomUUID().toString(), cat, proj, nome, corpo, classe,
+                fonte, agora, agora, 1, idPedido);
+        Path arquivo = arquivo(usuario, novo);
+        List<Registro> lista = lerArquivo(arquivo);
+        if (lista.size() >= 100) throw new IllegalArgumentException("Limite de registros neste arquivo atingido");
+        lista.add(novo);
+        gravar(arquivo, lista);
+        return novo;
+    }
+
+    private static boolean mesmoAssunto(Registro r, String cat, String proj, String nome) {
+        return r.categoria().equals(cat) && r.projeto().equals(proj)
+                && normalizar(r.assunto()).equals(normalizar(nome));
     }
 
     public Registro atualizar(long usuario, String id, long revisao, String conteudo, String tipo,
@@ -244,22 +268,79 @@ public class MemoriaService {
         String classe = validarTipo(tipo);
         String fonte = validarTexto(origem, 80, "origem");
         String idPedido = validarTexto(pedido, 120, "pedido");
+        return comBloqueio(usuario,
+                () -> atualizarTravado(usuario, id, revisao, corpo, classe, fonte, idPedido));
+    }
+
+    /** O corpo de {@link #atualizar}, já validado e dentro do bloqueio. Ver {@link #registrarTravado}. */
+    private Registro atualizarTravado(long usuario, String id, long revisao, String corpo,
+            String classe, String fonte, String idPedido) throws IOException {
+        Registro atual = ler(usuario, id);
+        if (atual == null) throw new Conflito("Registro não encontrado");
+        if (atual.ultimoPedido().equals(idPedido)) return atual;
+        if (atual.revisao() != revisao) throw new Conflito("Revisão mudou; leia o registro novamente");
+        if (atual.conteudo().equals(corpo) && atual.tipo().equals(classe)) return atual;
+        Registro novo = new Registro(id, atual.categoria(), atual.projeto(), atual.assunto(), corpo,
+                classe, fonte, atual.criadoEm(), relogio.instant(), revisao + 1, idPedido);
+        Path arquivo = arquivo(usuario, atual);
+        Path historico = pastaUsuario(usuario).resolve(".historico").resolve(id).resolve(revisao + ".md");
+        gravar(historico, List.of(atual));
+        List<Registro> lista = lerArquivo(arquivo);
+        lista.replaceAll(r -> r.id().equals(id) ? novo : r);
+        gravar(arquivo, lista);
+        return novo;
+    }
+
+    /**
+     * Gravação do anotador: cria o registro ou, no mesmo assunto, atualiza com histórico. Devolve
+     * {@code null} quando o conteúdo já era aquele — nada mudou, nada a avisar.
+     *
+     * Não existe para burlar trava nenhuma: o filtro de segredo, os limites e os validadores são
+     * os mesmos de {@link #registrar}. O que falta lá é o <i>upsert</i>, porque {@code registrar}
+     * recusa assunto repetido com {@link Conflito}, e o anotador reencontra o mesmo assunto toda
+     * vez que o dono volta a falar dele.
+     *
+     * Quem decide entre criar e atualizar é este método, casando o assunto no disco — o chamador
+     * não aponta ID. É o que impede o modelo de mirar uma escrita num registro que ele escolheu.
+     *
+     * O {@code tipo} é fixo em {@code declaracao_usuario}, e não é escolha do chamador.
+     */
+    public Anotacao anotar(long usuario, String categoria, String projeto, String assunto,
+                           String conteudo, String origem, String pedido) throws IOException {
+        validarUsuario(usuario);
+        String cat = validarCategoria(categoria);
+        String proj = "projeto".equals(cat) ? validarProjeto(projeto) : "";
+        String nome = validarTexto(assunto, 120, "assunto");
+        String corpo = validarConteudo(conteudo);
+        String fonte = validarTexto(origem, 80, "origem");
+        String idPedido = validarTexto(pedido, 120, "pedido");
         return comBloqueio(usuario, () -> {
-            Registro atual = ler(usuario, id);
-            if (atual == null) throw new Conflito("Registro não encontrado");
-            if (atual.ultimoPedido().equals(idPedido)) return atual;
-            if (atual.revisao() != revisao) throw new Conflito("Revisão mudou; leia o registro novamente");
-            if (atual.conteudo().equals(corpo) && atual.tipo().equals(classe)) return atual;
-            Registro novo = new Registro(id, atual.categoria(), atual.projeto(), atual.assunto(), corpo,
-                    classe, fonte, atual.criadoEm(), relogio.instant(), revisao + 1, idPedido);
-            Path arquivo = arquivo(usuario, atual);
-            Path historico = pastaUsuario(usuario).resolve(".historico").resolve(id).resolve(revisao + ".md");
-            gravar(historico, List.of(atual));
-            List<Registro> lista = lerArquivo(arquivo);
-            lista.replaceAll(r -> r.id().equals(id) ? novo : r);
-            gravar(arquivo, lista);
-            return novo;
+            for (Registro r : todos(usuario)) {
+                if (!mesmoAssunto(r, cat, proj, nome)) continue;
+                if (r.conteudo().equals(corpo) && r.tipo().equals(TIPO_DO_ANOTADOR)) return null;
+                // A revisão vem do disco, não do modelo: aqui não há leitura prévia para conferir.
+                Registro novo = atualizarTravado(usuario, r.id(), r.revisao(), corpo,
+                        TIPO_DO_ANOTADOR, fonte, idPedido);
+                return new Anotacao(novo.id(), novo.assunto(), novo.conteudo(), true);
+            }
+            Registro novo = registrarTravado(usuario, cat, proj, nome, corpo, TIPO_DO_ANOTADOR,
+                    fonte, idPedido);
+            return new Anotacao(novo.id(), novo.assunto(), novo.conteudo(), false);
         });
+    }
+
+    /**
+     * Os assuntos já gravados, para o anotador escolher entre criar e atualizar. Só a ficha: o
+     * conteúdo não vai ao prompt, que é o que torna a lista barata o bastante para ir inteira.
+     */
+    public List<Achado> assuntos(long usuario) throws IOException {
+        validarUsuario(usuario);
+        List<Achado> fichas = new ArrayList<>();
+        for (Registro r : todos(usuario)) {
+            fichas.add(new Achado(r.id(), r.assunto(), r.projeto(), r.categoria(), "", r.revisao()));
+        }
+        fichas.sort(Comparator.comparing(Achado::tipo).thenComparing(Achado::assunto));
+        return fichas.size() <= LIMITE_ASSUNTOS ? fichas : fichas.subList(0, LIMITE_ASSUNTOS);
     }
 
     public boolean esquecer(long usuario, String id, long revisao) throws IOException {

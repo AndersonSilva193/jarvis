@@ -26,7 +26,7 @@ public class EsquecerMemoriaFerramenta extends FerramentaMemoria {
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso) throws Exception {
         long u = usuario(progresso); String id = texto(entrada, "id"); String codigo = texto(entrada, "codigo");
         if (codigo.isEmpty()) {
-            exigir(progresso, "esquecer");
+            exigirPedidoDeEsquecer(progresso);
             var r = memoria.ler(u, id);
             if (r == null) return resposta("Memória não encontrada.");
             String desafio = confirmacao.pedir(u, id, r.revisao(), pedido(progresso));

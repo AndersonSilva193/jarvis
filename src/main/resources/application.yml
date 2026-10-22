@@ -88,6 +88,10 @@ jarvis:
   memoria:
     pasta: ${MEMORIA_PASTA:/data/jarvis/memoria}
     pasta-exclusoes: ${MEMORIA_PASTA_EXCLUSOES:/data/jarvis/memoria-exclusoes}
+    # O Jarvis anota sozinho o que o dono conta, sem ele pedir. Falso deixa só as ferramentas.
+    anotador-ativo: ${MEMORIA_ANOTADOR_ATIVO:true}
+    # Minutos sem turno novo que fecham o trecho e chamam o anotador (o outro gatilho é 10 turnos).
+    anotador-ocioso-minutos: ${MEMORIA_ANOTADOR_OCIOSO_MINUTOS:5}
   lembretes:
     arquivo: ${LEMBRETES_ARQUIVO:/data/jarvis/lembretes/lembretes.json}
   historico:

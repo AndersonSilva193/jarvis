@@ -10,11 +10,17 @@ import dev.jarvis.conversa.RespostaConversa;
 /** A camada HTTP é a única que conhece as rotas dos anexos. */
 public final class ConversaDto {
     private ConversaDto() { }
+    /** {@code fala} é o que a HUD narra quando difere do texto da tela; nulo = fale o texto. */
     public record Resposta(String id, String canal, String texto, List<Anexo> anexos,
-            Confirmacao confirmacao, String concluidoEm, String erro, EscutaResposta escuta) {
+            Confirmacao confirmacao, String concluidoEm, String erro, EscutaResposta escuta,
+            String fala) {
         public Resposta(String id, String canal, String texto, List<Anexo> anexos,
                 Confirmacao confirmacao, String concluidoEm, String erro) {
-            this(id, canal, texto, anexos, confirmacao, concluidoEm, erro, null);
+            this(id, canal, texto, anexos, confirmacao, concluidoEm, erro, null, null);
+        }
+        public Resposta(String id, String canal, String texto, List<Anexo> anexos,
+                Confirmacao confirmacao, String concluidoEm, String erro, EscutaResposta escuta) {
+            this(id, canal, texto, anexos, confirmacao, concluidoEm, erro, escuta, null);
         }
     }
     public record Troca(String id, String canal, String pedido, Resposta resposta) { }
@@ -25,7 +31,8 @@ public final class ConversaDto {
         return new Resposta(resposta.id(), resposta.canal(), resposta.texto(), resposta.anexos().stream()
                 .map(a -> new Anexo(a.id(), a.tipo(), a.nome(), a.mime(),
                         "link".equals(a.tipo()) ? a.url() : "/api/anexos/" + a.id(), a.expiraEm()))
-                .toList(), resposta.confirmacao(), resposta.concluidoEm(), resposta.erro(), resposta.escuta());
+                .toList(), resposta.confirmacao(), resposta.concluidoEm(), resposta.erro(), resposta.escuta(),
+                resposta.fala());
     }
     public static Historico de(RegistroConversas.Historico historico) {
         return new Historico(historico.sessao(), historico.revisao(), historico.trocas().stream()

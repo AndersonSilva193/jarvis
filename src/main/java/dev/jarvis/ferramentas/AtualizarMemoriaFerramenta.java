@@ -21,7 +21,7 @@ public class AtualizarMemoriaFerramenta extends FerramentaMemoria {
         s.putArray("required").add("id").add("revisao").add("conteudo").add("tipo"); return s;
     }
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso) throws Exception {
-        long u = usuario(progresso); exigir(progresso, "atualizar");
+        long u = usuario(progresso);
         String tipo = texto(entrada, "tipo"); String conteudo = texto(entrada, "conteudo");
         if ("observacao_verificada".equals(tipo) && !progresso.evidenciaVerificada(conteudo))
             return resposta("Observação não verificada por ferramenta local neste pedido; não atualizei.");

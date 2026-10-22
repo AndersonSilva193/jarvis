@@ -95,6 +95,16 @@ class ContextoDaAplicacaoTest {
     }
 
     @Test
+    @DisplayName("o bloco da memória casa com o application.yml, anotador incluído")
+    void memoriaCasaComOYml() {
+        // Mesmo motivo dos outros: o anotador entrou esticando o record Memoria, e se os dois
+        // campos novos não casarem com o yml o recurso fica desligado sem nenhum erro aparecer.
+        assertNotNull(props.memoria(), "jarvis.memoria não casou com JarvisProperties");
+        assertTrue(props.anotadorDeMemoriaAtivo(), "MEMORIA_ANOTADOR_ATIVO tem true de padrão");
+        assertEquals(java.time.Duration.ofMinutes(5), props.ociosidadeDoAnotador());
+    }
+
+    @Test
     @DisplayName("o bloco do PC casa com o application.yml e o controlar_pc sobe fiado")
     void pcCasaComOYml() {
         // Mesmo motivo dos dois testes acima: se jarvis.pc não casar com o record, props.pc() vem

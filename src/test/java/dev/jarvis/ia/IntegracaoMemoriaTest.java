@@ -156,6 +156,60 @@ class IntegracaoMemoriaTest {
         assertTrue(contexto.contains("usuário autenticado"));
     }
 
+    /**
+     * O aviso do anotador sai na resposta seguinte, no texto da tela, e fica fora da fala: o dono
+     * precisa ver o que foi anotado para poder corrigir, mas não precisa ouvir isso narrado.
+     */
+    @Test void avisoDoAnotadorEntraNoTextoENaoNaFala() throws Exception {
+        var memoria = new MemoriaService(pasta.resolve("memoria4"), pasta.resolve("exclusoes4"), json,
+                Clock.systemUTC(), ZoneId.of("America/Sao_Paulo"));
+        var props = new JarvisProperties("Anderson", "America/Sao_Paulo", "", null,
+                new JarvisProperties.Anthropic("chave", "claude-haiku-5-5", 1024, 512),
+                null, null, null, null, null, null, null, null, null,
+                new JarvisProperties.Memoria("", "", true, 5));
+
+        ClaudeClient doAnotador = mock(ClaudeClient.class);
+        when(doAnotador.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class),
+                org.mockito.ArgumentMatchers.anyInt(), any(java.time.Duration.class)))
+                .thenReturn(resposta("{\"candidatos\":[{\"categoria\":\"perfil\",\"assunto\":\"editor\","
+                        + "\"conteudo\":\"Usa o VS Code\",\"evidencia\":\"uso o VS Code\",\"acao\":\"novo\"}]}"));
+        var anotador = new dev.jarvis.memoria.AnotadorDeMemoria(memoria, doAnotador, json, props);
+        for (int i = 0; i < 10; i++) anotador.registrarTurno(7, 7, "hud", "uso o VS Code todo dia");
+        assertTrue(anotador.aguardar(java.time.Duration.ofSeconds(5)), "a análise terminou");
+
+        ClaudeClient claude = mock(ClaudeClient.class);
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(resposta("Pronto, senhor."));
+        var registro = new dev.jarvis.conversa.RegistroConversas(evento -> { });
+        var assistente = new Assistente(claude, new Ferramentas(List.of(), json),
+                new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"), json, props),
+                json, registro, new dev.jarvis.conversa.AnexosService(), BuscaWebServidor.desligada(),
+                new dev.jarvis.aprovacao.Aprovacoes(),
+                dev.jarvis.conversa.HistoricoEmArquivo.desligado(),
+                dev.jarvis.aprovacao.ClassificadorDeResposta.semModelo(), anotador);
+
+        var publica = assistente.responder(7, "e aí?", Canal.HUD, daHud(registro, "e aí?"));
+        assertEquals("Pronto, senhor.\nAnotei: Usa o VS Code.", publica.texto());
+        assertEquals("Pronto, senhor.", publica.paraFala(), "o aviso é para ler, não para ouvir");
+
+        // Uma vez só: o turno seguinte volta a ser texto e fala iguais.
+        var seguinte = assistente.responder(7, "obrigado", Canal.HUD, daHud(registro, "obrigado"));
+        assertEquals("Pronto, senhor.", seguinte.texto());
+        assertEquals(seguinte.texto(), seguinte.paraFala());
+        assertNull(seguinte.fala());
+    }
+
+    /** Pedido da HUD como o ConversaService o faz: reservado no registro antes de ir ao Assistente. */
+    private static dev.jarvis.conversa.OuvinteProgresso daHud(
+            dev.jarvis.conversa.RegistroConversas registro, String texto) {
+        String id = registro.reservar(7, texto).id();
+        return new dev.jarvis.conversa.OuvinteProgresso() {
+            @Override public String idPedido() { return id; }
+            @Override public long usuarioAutenticado() { return 7; }
+            @Override public String canal() { return "hud"; }
+        };
+    }
+
     private JsonNode chamada(String nome, ObjectNode entrada) {
         ObjectNode resposta = json.createObjectNode().put("stop_reason", "tool_use");
         resposta.putArray("content").addObject().put("type", "tool_use").put("id", "tu1")

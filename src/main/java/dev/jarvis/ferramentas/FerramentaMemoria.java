@@ -1,19 +1,17 @@
 package dev.jarvis.ferramentas;
 
 import java.util.Locale;
-import java.text.Normalizer;
 import java.util.regex.Pattern;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.memoria.MemoriaService;
 import dev.jarvis.util.Json;
+import dev.jarvis.util.Texto;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Validação comum das ferramentas; os caminhos nunca entram nos esquemas. */
 abstract class FerramentaMemoria implements Ferramenta {
-    private static final Pattern REGISTRAR = Pattern.compile("(?iu)^(lembre( que)?|guarde|registre|anote)\\b");
-    private static final Pattern ATUALIZAR = Pattern.compile("(?iu)^(atualize|corrija|mude|altere)\\b");
     private static final Pattern ESQUECER = Pattern.compile("(?iu)^(esqueça|apague da memória|remova da memória)\\b");
     protected final MemoriaService memoria;
     protected final JsonMapper json;
@@ -31,28 +29,22 @@ abstract class FerramentaMemoria implements Ferramenta {
         if (p.idPedido() == null || p.idPedido().isBlank()) throw new IllegalArgumentException("Pedido sem identificador");
         return p.idPedido();
     }
-    protected static void exigir(OuvinteProgresso p, String acao) {
+    /**
+     * Esquecer continua exigindo a palavra na abertura da mensagem, porque é o único caminho pelo
+     * qual um registro <b>sai</b> de vista. Gravar e atualizar não exigem mais: o dono conta coisa
+     * durável no meio da conversa, e cobrar "lembre que" na primeira palavra fazia a memória
+     * depender de ele saber a senha. Quem segura essas duas é o {@link #exigirConteudoDoUsuario}.
+     */
+    protected static void exigirPedidoDeEsquecer(OuvinteProgresso p) {
         String original = p.pedidoOriginal().stripLeading().toLowerCase(Locale.ROOT);
-        boolean permitido = switch (acao) {
-            case "registrar" -> REGISTRAR.matcher(original).find();
-            case "atualizar" -> ATUALIZAR.matcher(original).find()
-                    || (REGISTRAR.matcher(original).find()
-                        && Pattern.compile("(?iu)\\b(agora|mudei|mudou|corrijo|na verdade|em vez de|não mais)\\b")
-                                .matcher(original).find());
-            case "esquecer" -> ESQUECER.matcher(original).find();
-            default -> false;
-        };
-        if (!permitido) throw new IllegalArgumentException("Ação de memória exige pedido explícito do usuário");
+        if (!ESQUECER.matcher(original).find())
+            throw new IllegalArgumentException("Ação de memória exige pedido explícito do usuário");
     }
     protected static void exigirConteudoDoUsuario(OuvinteProgresso p, String conteudo) {
-        String original = normalizar(p.pedidoOriginal());
-        String literal = normalizar(conteudo);
+        String original = Texto.normalizar(p.pedidoOriginal());
+        String literal = Texto.normalizar(conteudo);
         if (literal.isBlank() || !original.contains(literal))
             throw new IllegalArgumentException("Conteúdo não consta do pedido original; use trecho literal do usuário");
-    }
-    private static String normalizar(String texto) {
-        return Normalizer.normalize(texto.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "").replaceAll("\\s+", " ").trim();
     }
     protected ObjectNode base() { return json.createObjectNode().put("type", "object"); }
     protected static ResultadoFerramenta resposta(String texto) { return ResultadoFerramenta.texto(texto); }

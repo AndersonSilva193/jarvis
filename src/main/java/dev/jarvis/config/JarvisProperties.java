@@ -162,8 +162,21 @@ public record JarvisProperties(
     public record Google(String clientId, String clientSecret, String redirectUri,
             String chaveCofre, String pastaCredenciais) { }
 
-    /** Volumes separados para registros e marcadores permanentes de exclusão. */
-    public record Memoria(String pasta, String pastaExclusoes) { }
+    /**
+     * Volumes separados para registros e marcadores permanentes de exclusão.
+     *
+     * @param anotadorAtivo          se o Jarvis anota sozinho os fatos duráveis que o usuário conta,
+     *                               sem ele precisar pedir. Desligado, só as ferramentas explícitas
+     *                               gravam.
+     * @param anotadorOciosoMinutos  quanto tempo sem turno novo fecha o trecho e manda o anotador
+     *                               olhar a conversa. O outro gatilho é a contagem de turnos.
+     */
+    public record Memoria(String pasta, String pastaExclusoes, boolean anotadorAtivo,
+            int anotadorOciosoMinutos) {
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Memoria { }
+        public Memoria(String pasta, String pastaExclusoes) { this(pasta, pastaExclusoes, true, 5); }
+    }
 
     /** Arquivo JSON onde os lembretes sobrevivem ao restart do container. */
     public record Lembretes(String arquivo) { }
@@ -208,6 +221,21 @@ public record JarvisProperties(
     public java.time.Duration validadeDoHistorico() {
         int horas = historico == null || historico.validadeHoras() <= 0 ? 24 : historico.validadeHoras();
         return java.time.Duration.ofHours(horas);
+    }
+
+    /** Se o Jarvis anota sozinho. Null-safe: quem monta as properties à mão fica sem o recurso. */
+    public boolean anotadorDeMemoriaAtivo() {
+        return memoria != null && memoria.anotadorAtivo();
+    }
+
+    /**
+     * Quanto tempo parado fecha o trecho do anotador, com 5 minutos de padrão e piso de 1 minuto —
+     * zero ou negativo desligaria o gatilho de ociosidade sem desligar o recurso.
+     */
+    public java.time.Duration ociosidadeDoAnotador() {
+        int minutos = memoria == null || memoria.anotadorOciosoMinutos() <= 0
+                ? 5 : memoria.anotadorOciosoMinutos();
+        return java.time.Duration.ofMinutes(minutos);
     }
 
     public ZoneId zona() {
