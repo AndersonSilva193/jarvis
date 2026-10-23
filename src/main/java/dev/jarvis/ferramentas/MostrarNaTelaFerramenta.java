@@ -50,6 +50,12 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
                 vantagem", não "Tabela do Brasileirão". O 'resumo' é exatamente o texto que você \
                 vai falar em voz alta, para a tela e a voz não divergirem.
 
+                O layout 'grafico' é para números que mudam ao longo de um eixo — dias, meses, \
+                rodadas. Use SÓ com números que vieram de uma pesquisa feita NESTE pedido, e aí \
+                o titulo também é a conclusão: "A temperatura cai 8 °C até quinta", não \
+                "Previsão da semana". Para dados do próprio Jarvis ou de planilhas, use \
+                grafico_de_dados, não esta ferramenta.
+
                 Se o contexto não traz a linha "Na tela agora", nenhuma HUD está aberta e esta \
                 ferramenta não vai abrir nada — responda apenas falando.""";
     }
@@ -75,7 +81,8 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
         layout.put("type", "string");
         layout.put("description", "O desenho do card. ranking para comparar itens em ordem; "
                 + "ficha para pares rótulo/valor; lista para pontos soltos; "
-                + "linha_do_tempo para datas em sequência; destaque para um número só.");
+                + "linha_do_tempo para datas em sequência; destaque para um número só; "
+                + "grafico para números ao longo de um eixo (manda 'grafico' em vez de 'itens').");
         MontadorDeCardDePesquisa.LAYOUTS.forEach(layout.putArray("enum")::add);
 
         ObjectNode itens = campos.putObject("itens");
@@ -88,8 +95,11 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
                 lista -> texto;
                 linha_do_tempo -> data, texto;
                 destaque -> valor, legenda.
-                Com unidade "%", o valor tem de ficar entre 0 e 100.""");
+                Com unidade "%", o valor tem de ficar entre 0 e 100.
+                No layout grafico não mande itens: mande o objeto 'grafico'.""");
         itens.putObject("items").put("type", "object");
+
+        campos.set("grafico", esquemaDoGrafico());
 
         campos.putObject("resumo").put("type", "string")
                 .put("description", "O mesmo texto que você vai falar em voz alta sobre isto.");
@@ -104,9 +114,66 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
         camposDaFonte.putObject("nome").put("type", "string");
         camposDaFonte.putObject("url").put("type", "string");
 
+        // 'itens' não entra aqui porque o layout grafico não tem itens; quem cobra um ou outro,
+        // conforme o layout, é o MontadorDeCardDePesquisa.
         esquema.putArray("required")
-                .add("categoria").add("tema").add("titulo").add("layout").add("itens").add("resumo");
+                .add("categoria").add("tema").add("titulo").add("layout").add("resumo");
         return esquema;
+    }
+
+    /**
+     * O objeto do layout 'grafico'.
+     *
+     * A 'origem' de propósito não aparece: o modelo só pode mandar gráfico de pesquisa, e marcar
+     * um número como vindo do próprio Jarvis é trabalho do Java.
+     */
+    private ObjectNode esquemaDoGrafico() {
+        ObjectNode grafico = json.createObjectNode();
+        grafico.put("type", "object");
+        grafico.put("description", "Só no layout grafico, no lugar de 'itens'. Exige 'referencia' "
+                + "e ao menos uma fonte: são números pesquisados.");
+        ObjectNode campos = grafico.putObject("properties");
+
+        ObjectNode tipo = campos.putObject("tipo");
+        tipo.put("type", "string");
+        tipo.put("description", "linha para o que anda no tempo (2 a "
+                + MontadorDeCardDePesquisa.MAX_PONTOS_LINHA + " pontos); "
+                + "barras para comparar categorias (até " + MontadorDeCardDePesquisa.MAX_BARRAS + ").");
+        MontadorDeCardDePesquisa.TIPOS_GRAFICO.forEach(tipo.putArray("enum")::add);
+
+        ObjectNode eixoX = campos.putObject("eixoX");
+        eixoX.put("type", "array");
+        eixoX.put("description", "Os rótulos do eixo, na ordem: 'seg', 'ter'... ou 'jan', 'fev'...");
+        eixoX.putObject("items").put("type", "string");
+
+        ObjectNode series = campos.putObject("series");
+        series.put("type", "array");
+        series.put("maxItems", MontadorDeCardDePesquisa.MAX_SERIES);
+        series.put("description", "Até " + MontadorDeCardDePesquisa.MAX_SERIES
+                + " séries. Cada uma com 'nome' e 'valores' — um número por rótulo do eixoX, "
+                + "na mesma ordem e na mesma quantidade.");
+        ObjectNode serie = series.putObject("items");
+        serie.put("type", "object");
+        ObjectNode camposDaSerie = serie.putObject("properties");
+        camposDaSerie.putObject("nome").put("type", "string");
+        ObjectNode valores = camposDaSerie.putObject("valores");
+        valores.put("type", "array");
+        valores.putObject("items").put("type", "number");
+
+        campos.putObject("unidade").put("type", "string")
+                .put("description", "O que os valores significam: '°C', 'R$', '%'. Até "
+                        + "10 caracteres.");
+
+        ObjectNode destaque = campos.putObject("destaque");
+        destaque.put("type", "object");
+        destaque.put("description", "Opcional: o ponto a realçar. 'serie' e 'indice' contam do "
+                + "zero.");
+        ObjectNode camposDoDestaque = destaque.putObject("properties");
+        camposDoDestaque.putObject("serie").put("type", "integer");
+        camposDoDestaque.putObject("indice").put("type", "integer");
+
+        grafico.putArray("required").add("tipo").add("eixoX").add("series");
+        return grafico;
     }
 
     @Override

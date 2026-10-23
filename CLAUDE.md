@@ -99,7 +99,9 @@ guardado sem os blocos de pensamento.
 ## A tela dirigida pelo Jarvis
 
 Quatro ferramentas abrem e comandam janelas na HUD: `mostrar_na_tela` (card de pesquisa com
-ranking, ficha, lista, linha do tempo ou destaque), `tocar_youtube`, `abrir_pagina` e
+ranking, ficha, lista, linha do tempo, destaque ou gráfico — este último é o único sem `itens`:
+o conteúdo vai no campo irmão `dados.grafico`, linha ou barras, e só com número pesquisado, porque
+`origem: "servidor"` é marcada pelo Java), `tocar_youtube`, `abrir_pagina` e
 `controlar_tela` (as 20 ações de `ComandoTela.ACOES`). Valem para pedido vindo da HUD **e** do
 Telegram — "mostra na tela o vídeo X" pelo celular abre o card do mesmo jeito, e é o
 `CardTela.origem` que registra de onde veio.

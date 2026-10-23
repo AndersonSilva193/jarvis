@@ -33,9 +33,29 @@ public final class MontadorDeCardDePesquisa {
     static final int MAX_CATEGORIA = 60;
     static final int MAX_URL = 2048;
 
+    /** O layout que não tem itens: o conteúdo todo vai no objeto 'grafico'. */
+    public static final String GRAFICO = "grafico";
+
     /** Os desenhos que a HUD sabe fazer. É o enum que vai no schema da ferramenta. */
     public static final List<String> LAYOUTS =
-            List.of("ranking", "ficha", "lista", "linha_do_tempo", "destaque");
+            List.of("ranking", "ficha", "lista", "linha_do_tempo", "destaque", GRAFICO);
+
+    /** Os dois desenhos de gráfico. Também vira enum no schema. */
+    public static final List<String> TIPOS_GRAFICO = List.of("linha", "barras");
+
+    public static final int MAX_SERIES = 3;
+    /** Dois pontos é o mínimo para existir uma linha; 24 é um dia de hora em hora. */
+    static final int MIN_PONTOS_LINHA = 2;
+    public static final int MAX_PONTOS_LINHA = 24;
+    /** Doze barras é um ano mês a mês; acima disso a tela vira um pente. */
+    public static final int MAX_BARRAS = 12;
+    static final int MAX_ROTULO_EIXO = 24;
+    static final int MAX_NOME_SERIE = 40;
+    static final int MAX_UNIDADE = 10;
+
+    /** As origens possíveis de um gráfico; o modelo só pode pedir a primeira. */
+    static final String DE_PESQUISA = "pesquisa";
+    static final String DO_SERVIDOR = "servidor";
 
     private static final Set<String> ESQUEMAS = Set.of("http", "https");
 
@@ -71,10 +91,142 @@ public final class MontadorDeCardDePesquisa {
             throw new IllegalArgumentException("layout deve ser um de " + LAYOUTS + ", não '" + layout + "'");
         }
 
-        List<DadosDoCard.ItemDoCard> itens = itens(entrada.path("itens"), layout);
         List<DadosDoCard.Fonte> fontes = fontes(entrada.path("fontes"));
+        // O layout grafico é o único sem itens: o conteúdo inteiro vai no objeto 'grafico'.
+        boolean ehGrafico = GRAFICO.equals(layout);
+        List<DadosDoCard.ItemDoCard> itens =
+                ehGrafico ? List.of() : itens(entrada.path("itens"), layout);
+        DadosDoCard.Grafico grafico =
+                ehGrafico ? grafico(entrada.path(GRAFICO), referencia, fontes) : null;
         return new DadosDoCard.Pesquisa(categoria, tema, referencia, layout, itens, resumo,
-                fontes, consultadoEm);
+                fontes, consultadoEm, grafico);
+    }
+
+    /**
+     * O gráfico vindo do modelo, conferido ponto a ponto.
+     *
+     * Aqui não dá para "quase certo": uma série de tamanho diferente do eixo desenha um gráfico
+     * que mente, e um NaN vira uma linha que some no meio. Por isso tudo é exigido antes, e nada
+     * é completado por conta própria.
+     *
+     * A {@code origem} é a trava que separa número pesquisado de número da casa: o modelo só pode
+     * mandar "pesquisa", e aí tem de dizer de onde veio (fonte) e de quando é (referência).
+     */
+    static DadosDoCard.Grafico grafico(JsonNode no, String referencia,
+            List<DadosDoCard.Fonte> fontes) {
+        if (no == null || !no.isObject()) {
+            throw new IllegalArgumentException("mande o objeto 'grafico' com tipo, eixoX e series");
+        }
+        String tipo = texto(no, "tipo", 10, true);
+        if (!TIPOS_GRAFICO.contains(tipo)) {
+            throw new IllegalArgumentException(
+                    "tipo do gráfico deve ser linha ou barras, não '" + tipo + "'");
+        }
+
+        List<String> eixoX = eixoX(no.path("eixoX"), tipo);
+        List<DadosDoCard.Grafico.Serie> series = series(no.path("series"), eixoX.size());
+        String unidade = texto(no, "unidade", MAX_UNIDADE, false);
+        DadosDoCard.Grafico.Destaque destaque = destaque(no.path("destaque"), series.size(),
+                eixoX.size());
+
+        String origem = texto(no, "origem", 20, false);
+        if (origem.isEmpty()) {
+            origem = DE_PESQUISA;
+        }
+        if (DO_SERVIDOR.equals(origem)) {
+            throw new IllegalArgumentException(
+                    "origem 'servidor' é marcada pelo servidor; use grafico_de_dados");
+        }
+        if (!DE_PESQUISA.equals(origem)) {
+            throw new IllegalArgumentException("origem do gráfico deve ser 'pesquisa'");
+        }
+        if (fontes.isEmpty()) {
+            throw new IllegalArgumentException("gráfico de pesquisa precisa de ao menos uma fonte");
+        }
+        if (referencia.isBlank()) {
+            throw new IllegalArgumentException(
+                    "gráfico de pesquisa precisa de 'referencia' com a data da informação");
+        }
+        return new DadosDoCard.Grafico(tipo, eixoX, series, unidade, destaque, origem);
+    }
+
+    /** Os rótulos do eixo, com o teto que muda por tipo: linha é série temporal, barras é lista. */
+    private static List<String> eixoX(JsonNode lista, String tipo) {
+        if (lista == null || !lista.isArray() || lista.isEmpty()) {
+            throw new IllegalArgumentException("mande os rótulos em 'eixoX'");
+        }
+        int minimo = "linha".equals(tipo) ? MIN_PONTOS_LINHA : 1;
+        int maximo = "linha".equals(tipo) ? MAX_PONTOS_LINHA : MAX_BARRAS;
+        if (lista.size() < minimo || lista.size() > maximo) {
+            throw new IllegalArgumentException("gráfico de " + tipo + " precisa de " + minimo
+                    + " a " + maximo + ("linha".equals(tipo) ? " pontos" : " categorias")
+                    + " no eixoX; você mandou " + lista.size());
+        }
+        List<String> eixoX = new ArrayList<>(lista.size());
+        for (int i = 0; i < lista.size(); i++) {
+            String rotulo = Json.texto(lista.get(i)).trim();
+            if (rotulo.isEmpty()) {
+                throw new IllegalArgumentException("eixoX " + (i + 1) + ": rótulo vazio");
+            }
+            if (rotulo.length() > MAX_ROTULO_EIXO) {
+                throw new IllegalArgumentException("eixoX " + (i + 1) + ": rótulo acima de "
+                        + MAX_ROTULO_EIXO + " caracteres");
+            }
+            eixoX.add(rotulo);
+        }
+        return eixoX;
+    }
+
+    /** As séries, todas do tamanho do eixo e só com número que existe de verdade. */
+    private static List<DadosDoCard.Grafico.Serie> series(JsonNode lista, int pontos) {
+        if (lista == null || !lista.isArray() || lista.isEmpty()) {
+            throw new IllegalArgumentException("mande de 1 a " + MAX_SERIES + " séries em 'series'");
+        }
+        if (lista.size() > MAX_SERIES) {
+            throw new IllegalArgumentException(
+                    "no máximo " + MAX_SERIES + " séries; você mandou " + lista.size());
+        }
+        List<DadosDoCard.Grafico.Serie> series = new ArrayList<>(lista.size());
+        for (int i = 0; i < lista.size(); i++) {
+            JsonNode serie = lista.get(i);
+            if (serie == null || !serie.isObject()) {
+                throw new IllegalArgumentException("série " + (i + 1) + ": mande um objeto");
+            }
+            String nome = exigir(serie, "nome", MAX_NOME_SERIE, i, "série");
+            JsonNode valores = serie.path("valores");
+            if (!valores.isArray() || valores.size() != pontos) {
+                throw new IllegalArgumentException("série '" + nome + "': "
+                        + (valores.isArray() ? valores.size() : 0) + " valores para " + pontos
+                        + " pontos do eixoX");
+            }
+            List<Double> numeros = new ArrayList<>(pontos);
+            for (int v = 0; v < pontos; v++) {
+                Double valor = numero(valores.get(v));
+                if (valor == null || !Double.isFinite(valor)) {
+                    throw new IllegalArgumentException("série '" + nome + "', valor " + (v + 1)
+                            + ": tem de ser número finito");
+                }
+                numeros.add(valor);
+            }
+            series.add(new DadosDoCard.Grafico.Serie(nome, numeros));
+        }
+        return series;
+    }
+
+    /** O ponto realçado, ou null. Índice fora da faixa é recusado: a HUD não pode ler o vazio. */
+    private static DadosDoCard.Grafico.Destaque destaque(JsonNode no, int series, int pontos) {
+        if (no == null || !no.isObject()) {
+            return null;
+        }
+        int serie = (int) Json.numero(no.path("serie"));
+        int indice = (int) Json.numero(no.path("indice"));
+        if (serie < 0 || serie >= series) {
+            throw new IllegalArgumentException("destaque: série " + serie + " não existe");
+        }
+        if (indice < 0 || indice >= pontos) {
+            throw new IllegalArgumentException("destaque: ponto " + indice + " não existe");
+        }
+        return new DadosDoCard.Grafico.Destaque(serie, indice);
     }
 
     static List<DadosDoCard.ItemDoCard> itens(JsonNode lista, String layout) {
@@ -212,10 +364,15 @@ public final class MontadorDeCardDePesquisa {
 
     /** O mesmo, mas dentro de um item, para a mensagem dizer qual item está errado. */
     private static String exigir(JsonNode item, String campo, int max, int indice) {
+        return exigir(item, campo, max, indice, "item");
+    }
+
+    /** O mesmo, com o nome do que está sendo numerado — "item 2:", "série 2:". */
+    private static String exigir(JsonNode item, String campo, int max, int indice, String oQue) {
         try {
             return texto(item, campo, max, true);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("item " + (indice + 1) + ": " + e.getMessage());
+            throw new IllegalArgumentException(oQue + " " + (indice + 1) + ": " + e.getMessage());
         }
     }
 

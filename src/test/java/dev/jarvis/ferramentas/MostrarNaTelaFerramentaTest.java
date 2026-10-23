@@ -1,6 +1,7 @@
 package dev.jarvis.ferramentas;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -108,8 +109,50 @@ class MostrarNaTelaFerramentaTest {
     void schema() {
         ObjectNode esquema = com(() -> 1).esquemaEntrada();
 
-        assertEquals(5, esquema.path("properties").path("layout").path("enum").size());
+        assertEquals(6, esquema.path("properties").path("layout").path("enum").size());
         assertEquals(8, esquema.path("properties").path("itens").path("maxItems").asInt());
         assertTrue(esquema.path("required").toString().contains("resumo"));
+        assertFalse(esquema.path("required").toString().contains("itens"),
+                "o layout grafico não tem itens; quem cobra um ou outro é o montador");
+    }
+
+    @Test
+    @DisplayName("o schema do grafico anuncia os dois tipos e não expõe a origem")
+    void schemaDoGrafico() {
+        ObjectNode grafico = (ObjectNode) com(() -> 1).esquemaEntrada()
+                .path("properties").path("grafico");
+
+        assertEquals(2, grafico.path("properties").path("tipo").path("enum").size());
+        assertEquals(3, grafico.path("properties").path("series").path("maxItems").asInt());
+        assertTrue(grafico.path("required").toString().contains("series"));
+        assertTrue(grafico.path("properties").path("origem").isMissingNode(),
+                "marcar um número como vindo do próprio Jarvis é trabalho do Java");
+    }
+
+    @Test
+    @DisplayName("card de gráfico sai pela ferramenta sem itens")
+    void cardDeGrafico() throws Exception {
+        ObjectNode entrada = entrada();
+        entrada.remove("itens");
+        entrada.put("layout", "grafico");
+        entrada.put("referencia", "23/10/2026");
+        ObjectNode fonte = entrada.putArray("fontes").addObject();
+        fonte.put("nome", "Banco Central");
+        fonte.put("url", "https://www.bcb.gov.br/");
+        ObjectNode grafico = entrada.putObject("grafico");
+        grafico.put("tipo", "linha");
+        grafico.putArray("eixoX").add("seg").add("ter").add("qua");
+        ObjectNode serie = grafico.putArray("series").addObject();
+        serie.put("nome", "Dólar");
+        serie.putArray("valores").add(5.3).add(5.2).add(5.12);
+
+        ResultadoFerramenta resultado =
+                com(() -> 1).executarDetalhado(entrada, new OuvinteProgresso() { });
+
+        var dados = assertInstanceOf(DadosDoCard.Pesquisa.class,
+                resultado.cards().getFirst().dados());
+        assertTrue(dados.itens().isEmpty());
+        assertEquals("linha", dados.grafico().tipo());
+        assertEquals("pesquisa", dados.grafico().origem());
     }
 }

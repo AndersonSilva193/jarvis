@@ -17,9 +17,13 @@ public sealed interface DadosDoCard {
      * Um resultado de pesquisa com estrutura que vale ver. O {@code resumo} é o mesmo texto que o
      * Jarvis fala, para a tela e a voz nunca divergirem.
      *
-     * @param layout       ranking, ficha, lista, linha_do_tempo ou destaque — é ele que diz à HUD
-     *                     qual forma de {@link ItemDoCard} esperar.
+     * @param layout       ranking, ficha, lista, linha_do_tempo, destaque ou grafico — é ele que
+     *                     diz à HUD qual forma de {@link ItemDoCard} esperar.
      * @param referencia   de quando é a informação, em texto livre ("outubro de 2026").
+     * @param grafico      só no layout {@code grafico}, e aí {@code itens} é vazia; null nos
+     *                     outros. É campo irmão, e não um item dentro de {@code itens}, para a HUD
+     *                     ler sempre do mesmo caminho em vez de desembrulhar um array de um
+     *                     elemento só que é de outra natureza.
      * @param consultadoEm quando o Jarvis montou o card, pelo relógio do servidor. Nunca vem do
      *                     modelo: informação de "quando" que o modelo inventa é a pior de todas.
      */
@@ -31,7 +35,8 @@ public sealed interface DadosDoCard {
             List<ItemDoCard> itens,
             String resumo,
             List<Fonte> fontes,
-            String consultadoEm) implements DadosDoCard {
+            String consultadoEm,
+            Grafico grafico) implements DadosDoCard {
 
         public Pesquisa {
             itens = itens == null ? List.of() : List.copyOf(itens);
@@ -89,6 +94,49 @@ public sealed interface DadosDoCard {
 
     /** De onde a informação veio. A URL já foi validada (só http/https) antes de chegar aqui. */
     record Fonte(String nome, String url) {
+    }
+
+    /**
+     * Uma série de números ao longo de um eixo, para a HUD desenhar em linha ou em barras.
+     *
+     * Vive dentro de {@link Pesquisa}, no layout {@code grafico}: não é um tipo de card nem um
+     * {@link ItemDoCard}, é o conteúdo inteiro de um card de pesquisa que, em vez de itens, mostra
+     * um gráfico.
+     *
+     * @param tipo     "linha" para o que anda no tempo, "barras" para o que compara categorias.
+     * @param eixoX    os rótulos, na ordem em que a HUD desenha.
+     * @param unidade  "°C", "R$", "%" — o que os valores significam. Pode ser vazia.
+     * @param destaque o ponto que a HUD realça, ou null. Índices base zero, já conferidos contra o
+     *                 tamanho real das listas.
+     * @param origem   "pesquisa" quando os números vieram de uma busca na web, "servidor" quando
+     *                 vieram do próprio Jarvis. Quem marca "servidor" é o Java, nunca o modelo:
+     *                 número que o modelo apresenta como medido pela casa tem de ter sido medido
+     *                 pela casa.
+     */
+    record Grafico(
+            String tipo,
+            List<String> eixoX,
+            List<Serie> series,
+            String unidade,
+            Destaque destaque,
+            String origem) {
+
+        public Grafico {
+            eixoX = eixoX == null ? List.of() : List.copyOf(eixoX);
+            series = series == null ? List.of() : List.copyOf(series);
+        }
+
+        /** Uma linha do gráfico. Os {@code valores} têm sempre o tamanho do {@code eixoX}. */
+        public record Serie(String nome, List<Double> valores) {
+
+            public Serie {
+                valores = valores == null ? List.of() : List.copyOf(valores);
+            }
+        }
+
+        /** O ponto realçado: índice da série e índice no eixo, os dois base zero. */
+        public record Destaque(int serie, int indice) {
+        }
     }
 
     /**

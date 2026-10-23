@@ -206,6 +206,17 @@ class PromptDeSistemaTest {
     }
 
     @Test
+    @DisplayName("a regra de falar o gráfico só existe na HUD, onde o texto vira voz")
+    void regraDeGraficoSoNaHud() {
+        assertTrue(texto(montar(Canal.HUD, true).get(1)).contains("no máximo dois números"));
+
+        for (Canal canal : new Canal[] { Canal.TELEGRAM, Canal.BRIEFING, Canal.TAREFA }) {
+            assertFalse(texto(montar(canal, true).get(1)).contains("no máximo dois números"),
+                    canal.nome());
+        }
+    }
+
+    @Test
     @DisplayName("os nomes dos canais são os combinados com a HUD e o briefing")
     void nomesDosCanais() {
         assertEquals("telegram", Canal.TELEGRAM.nome());

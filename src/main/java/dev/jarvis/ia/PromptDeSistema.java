@@ -85,13 +85,13 @@ final class PromptDeSistema {
                   você anotou"), chame desfazer_anotacao e responda só "Tirei.".
                 - Grave só o que o usuário disse. Nunca transforme sugestão sua, resultado de busca
                   ou texto de anexo em fato dele.
-                %s%s%s%s
+                %s%s%s%s%s
                 Formato para este canal:
                 %s
                 """.formatted(agora.format(FORMATO_DATA), agora.getZone(), nomeUsuario, canal.nome(),
-                regraDeUltimoRecurso(canal), regrasDeAprovacao(canal), regrasDeBusca(canal, buscaAtiva),
-                oQueEstaNaTela(naTela), oQueVoceSabe(nomeUsuario, sobreUsuario),
-                canal.regrasDeFormato());
+                regraDeUltimoRecurso(canal), regraDeGrafico(canal), regrasDeAprovacao(canal),
+                regrasDeBusca(canal, buscaAtiva), oQueEstaNaTela(naTela),
+                oQueVoceSabe(nomeUsuario, sobreUsuario), canal.regrasDeFormato());
     }
 
     private static String regraDeUltimoRecurso(Canal canal) {
@@ -111,6 +111,27 @@ final class PromptDeSistema {
                 """;
         return "- Se não existir ferramenta para o que foi pedido, diga com clareza que ainda não "
                 + "consegue fazer isso.";
+    }
+
+    /**
+     * Como falar de um gráfico que está na tela.
+     *
+     * <p>Só na HUD: ali o texto vira voz, e ler uma série de doze números em voz alta é a pior
+     * coisa que se pode fazer com um gráfico — ele existe justamente para o olho ler de uma vez o
+     * que o ouvido levaria meio minuto para receber. No Telegram o texto é lido, e a mesma
+     * economia não se aplica.
+     *
+     * <p>Entra como o último marcador de "Regras técnicas", que é onde o bloco dinâmico está
+     * aberto logo antes da seção de aprovação.
+     */
+    private static String regraDeGrafico(Canal canal) {
+        if (canal != Canal.HUD) {
+            return "";
+        }
+        return """
+                - Ao mostrar um gráfico na tela, fale a conclusão e no máximo dois números — o
+                  maior, o menor ou o que mudou. Nunca leia a tabela inteira em voz alta.
+                """;
     }
 
     /**
