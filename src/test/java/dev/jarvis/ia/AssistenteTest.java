@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -229,6 +230,97 @@ class AssistenteTest {
         var resposta = comFerramentas(arquivo).responder(1L, "crie um arquivo", Canal.HUD, null);
         assertTrue(resposta.texto().contains("Nome inválido"));
         verify(claude, times(2)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+    }
+
+    /** Irmã da ferramentaDeFluxo: aqui o que importa é provar que a ferramenta <b>não</b> rodou. */
+    private Ferramenta ferramentaQueConta(String nome, String retorno, AtomicInteger execucoes) {
+        return new Ferramenta() {
+            public String nome() { return nome; }
+            public String descricao() { return nome; }
+            public ObjectNode esquemaEntrada() { return JSON.createObjectNode().put("type", "object"); }
+            public String executar(JsonNode entrada) { execucoes.incrementAndGet(); return retorno; }
+        };
+    }
+
+    @Test
+    @DisplayName("a terceira chamada idêntica é recusada sem executar, mesmo com as chaves trocadas de ordem")
+    void terceiraChamadaIdenticaNaoExecuta() throws Exception {
+        AtomicInteger execucoes = new AtomicInteger();
+        Ferramenta listar = ferramentaQueConta("listar_arquivos", "{\"arquivos\":[]}", execucoes);
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("listar_arquivos",
+                        JSON.createObjectNode().put("nome", "nota").put("pasta", "jarvis")))
+                // A mesma entrada com as chaves ao contrário: é o JSON canônico que decide.
+                .thenReturn(chamada("listar_arquivos",
+                        JSON.createObjectNode().put("pasta", "jarvis").put("nome", "nota")))
+                .thenReturn(chamada("listar_arquivos",
+                        JSON.createObjectNode().put("nome", "nota").put("pasta", "jarvis")))
+                .thenReturn(respostaComPensamento("Não achei nada com esse nome."));
+
+        var resposta = comFerramentas(listar).responder(1L, "procure a nota", Canal.HUD, null);
+
+        assertEquals(2, execucoes.get(), "a terceira não chega a executar");
+        assertEquals("Não achei nada com esse nome.", resposta.texto());
+        assertTrue(mensagensEnviadas().getLast().toString().contains(
+                "Você já chamou listar_arquivos com esta mesma entrada duas vezes neste pedido"));
+    }
+
+    @Test
+    @DisplayName("consulta de estado aguenta mais: a recusa só vem na quinta chamada igual")
+    void consultaDeEstadoSoParaNaQuinta() throws Exception {
+        AtomicInteger execucoes = new AtomicInteger();
+        Ferramenta status = ferramentaQueConta("status_operacao_pc", "ainda rodando", execucoes);
+        var entrada = JSON.createObjectNode().put("id", "op-1");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("status_operacao_pc", entrada))
+                .thenReturn(chamada("status_operacao_pc", entrada))
+                .thenReturn(chamada("status_operacao_pc", entrada))
+                .thenReturn(chamada("status_operacao_pc", entrada))
+                .thenReturn(chamada("status_operacao_pc", entrada))
+                .thenReturn(respostaComPensamento("A operação ainda está rodando."));
+
+        var resposta = comFerramentas(status).responder(1L, "já terminou?", Canal.HUD, null);
+
+        assertEquals(4, execucoes.get(), "quatro passam; a quinta é recusada");
+        assertEquals("A operação ainda está rodando.", resposta.texto());
+        assertTrue(mensagensEnviadas().getLast().toString().contains(
+                "Você já chamou status_operacao_pc com esta mesma entrada quatro vezes neste pedido"));
+    }
+
+    @Test
+    @DisplayName("controlar_tela entra no limite folgado pela lista, não pelo prefixo")
+    void acaoEmPassosTambemTemLimiteFolgado() throws Exception {
+        AtomicInteger execucoes = new AtomicInteger();
+        Ferramenta tela = ferramentaQueConta("controlar_tela", "Volume abaixado.", execucoes);
+        var entrada = JSON.createObjectNode().put("acao", "volume_menos");
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("controlar_tela", entrada))
+                .thenReturn(chamada("controlar_tela", entrada))
+                .thenReturn(chamada("controlar_tela", entrada))
+                .thenReturn(chamada("controlar_tela", entrada))
+                .thenReturn(respostaComPensamento("Pronto, bem mais baixo."));
+
+        comFerramentas(tela).responder(1L, "abaixa bastante o volume", Canal.HUD, null);
+
+        assertEquals(4, execucoes.get(), "quatro passos de volume não são um laço");
+    }
+
+    @Test
+    @DisplayName("insistir na repetição encerra o turno com o último resultado útil")
+    void doisBloqueiosEncerramOTurno() throws Exception {
+        AtomicInteger execucoes = new AtomicInteger();
+        Ferramenta clima = ferramentaQueConta("clima", "Sol, 28 graus.", execucoes);
+        // Um thenReturn só se repete para sempre: é o modelo que não desiste.
+        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("clima", JSON.createObjectNode().put("cidade", "Recife")));
+
+        var resposta = comFerramentas(clima).responder(1L, "e o tempo?", Canal.HUD, null);
+
+        assertEquals("Parei porque estava repetindo a mesma consulta sem avançar. Sol, 28 graus.",
+                resposta.texto());
+        assertEquals(2, execucoes.get());
+        verify(claude, times(4)).criarMensagem(any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class));
     }
 
     @Test void edicaoRecusadaNaoViraCriacaoDeOutroArquivo() throws Exception {

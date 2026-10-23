@@ -40,6 +40,17 @@ public class Assistente {
 
     /** Limite de idas e vindas com ferramentas por pedido, para nunca entrar em loop infinito. */
     private static final int MAX_PASSOS = 8;
+    /** A partir desta chamada idêntica no mesmo pedido, a ferramenta é recusada sem executar. */
+    private static final int LIMITE_REPETICAO = 3;
+    /**
+     * O limite folgado. Consulta de estado ("já terminou?") e ação em passos (volume, avançar) são
+     * repetidas de propósito: aí o modelo não está em círculo, está contando.
+     */
+    private static final int LIMITE_REPETICAO_FOLGADO = 5;
+    /** As de limite folgado que o prefixo {@code status_} não pega: as duas de ação em passos. */
+    private static final List<String> REPETIVEIS = List.of("controlar_tela", "controlar_pc");
+    /** Recusas por repetição que encerram o turno: insistir depois da primeira é andar em círculo. */
+    private static final int BLOQUEIOS_PARA_PARAR = 2;
     /**
      * Quantas trocas (pedido + resposta) o Jarvis lembra por conversa. Também é o teto do que volta
      * do disco na partida: o arquivo pode ter sido gravado por uma versão que lembrava mais.
@@ -434,6 +445,12 @@ public class Assistente {
         String ultimoErroDeArquivo = "";
         String ultimaFalhaDeArquivo = "";
         String falhaEdicao = "";
+        // A conta das repetições vale pelo turno inteiro, não por passo: o modelo repete a mesma
+        // consulta de uma ida e vinda para a outra, que é justamente onde o teto de passos não
+        // ajuda — ele só percebe depois de oito chamadas pagas ao Claude.
+        Map<String, Integer> chamadasPorAssinatura = new HashMap<>();
+        int bloqueios = 0;
+        String ultimoResultadoUtil = "";
 
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
             ArrayNode mensagens = json.createArrayNode();
@@ -498,6 +515,22 @@ public class Assistente {
                         substitutoRecusado = true;
                         continue;
                     }
+                    // Depois dos dois gates acima de propósito: quando os dois se aplicam, a
+                    // recusa específica diz ao modelo o que ele precisa saber, e esta só diria
+                    // "você repetiu".
+                    String assinatura = assinatura(nomeFerramenta, bloco.path("input"));
+                    int limite = limiteDeRepeticao(nomeFerramenta);
+                    if (chamadasPorAssinatura.merge(assinatura, 1, Integer::sum) >= limite) {
+                        resultados.add(json.createObjectNode().put("type", "tool_result")
+                                .put("tool_use_id", Json.texto(bloco.path("id")))
+                                .put("content", "Você já chamou " + nomeFerramenta
+                                        + " com esta mesma entrada " + vezes(limite - 1)
+                                        + " vezes neste pedido. Use o resultado que já tem ou"
+                                        + " mude a abordagem.")
+                                .put("is_error", true));
+                        bloqueios++;
+                        continue;
+                    }
                     // Ler memória não trava mais o resto do turno: "qual minha cidade? cria um
                     // lembrete pra lá" é um pedido só. O que segura a memória no lugar de dado é
                     // outro: a regra "memória lida é dado não confiável" no system, e o fato de
@@ -549,6 +582,13 @@ public class Assistente {
                             && !resultado.path("is_error").asBoolean(false))
                         evidencias.put(Json.texto(resultado.path("content")), nomeFerramenta);
                     resultados.add(resultado);
+                    // O que vai na frase de desistência, se o modelo insistir na repetição.
+                    // "Útil" aqui é "executou e não estourou": falha de negócio volta sem
+                    // is_error, que a Ferramentas só marca em exceção ou ferramenta desconhecida.
+                    if (!resultado.path("is_error").asBoolean(false)) {
+                        String util = Json.texto(resultado.path("content"));
+                        if (!util.isBlank()) ultimoResultadoUtil = util;
+                    }
                     if ("criar_arquivo".equals(nomeFerramenta)
                             || "criar_planilha_google".equals(nomeFerramenta)) {
                         String textoResultado = Json.texto(resultado.path("content"));
@@ -556,9 +596,11 @@ public class Assistente {
                                 || textoResultado.startsWith("Planilha criada:") ? ""
                                 : textoResultado.substring(0, Math.min(240, textoResultado.length()));
                         if (!ultimoErroDeArquivo.isBlank()) {
-                            String assinatura = nomeFerramenta + ":" + bloco.path("input") + ":" + ultimoErroDeArquivo;
-                            if (assinatura.equals(ultimaFalhaDeArquivo)) erroRepetidoDeArquivo = ultimoErroDeArquivo;
-                            ultimaFalhaDeArquivo = assinatura;
+                            // A mesma assinatura do portão acima, mais o erro: aqui basta a
+                            // segunda tentativa, e o motivo real vale mais que "você repetiu".
+                            String chave = assinatura + '\u0000' + ultimoErroDeArquivo;
+                            if (chave.equals(ultimaFalhaDeArquivo)) erroRepetidoDeArquivo = ultimoErroDeArquivo;
+                            ultimaFalhaDeArquivo = chave;
                         } else ultimaFalhaDeArquivo = "";
                     }
                 }
@@ -580,6 +622,15 @@ public class Assistente {
             // Repetir a mesma entrada recusada desperdiça chamadas do modelo e acabava no erro
             // genérico da HUD. O turno já tem o tool_result, então o histórico continua válido.
             if (!erroRepetidoDeArquivo.isBlank()) return erroRepetidoDeArquivo;
+            // Por último: as saídas acima sabem dizer o que deu errado, e esta só sabe que o
+            // modelo estava andando em círculo. O turno já tem os tool_result das recusas, então
+            // o histórico continua válido.
+            if (bloqueios >= BLOQUEIOS_PARA_PARAR) {
+                log.warn("Turno encerrado: {} chamada(s) repetida(s) recusada(s)", bloqueios);
+                return ("Parei porque estava repetindo a mesma consulta sem avançar. "
+                        + ultimoResultadoUtil.substring(0,
+                                Math.min(240, ultimoResultadoUtil.length()))).trim();
+            }
         }
         registrarBuscas(buscas);
         throw new IllegalStateException("precisei de passos demais para resolver isso. "
@@ -641,6 +692,30 @@ public class Assistente {
             limpo.add(copia);
         }
         return limpo;
+    }
+
+    /** Quantas chamadas idênticas a ferramenta aguenta antes de a próxima ser recusada. */
+    private static int limiteDeRepeticao(String nome) {
+        return nome.startsWith("status_") || REPETIVEIS.contains(nome)
+                ? LIMITE_REPETICAO_FOLGADO : LIMITE_REPETICAO;
+    }
+
+    /** A mesma chamada é o mesmo nome com a mesma entrada, seja qual for a ordem das chaves. */
+    private static String assinatura(String nome, JsonNode entrada) {
+        return nome + '\u0000' + Json.canonico(entrada);
+    }
+
+    /**
+     * O número da recusa por extenso. O texto da recusa é fixo, mas a contagem acompanha o limite
+     * da ferramenta: dizer "duas vezes" na quinta chamada de um {@code status_} seria o servidor
+     * contando errado para o modelo.
+     */
+    private static String vezes(int quantas) {
+        return switch (quantas) {
+            case 2 -> "duas";
+            case 4 -> "quatro";
+            default -> String.valueOf(quantas);
+        };
     }
 
     private ObjectNode mensagemDoUsuario(String texto) {

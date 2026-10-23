@@ -3,7 +3,7 @@ package dev.jarvis.computer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Arrays;
-import java.util.TreeSet;
+import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -53,7 +53,7 @@ public final class DetectorDeTravamento {
     public boolean registrar(String acao, JsonNode entrada, byte[] capturaDepois) {
         if (acao == null || NEUTRA.equals(acao)) return false;
         if (capturaDepois == null || capturaDepois.length == 0) return false;
-        byte[] assinaturaAgora = sha256((acao + '\u0000' + canonico(entrada))
+        byte[] assinaturaAgora = sha256((acao + '\u0000' + Json.canonico(entrada))
                 .getBytes(StandardCharsets.UTF_8));
         byte[] capturaAgora = sha256(capturaDepois);
         boolean repetiu = Arrays.equals(assinaturaAgora, assinatura)
@@ -68,44 +68,6 @@ public final class DetectorDeTravamento {
     /** O motivo que vai ao usuário e ao estado da tarefa. Vale depois de {@code registrar} dizer sim. */
     public String motivo() {
         return "parei: repeti " + ultimaAcao + " " + REPETICOES + " vezes sem mudança na tela";
-    }
-
-    /** JSON em forma estável: chaves de objeto em ordem, arrays na ordem que vieram. */
-    static String canonico(JsonNode no) {
-        StringBuilder texto = new StringBuilder();
-        escrever(no, texto);
-        return texto.toString();
-    }
-
-    private static void escrever(JsonNode no, StringBuilder texto) {
-        if (no == null || no.isMissingNode() || no.isNull()) {
-            texto.append("null");
-            return;
-        }
-        if (no.isObject()) {
-            texto.append('{');
-            boolean primeiro = true;
-            for (String nome : new TreeSet<>(no.propertyNames())) {
-                if (!primeiro) texto.append(',');
-                primeiro = false;
-                texto.append('"').append(nome).append("\":");
-                escrever(no.get(nome), texto);
-            }
-            texto.append('}');
-            return;
-        }
-        if (no.isArray()) {
-            texto.append('[');
-            boolean primeiro = true;
-            for (JsonNode item : no.values()) {
-                if (!primeiro) texto.append(',');
-                primeiro = false;
-                escrever(item, texto);
-            }
-            texto.append(']');
-            return;
-        }
-        texto.append(no.toString());
     }
 
     private static byte[] sha256(byte[] valor) {

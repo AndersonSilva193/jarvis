@@ -54,7 +54,23 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
-| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
+| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
+
+### A mesma ferramenta, a mesma entrada, de novo
+
+O `executarLoop` conta as chamadas por **assinatura** — nome da ferramenta mais `Json.canonico` da
+entrada, porque o `JsonMapper` é cru e `{"a":1,"b":2}` e `{"b":2,"a":1}` são o mesmo pedido. A
+**terceira** idêntica no mesmo turno é recusada sem executar, com `tool_result` de `is_error`
+dizendo ao modelo que use o resultado que já tem. São **cinco** para as `status_*` e para
+`controlar_tela`/`controlar_pc`: "já terminou?" e quatro passos de volume são repetição de
+propósito, não laço. **Dois bloqueios encerram o turno** com "Parei porque estava repetindo a mesma
+consulta sem avançar." mais o último resultado útil.
+
+O portão vem **depois** dos dois que já existiam — a lista branca da tarefa de planilha e o
+`criar_arquivo` barrado por `falhaEdicao`. Quando dois se aplicam, a recusa específica diz ao modelo
+algo que ele pode usar; "você repetiu" não. Pelo mesmo motivo o tratamento de `criar_arquivo`
+continua lá: ele para na **segunda** tentativa e devolve o erro real ("Nome inválido…") em vez da
+frase genérica.
 
 ## Personalidade e canais
 
