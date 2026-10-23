@@ -31,6 +31,8 @@ import dev.jarvis.telegram.TelegramPoller;
         // As duas únicas configurações sem default no application.yml.
         "jarvis.telegram.token=teste",
         "jarvis.anthropic.api-key=teste",
+        "jarvis.custo.precos=modelo-a=0.10/0.50/0.125/0.01",
+        "jarvis.custo.precos-contexto-longo=modelo-a@100000=0.50/2.50/0.625/0.05",
         // "-" é como o Spring desliga um @Scheduled por configuração.
         "jarvis.resumo-diario.cron=-",
 })
@@ -113,6 +115,16 @@ class ContextoDaAplicacaoTest {
         assertFalse(props.pcConfigurado(), "sem PC_TOKEN no ambiente, fica desligado");
         assertTrue(ferramentas.definicoes().toString().contains("controlar_pc"),
                 "ferramenta 'controlar_pc' não foi registrada");
+    }
+
+    @Test
+    @DisplayName("a configuração de custo e a ferramenta de consulta sobem no contexto")
+    void custoCasaComOYml() {
+        assertNotNull(props.custo(), "jarvis.custo não casou com JarvisProperties");
+        assertEquals("modelo-a=0.10/0.50/0.125/0.01", props.precosDeCusto());
+        assertEquals("modelo-a@100000=0.50/2.50/0.625/0.05",
+                props.precosDeContextoLongo());
+        assertTrue(ferramentas.definicoes().toString().contains("custo_do_jarvis"));
     }
 
     @Test

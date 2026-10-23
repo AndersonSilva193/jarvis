@@ -97,6 +97,19 @@ jarvis:
   historico:
     pasta: ${HISTORICO_PASTA:/data/jarvis/historico}
     validade-horas: ${HISTORICO_VALIDADE_HORAS:24}
+  custo:
+    # Um JSON por dia com o gasto, 90 dias guardados. Volume nomeado "custo".
+    pasta: ${CUSTO_PASTA:/data/jarvis/custo}
+    # "modelo=entrada/saida/cache_escrita/cache_leitura;outro=...", dólares por MILHÃO de tokens.
+    # Vazio: o Jarvis conta os tokens e avisa uma vez por dia que não sabe convertê-los em dólar.
+    precos: ${CUSTO_PRECOS:}
+    # "modelo@limiar=entrada/saida/cache_escrita/cache_leitura"; aplica-se à chamada inteira
+    # quando entrada + cache escrito + cache lido passa do limiar.
+    precos-contexto-longo: ${CUSTO_PRECOS_CONTEXTO_LONGO:}
+    # Dólares por MIL buscas — denominador diferente do de cima, porque é assim que é publicado.
+    preco-busca-web: ${CUSTO_PRECO_BUSCA_WEB:}
+    # Gasto do dia que dispara aviso em 80% e em 100%. Vazio = sem teto. O teto avisa, não bloqueia.
+    teto-diario-usd: ${CUSTO_TETO_DIARIO_USD:}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

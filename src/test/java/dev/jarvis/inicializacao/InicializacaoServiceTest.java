@@ -21,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.briefing.fontes.ClimaService;
 import dev.jarvis.briefing.fontes.ClimaService.ClimaHoje;
 import dev.jarvis.briefing.fontes.ServidorService;
@@ -88,7 +89,8 @@ class InicializacaoServiceTest {
                 .truncatedTo(ChronoUnit.DAYS).plusHours(12);
         when(lembretes.listar()).thenReturn(List.of(new Lembrete(1, "dentista", hoje)));
 
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(resposta(FALA_DO_CLAUDE));
     }
 
@@ -102,7 +104,8 @@ class InicializacaoServiceTest {
     /** O texto que foi parar no prompt do usuário, para conferir o que o modelo recebeu. */
     private String pedidoEnviado() throws Exception {
         ArgumentCaptor<ArrayNode> mensagens = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude).criarMensagem(any(ArrayNode.class), mensagens.capture(), any(ArrayNode.class));
+        verify(claude).criarMensagem(any(Origem.class), any(ArrayNode.class), mensagens.capture(),
+                any(ArrayNode.class));
         return mensagens.getValue().get(0).path("content").asString();
     }
 
@@ -129,7 +132,7 @@ class InicializacaoServiceTest {
 
         verify(sistema).blocos(Canal.HUD);
         ArgumentCaptor<ArrayNode> ferramentas = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude).criarMensagem(any(ArrayNode.class), any(ArrayNode.class),
+        verify(claude).criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
                 ferramentas.capture());
         // Mandar ferramenta aqui abriria a porta para o modelo sair chamando coisa no meio de uma
         // apresentação de três frases.
@@ -186,7 +189,8 @@ class InicializacaoServiceTest {
     @Test
     @DisplayName("Claude fora do ar cai na frase montada em Java, com os dados que chegaram")
     void claudeForaDoArCaiNaReserva() throws Exception {
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenThrow(new IOException("API do Claude respondeu HTTP 529"));
 
         Introducao introducao = servico().gerar();
@@ -208,12 +212,14 @@ class InicializacaoServiceTest {
 
         assertSame(primeira, segunda);
         verify(claude, times(1))
-                .criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+                .criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                        any(ArrayNode.class));
 
         // Passados os dois minutos, a introdução é refeita: a hora e o clima envelhecem.
         relogio.avancar(Duration.ofMinutes(2));
         servico.gerar();
         verify(claude, times(2))
-                .criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+                .criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                        any(ArrayNode.class));
     }
 }

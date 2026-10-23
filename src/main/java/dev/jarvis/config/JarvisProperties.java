@@ -36,7 +36,8 @@ public record JarvisProperties(
         Google google,
         Memoria memoria,
         Lembretes lembretes,
-        Historico historico) {
+        Historico historico,
+        Custo custo) {
 
     private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
@@ -47,7 +48,7 @@ public record JarvisProperties(
             Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, null, null, null, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, null, null, null, null, null);
     }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -55,7 +56,7 @@ public record JarvisProperties(
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
             Google google) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, google, null, null, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, google, null, null, null, null);
     }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -63,7 +64,7 @@ public record JarvisProperties(
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
             Google google, Memoria memoria) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, null, google, memoria, null, null);
+                personalidade, voz, buscaWeb, youtube, pc, null, google, memoria, null, null, null);
     }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -71,7 +72,7 @@ public record JarvisProperties(
             Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
             ComputerUse computerUse, Google google, Memoria memoria) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
-                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, null, null);
+                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, null, null, null);
     }
 
     /** Computer use fica desligado ate ser configurado e homologado no Windows. */
@@ -190,6 +191,36 @@ public record JarvisProperties(
      */
     public record Historico(String pasta, int validadeHoras) { }
 
+    /**
+     * O medidor de custo: onde o diário por dia é gravado, a tabela de preços e o teto que avisa.
+     *
+     * Os valores opcionais são String, e não double, de propósito. O padrão pedido é "vazio = sem
+     * teto", e {@code CUSTO_TETO_DIARIO_USD=} no .env estouraria {@code BindException} num campo
+     * numérico — {@code ${VAR:default}} só usa o default quando a variável é <i>indefinida</i>, não
+     * quando é vazia, e aí o Jarvis não subiria por causa de uma linha em branco. A conversão mora
+     * nos acessores lá embaixo, como já acontece com {@code sites}.
+     *
+     * @param precos        "modelo=entrada/saida/cache_escrita/cache_leitura", em dólares por
+     *                      MILHÃO de tokens, separados por ponto e vírgula. Preço não fica no
+     *                      código: ele muda sem aviso, e número errado sobre dinheiro é pior que
+     *                      número ausente.
+     * @param precoBuscaWeb dólares por MIL buscas — denominador diferente do de cima, porque é
+     *                      assim que a Anthropic publica. Vazio deixa a busca fora da conta.
+     * @param tetoDiarioUsd gasto do dia que dispara aviso em 80% e em 100%. Vazio = sem teto. O
+     *                      teto avisa no Telegram; nunca bloqueia o Jarvis.
+     * @param precosContextoLongo "modelo@limiar=entrada/saida/cache_escrita/cache_leitura";
+     *                           acima do limiar, a tarifa vale para a chamada inteira.
+     */
+    public record Custo(String pasta, String precos, String precoBuscaWeb, String tetoDiarioUsd,
+            String precosContextoLongo) {
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Custo { }
+        public Custo(String pasta, String precos) { this(pasta, precos, "", "", ""); }
+        public Custo(String pasta, String precos, String precoBuscaWeb, String tetoDiarioUsd) {
+            this(pasta, precos, precoBuscaWeb, tetoDiarioUsd, "");
+        }
+    }
+
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
     public boolean youtubeConfigurado() {
         return youtube != null && youtube.apiKey() != null && !youtube.apiKey().isBlank();
@@ -236,6 +267,55 @@ public record JarvisProperties(
         int minutos = memoria == null || memoria.anotadorOciosoMinutos() <= 0
                 ? 5 : memoria.anotadorOciosoMinutos();
         return java.time.Duration.ofMinutes(minutos);
+    }
+
+    /** Pasta do diário de custo. Dentro do container é o volume montado em /data/jarvis/custo. */
+    public Path pastaDeCusto() {
+        String caminho = custo == null ? null : custo.pasta();
+        return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/custo" : caminho);
+    }
+
+    /** A tabela de preços crua. Quem a interpreta é a {@code TabelaDePrecos}, uma vez só. */
+    public String precosDeCusto() {
+        String precos = custo == null ? null : custo.precos();
+        return precos == null ? "" : precos;
+    }
+
+    /** Sobrescritas de preço para prompts acima do limiar configurado por modelo. */
+    public String precosDeContextoLongo() {
+        String precos = custo == null ? null : custo.precosContextoLongo();
+        return precos == null ? "" : precos;
+    }
+
+    /** Dólares por mil buscas na web. Vazio ou torto vira zero: a busca fica fora da conta. */
+    public double precoDaBuscaWeb() {
+        return numeroDeCusto(custo == null ? null : custo.precoBuscaWeb(), "CUSTO_PRECO_BUSCA_WEB");
+    }
+
+    /** Teto de gasto do dia. Zero = sem teto, que é o padrão de quem não configurou nada. */
+    public double tetoDiarioDeCusto() {
+        return numeroDeCusto(custo == null ? null : custo.tetoDiarioUsd(), "CUSTO_TETO_DIARIO_USD");
+    }
+
+    public boolean tetoDeCustoAtivo() {
+        return tetoDiarioDeCusto() > 0;
+    }
+
+    /**
+     * Lê um dólar da configuração. Vazio é o "não configurado" esperado e sai calado; texto torto
+     * avisa e vira zero — um typo no .env não pode impedir o Jarvis de subir.
+     */
+    private static double numeroDeCusto(String bruto, String variavel) {
+        if (bruto == null || bruto.isBlank()) {
+            return 0;
+        }
+        try {
+            double valor = Double.parseDouble(bruto.trim());
+            return Double.isFinite(valor) ? Math.max(0, valor) : 0;
+        } catch (NumberFormatException e) {
+            log.warn("{}: '{}' não é um número; seguindo como se estivesse vazio", variavel, bruto.trim());
+            return 0;
+        }
     }
 
     public ZoneId zona() {

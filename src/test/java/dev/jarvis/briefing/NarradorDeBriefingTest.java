@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.briefing.BriefingService.Secao;
 import dev.jarvis.ia.Canal;
 import dev.jarvis.ia.ClaudeClient;
@@ -54,7 +55,8 @@ class NarradorDeBriefingTest {
     }
 
     private void respondeComoModelo(String texto) throws Exception {
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(resposta(texto));
     }
 
@@ -97,7 +99,8 @@ class NarradorDeBriefingTest {
             narrador.narrar("Anderson", SECOES);
 
             ArgumentCaptor<ArrayNode> ferramentas = ArgumentCaptor.forClass(ArrayNode.class);
-            verify(claude).criarMensagem(any(ArrayNode.class), any(ArrayNode.class), ferramentas.capture());
+            verify(claude).criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                    ferramentas.capture());
             assertTrue(ferramentas.getValue().isEmpty(), "a narração não pode levar ferramentas");
         }
 
@@ -109,7 +112,8 @@ class NarradorDeBriefingTest {
             narrador.narrar("Anderson", SECOES);
 
             ArgumentCaptor<ArrayNode> mensagens = ArgumentCaptor.forClass(ArrayNode.class);
-            verify(claude).criarMensagem(any(ArrayNode.class), mensagens.capture(), any(ArrayNode.class));
+            verify(claude).criarMensagem(any(Origem.class), any(ArrayNode.class), mensagens.capture(),
+                    any(ArrayNode.class));
             String conteudo = mensagens.getValue().get(0).path("content").stringValue();
 
             assertTrue(conteudo.contains("Curitiba: 18 °C agora (nublado)"), conteudo);
@@ -119,7 +123,8 @@ class NarradorDeBriefingTest {
         @Test
         @DisplayName("falha na API devolve vazio, para quem pediu ficar com o texto montado em Java")
         void falhaNaoEstoura() throws Exception {
-            when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+            when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                    any(ArrayNode.class)))
                     .thenThrow(new IOException("API do Claude respondeu HTTP 529"));
 
             assertTrue(narrador.narrar("Anderson", SECOES).isEmpty());
@@ -131,7 +136,8 @@ class NarradorDeBriefingTest {
             assertTrue(narrador.narrar("Anderson", List.of()).isEmpty());
 
             verify(claude, never())
-                    .criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+                    .criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                            any(ArrayNode.class));
         }
     }
 

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.ia.ClaudeClient;
@@ -77,7 +78,8 @@ class DesfazerAnotacaoFerramentaTest {
                 .put("text", json.writeValueAsString(corpo));
 
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class),
                 anyInt(), any(Duration.class))).thenReturn((JsonNode) resposta);
         var anotador = new AnotadorDeMemoria(memoria, claude, json, props(), relogio);
         for (int i = 0; i < 10; i++) anotador.registrarTurno(DONO, DONO, "telegram", evidencia);

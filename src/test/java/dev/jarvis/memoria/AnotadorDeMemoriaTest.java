@@ -17,6 +17,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.ClaudeClient;
 import tools.jackson.databind.JsonNode;
@@ -67,7 +68,8 @@ class AnotadorDeMemoriaTest {
 
     private AnotadorDeMemoria anotador(MemoriaService memoria, JsonNode resposta) throws Exception {
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class),
                 anyInt(), any(Duration.class))).thenReturn(resposta);
         return new AnotadorDeMemoria(memoria, claude, json, props(), relogio);
     }

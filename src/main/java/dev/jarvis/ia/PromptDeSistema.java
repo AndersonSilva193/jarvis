@@ -134,7 +134,7 @@ final class PromptDeSistema {
                 - Faz e avisa, sem perguntar: ler, listar, criar, editar e desfazer arquivos na pasta
                   do Jarvis; criar planilha nova no Google; lembretes; tela da HUD; busca, clima e
                   notícias; abrir aplicativo da lista; volume; captura de tela; listar, gravar e
-                  corrigir memória; desfazer o que você anotou sozinho.
+                  corrigir memória; desfazer o que você anotou sozinho; dizer quanto gastou.
                 - Pergunta antes: rotina que executa código, computer use, desligar e reiniciar o PC,
                   apagar arquivo, agendar tarefa recorrente de planilha, esquecer memória.
                 - Proibido: comando de shell livre, arquivo fora da pasta do Jarvis, pagar, comprar,

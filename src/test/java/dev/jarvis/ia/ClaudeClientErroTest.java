@@ -9,6 +9,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import org.junit.jupiter.api.Test;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
+import dev.jarvis.custo.Origem;
 import tools.jackson.databind.json.JsonMapper;
 
 class ClaudeClientErroTest {
@@ -26,9 +28,10 @@ class ClaudeClientErroTest {
                 new JarvisProperties.Anthropic("chave", "modelo", 1024, 512),
                 null, null, null, null, null, null, null, null, null);
         var json = JsonMapper.builder().build();
-        var cliente = new ClaudeClient(http, json, props);
+        var cliente = new ClaudeClient(http, json, props, mock(MedidorDeCusto.class));
         var erro = assertThrows(ErroDaApiDoModelo.class, () -> cliente.criarMensagem(
-                json.createArrayNode(), json.createArrayNode(), json.createArrayNode()));
+                Origem.CONVERSA, json.createArrayNode(), json.createArrayNode(),
+                json.createArrayNode()));
         assertEquals(400, erro.status());
         assertTrue(erro.detalhe().contains("messages.3.content"));
         assertFalse(erro.detalhe().contains("abc123"));

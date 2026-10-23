@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import dev.jarvis.briefing.BriefingService;
 import dev.jarvis.briefing.fontes.ClimaService;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.briefing.fontes.ClimaService.ClimaHoje;
 import dev.jarvis.briefing.fontes.ServidorService;
 import dev.jarvis.briefing.fontes.ServidorService.EstadoServidor;
@@ -239,8 +240,8 @@ public class InicializacaoService {
                     .put("role", "user")
                     .put("content", instrucao(agora, clima, deHoje, checagens, servidor, problemas));
 
-            JsonNode resposta = claude.criarMensagem(sistema.blocos(Canal.HUD), mensagens,
-                    json.createArrayNode());
+            JsonNode resposta = claude.criarMensagem(Origem.INICIALIZACAO,
+                    sistema.blocos(Canal.HUD), mensagens, json.createArrayNode());
             String texto = extrairTexto(resposta.path("content"));
             if (!texto.isBlank()) {
                 return texto;

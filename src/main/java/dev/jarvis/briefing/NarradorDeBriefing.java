@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.briefing.BriefingService.Secao;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.ia.Canal;
 import dev.jarvis.ia.ClaudeClient;
 import dev.jarvis.ia.SistemaDoJarvis;
@@ -71,8 +72,8 @@ public class NarradorDeBriefing {
                     .put("role", "user")
                     .put("content", instrucao(nomeUsuario, secoes));
 
-            JsonNode resposta = claude.criarMensagem(sistema.blocos(Canal.BRIEFING), mensagens,
-                    json.createArrayNode());
+            JsonNode resposta = claude.criarMensagem(Origem.BRIEFING,
+                    sistema.blocos(Canal.BRIEFING), mensagens, json.createArrayNode());
             List<String> falas = separar(extrairTexto(resposta.path("content")), secoes.size() + 2);
 
             if (falas.isEmpty()) {

@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.ia.ClaudeClient;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -124,7 +125,7 @@ public class ClassificadorDeResposta {
                     "Pergunta do assistente: " + (pergunta == null ? "" : pergunta)
                             + "\nResposta da pessoa: " + (resposta == null ? "" : resposta));
 
-            JsonNode raiz = claude.criarMensagem(system, mensagens, json.createArrayNode(),
+            JsonNode raiz = claude.criarMensagem(Origem.CLASSIFICADOR, system, mensagens, json.createArrayNode(),
                     MAX_TOKENS, PRAZO);
             return deTexto(textoDe(raiz.path("content")));
         } catch (InterruptedException e) {

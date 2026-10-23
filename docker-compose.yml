@@ -22,6 +22,8 @@ services:
       - lembretes:/data/jarvis/lembretes
       # O histórico da conversa: um JSON por chat, para o Jarvis não perder o assunto no restart.
       - historico:/data/jarvis/historico
+      # O diário de custo: um JSON por dia, 90 dias. Sem ele não há conta do mês.
+      - custo:/data/jarvis/custo
       - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
@@ -39,4 +41,5 @@ volumes:
   memoria-exclusoes:
   lembretes:
   historico:
+  custo:
   pc-operacoes:

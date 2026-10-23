@@ -22,6 +22,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.ia.ClaudeClient;
 import dev.jarvis.util.Json;
 import dev.jarvis.util.Texto;
@@ -264,7 +265,8 @@ public class AnotadorDeMemoria {
         ArrayNode conversa = json.createArrayNode();
         conversa.addObject().put("role", "user").put("content", instrucao(mensagens, gravados));
 
-        JsonNode raiz = claude.criarMensagem(system, conversa, json.createArrayNode(), MAX_TOKENS, PRAZO);
+        JsonNode raiz = claude.criarMensagem(Origem.ANOTADOR, system, conversa,
+                json.createArrayNode(), MAX_TOKENS, PRAZO);
         List<JsonNode> candidatos = candidatos(raiz);
 
         Map<String, Integer> motivos = new LinkedHashMap<>();

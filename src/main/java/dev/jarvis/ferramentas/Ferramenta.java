@@ -42,6 +42,7 @@ public interface Ferramenta {
             case "desfazer_anotacao" -> "tirando a anotação";
             case "briefing_do_dia" -> "preparando o briefing";
             case "status_voz" -> "consultando a cota de voz";
+            case "custo_do_jarvis" -> "somando o custo";
             case "tocar_youtube" -> "procurando no YouTube";
             case "abrir_pagina" -> "preparando a página";
             case "mostrar_na_tela" -> "montando o card";

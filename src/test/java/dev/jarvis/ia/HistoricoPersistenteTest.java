@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.HistoricoEmArquivo;
 import dev.jarvis.conversa.OuvinteProgresso;
@@ -58,7 +59,8 @@ class HistoricoPersistenteTest {
 
     @Test void restartDevolveOContextoAoModeloEAsTrocasAHud() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(resposta("O servidor está de pé."));
         assistente(arquivo, new RegistroConversas(evento -> { }))
                 .responder(42, "como está o servidor?", Canal.TELEGRAM);
@@ -69,7 +71,8 @@ class HistoricoPersistenteTest {
         Assistente depoisDoRestart = assistente(depois, conversasNovas);
         depoisDoRestart.restaurarHistorico();
 
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(resposta("Continua de pé."));
         depoisDoRestart.responder(42, "e agora?", Canal.TELEGRAM);
         depois.aguardar();
@@ -86,7 +89,8 @@ class HistoricoPersistenteTest {
 
     @Test void turnoQueFalhouNaoChegaAoDisco() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenThrow(new IOException("a API caiu no meio"));
         assertThrows(IOException.class, () -> assistente(arquivo, new RegistroConversas(evento -> { }))
                 .responder(42, "faça algo que vai falhar", Canal.TELEGRAM));
@@ -97,7 +101,8 @@ class HistoricoPersistenteTest {
     @Test void esquecerAMemoriaApagaOsArquivosDeTodosOsChatsDoUsuario() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
         var conversas = new RegistroConversas(evento -> { });
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(resposta("anotado"));
         Assistente assistente = assistente(arquivo, conversas, esquecedor());
         assistente.responder(42, "oi", Canal.TELEGRAM, autenticado("telegram-1", 42));
@@ -106,7 +111,8 @@ class HistoricoPersistenteTest {
         assertTrue(Files.exists(pasta.resolve("chat-42.json")));
         assertTrue(Files.exists(pasta.resolve("chat-99.json")));
 
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(chamada("esquecer_tudo"));
         assistente.responder(42, "esqueça o que eu te contei", Canal.TELEGRAM,
                 autenticado("telegram-3", 42));
@@ -118,7 +124,8 @@ class HistoricoPersistenteTest {
 
     @Test void limparApagaOArquivoDaquelaConversa() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
                 .thenReturn(resposta("certo"));
         Assistente assistente = assistente(arquivo, new RegistroConversas(evento -> { }));
         assistente.responder(42, "oi", Canal.TELEGRAM);
@@ -234,7 +241,8 @@ class HistoricoPersistenteTest {
 
     private ArrayNode ultimasMensagens() throws Exception {
         ArgumentCaptor<ArrayNode> captor = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, atLeastOnce()).criarMensagem(any(ArrayNode.class), captor.capture(),
+        verify(claude, atLeastOnce()).criarMensagem(any(Origem.class), any(ArrayNode.class),
+                captor.capture(),
                 any(ArrayNode.class));
         return captor.getAllValues().getLast();
     }

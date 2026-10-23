@@ -49,6 +49,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
+| `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
@@ -388,6 +389,29 @@ conversa e perdê-la seria susto, não privacidade.
 
 ## Configuração nova
 
+### Diário de custo
+
+`ClaudeClient.criarMensagem` recebe uma `Origem` explícita em cada chamada: `CONVERSA`,
+`BRIEFING`, `INICIALIZACAO`, `ANOTADOR` ou `CLASSIFICADOR`. Os dois provedores de computer use
+registram `COMPUTER_USE` ao receber uma resposta de sucesso; `TarefasComputerUse` usa os mesmos
+tokens só para o retrato da HUD. O registro de custo acontece uma vez por resposta, depois das
+tentativas HTTP. A ferramenta `custo_do_jarvis` consulta hoje, os últimos sete ou os últimos
+trinta dias; `MedidorDeCusto.serieDiaria(int)` fornece os pontos para o futuro gráfico.
+
+`CUSTO_PRECOS` aceita `modelo=entrada/saida/cache_escrita/cache_leitura`, em dólares por milhão de
+tokens. `CUSTO_PRECOS_CONTEXTO_LONGO` aceita `modelo@limiar=...` com os mesmos quatro preços: se
+`entrada + cache_escrita + cache_leitura` ultrapassar o limiar, a tarifa longa vale para a chamada
+inteira. O Haiku 5.5 padrão tem limiar de 100 mil tokens; o `.env.example` traz as duas faixas,
+mas confira os preços atuais na documentação da Anthropic. O cache da personalidade usa o TTL
+padrão de cinco minutos. Modelo sem preço configurado mantém os tokens, marca o custo como
+incompleto e gera um WARN por modelo por dia. `CUSTO_PRECO_BUSCA_WEB` é por mil buscas, separado
+dos tokens.
+
+O medidor grava um `AAAA-MM-DD.json` por dia em `CUSTO_PASTA`, com troca atômica e `.bak`, no
+volume `custo`. Mantém hoje e os 89 dias anteriores. Gravações que falham continuam pendentes
+pela data original. O teto opcional `CUSTO_TETO_DIARIO_USD` avisa no Telegram em 80% e 100%,
+uma vez por limite por dia; os sinalizadores persistem, e o teto nunca bloqueia o Jarvis.
+
 Toda configuração entra nos **três** lugares, na mesma ordem:
 
 1. `JarvisProperties` (record com `@ConfigurationProperties(prefix = "jarvis")`);
@@ -398,7 +422,7 @@ Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. U
 o `PC_TOKEN` (`jarvis.pc.token`), usado pelo `TokenPcFiltro`: vazio, `/api/pc` recusa tudo com 401
 e o controle do PC fica desligado.
 
-Atenção ao `JarvisProperties`: é um record de 18 componentes, construído **por posição** em mais
+Atenção ao `JarvisProperties`: é um record de 19 componentes, construído **por posição** em mais
 de vinte arquivos de teste. Acrescente componente **no fim**, e prefira esticar um dos blocos
 aninhados (`Pc`, `ComputerUse`, `Historico`…) a criar outro no topo. Os construtores de
 compatibilidade no fim da classe existem justamente para os testes antigos continuarem compilando
@@ -498,7 +522,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   histórico da conversa em `HISTORICO_PASTA` (volume `historico`), um `chat-<id>.json` por chat,
   descartando turno mais velho que `HISTORICO_VALIDADE_HORAS`; memória pessoal em `MEMORIA_PASTA` e
   `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
-  `/data/voz`. Todos usam a troca atômica do `ArquivoAtomico`.
+  `/data/voz`; e o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias. Todos
+  usam a troca atômica do `ArquivoAtomico`.
 - O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC e as confirmações
   pendentes são **em memória**: depois de um restart o Jarvis fica cego para a tela até a HUD
   repostar o estado, e qualquer confirmação pendente se perde.

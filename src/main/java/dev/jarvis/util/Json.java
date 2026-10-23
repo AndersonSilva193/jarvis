@@ -22,6 +22,22 @@ public final class Json {
     }
 
     /**
+     * Um número com casas, zero quando o campo falta.
+     *
+     * No Jackson 3 o {@code doubleValue()} de um nó ausente <b>estoura</b>, e é por isso que ele
+     * nunca deve ser chamado direto em JSON vindo de fora — nem de um arquivo que o próprio Jarvis
+     * gravou, porque uma versão anterior pode não ter escrito aquele campo.
+     */
+    public static double decimal(JsonNode no) {
+        return no != null && no.isNumber() ? no.doubleValue() : 0d;
+    }
+
+    /** Um booleano, falso quando o campo falta. Mesmo motivo do {@link #decimal}. */
+    public static boolean booleano(JsonNode no) {
+        return no != null && no.isBoolean() && no.booleanValue();
+    }
+
+    /**
      * JSON em forma estável: chaves de objeto em ordem, arrays na ordem que vieram.
      *
      * <p>O {@code JsonMapper} do projeto é cru, sem ordenação de chaves, então o {@code toString()}

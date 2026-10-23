@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -21,13 +23,16 @@ public final class ProvedorAnthropicComputerUse implements ProvedorComputerUse {
     private final JsonMapper json;
     private final String chave;
     private final String modelo;
+    private final MedidorDeCusto medidor;
     private final ArrayNode mensagens;
     private ArrayNode sistema;
 
-    public ProvedorAnthropicComputerUse(HttpClient http, JsonMapper json, JarvisProperties props) {
+    public ProvedorAnthropicComputerUse(HttpClient http, JsonMapper json, JarvisProperties props,
+            MedidorDeCusto medidor) {
         this.http = http; this.json = json;
         this.chave = props.anthropic().apiKey();
         this.modelo = props.computerUse().modeloAnthropic();
+        this.medidor = medidor;
         this.mensagens = json.createArrayNode();
     }
     @Override public String nome() { return "anthropic"; }
@@ -81,6 +86,14 @@ public final class ProvedorAnthropicComputerUse implements ProvedorComputerUse {
         JsonNode raiz = json.readTree(resposta.body());
         ArrayNode conteudo = (ArrayNode) raiz.path("content");
         mensagens.addObject().put("role", "assistant").set("content", conteudo);
+        // O custo é registrado aqui, na instância, e não no TarefasComputerUse: ele soma os mesmos
+        // tokens para o Retrato da HUD, e registrar nos dois lugares dobraria a conta.
+        JsonNode usage = raiz.path("usage");
+        medidor.registrar(Origem.COMPUTER_USE, modelo,
+                Json.numero(usage.path("input_tokens")),
+                Json.numero(usage.path("output_tokens")),
+                Json.numero(usage.path("cache_creation_input_tokens")),
+                Json.numero(usage.path("cache_read_input_tokens")), 0);
         return interpretarResposta(raiz);
     }
     static Passo interpretarResposta(JsonNode raiz) {

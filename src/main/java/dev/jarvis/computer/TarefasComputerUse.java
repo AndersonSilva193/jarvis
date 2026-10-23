@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
 import dev.jarvis.conversa.EventoConversa;
 import dev.jarvis.conversa.RegistroConversas;
 import dev.jarvis.ia.Canal;
@@ -61,6 +62,7 @@ public class TarefasComputerUse {
     private final TelegramClient telegram;
     private final RegistroConversas conversas;
     private final ApplicationEventPublisher eventos;
+    private final MedidorDeCusto medidor;
     private final java.util.function.Supplier<ProvedorComputerUse> fabricaDeProvedor;
 
     private static final class Tarefa {
@@ -89,8 +91,9 @@ public class TarefasComputerUse {
     @org.springframework.beans.factory.annotation.Autowired
     public TarefasComputerUse(OperacoesPcService e2, SistemaDoJarvis sistema, JarvisProperties props,
             JsonMapper json, HttpClient http, TelegramClient telegram,
-            RegistroConversas conversas, ApplicationEventPublisher eventos) {
-        this(e2, sistema, props, json, http, telegram, conversas, eventos, null);
+            RegistroConversas conversas, ApplicationEventPublisher eventos,
+            MedidorDeCusto medidor) {
+        this(e2, sistema, props, json, http, telegram, conversas, eventos, medidor, null);
     }
     /**
      * O construtor do teste: a fábrica nula cai no provedor escolhido pela configuração, que é o
@@ -100,15 +103,17 @@ public class TarefasComputerUse {
     TarefasComputerUse(OperacoesPcService e2, SistemaDoJarvis sistema, JarvisProperties props,
             JsonMapper json, HttpClient http, TelegramClient telegram,
             RegistroConversas conversas, ApplicationEventPublisher eventos,
+            MedidorDeCusto medidor,
             java.util.function.Supplier<ProvedorComputerUse> fabricaDeProvedor) {
         this.e2 = e2; this.sistema = sistema; this.props = props; this.json = json;
         this.http = http; this.telegram = telegram; this.conversas = conversas; this.eventos = eventos;
+        this.medidor = medidor;
         this.fabricaDeProvedor = fabricaDeProvedor != null ? fabricaDeProvedor : this::provedorConfigurado;
     }
     private ProvedorComputerUse provedorConfigurado() {
         return "openai".equalsIgnoreCase(props.computerUse().provedor())
-                ? new ProvedorOpenAiComputerUse(http, json, props)
-                : new ProvedorAnthropicComputerUse(http, json, props);
+                ? new ProvedorOpenAiComputerUse(http, json, props, medidor)
+                : new ProvedorAnthropicComputerUse(http, json, props, medidor);
     }
     public boolean disponivel() {
         return props.computerUse() != null && props.computerUse().ativo() && e2.online();

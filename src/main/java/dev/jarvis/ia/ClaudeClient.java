@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -37,29 +39,32 @@ public class ClaudeClient {
     private final HttpClient http;
     private final JsonMapper json;
     private final JarvisProperties.Anthropic config;
+    private final MedidorDeCusto medidor;
 
-    public ClaudeClient(HttpClient http, JsonMapper json, JarvisProperties props) {
+    public ClaudeClient(HttpClient http, JsonMapper json, JarvisProperties props,
+            MedidorDeCusto medidor) {
         this.http = http;
         this.json = json;
         this.config = props.anthropic();
+        this.medidor = medidor;
     }
 
     /** Versão simples, com o system num bloco de texto só e sem cache. */
-    public JsonNode criarMensagem(String system, ArrayNode mensagens, ArrayNode ferramentas)
-            throws IOException, InterruptedException {
+    public JsonNode criarMensagem(Origem origem, String system, ArrayNode mensagens,
+            ArrayNode ferramentas) throws IOException, InterruptedException {
         ArrayNode blocos = json.createArrayNode();
         blocos.addObject().put("type", "text").put("text", system);
-        return criarMensagem(blocos, mensagens, ferramentas);
+        return criarMensagem(origem, blocos, mensagens, ferramentas);
     }
 
     /**
      * Versão com o system em blocos, que é o que permite marcar o bloco fixo com
      * {@code cache_control} e pagar o texto da personalidade uma vez só.
      */
-    public JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas)
-            throws IOException, InterruptedException {
-        return criarMensagem(system, mensagens, ferramentas, config.maxTokens(), PRAZO_PADRAO,
-                TENTATIVAS);
+    public JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
+            ArrayNode ferramentas) throws IOException, InterruptedException {
+        return criarMensagem(origem, system, mensagens, ferramentas, config.maxTokens(),
+                PRAZO_PADRAO, TENTATIVAS);
     }
 
     /**
@@ -69,13 +74,14 @@ public class ClaudeClient {
      * curto de quem chama assim. Quem decide em poucos tokens prefere falhar rápido — e tratar a
      * falha — a segurar o turno do usuário.
      */
-    public JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas,
-            int maxTokens, Duration prazo) throws IOException, InterruptedException {
-        return criarMensagem(system, mensagens, ferramentas, maxTokens, prazo, 1);
+    public JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
+            ArrayNode ferramentas, int maxTokens, Duration prazo)
+            throws IOException, InterruptedException {
+        return criarMensagem(origem, system, mensagens, ferramentas, maxTokens, prazo, 1);
     }
 
-    private JsonNode criarMensagem(ArrayNode system, ArrayNode mensagens, ArrayNode ferramentas,
-            int maxTokens, Duration prazo, int tentativas)
+    private JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
+            ArrayNode ferramentas, int maxTokens, Duration prazo, int tentativas)
             throws IOException, InterruptedException {
         ObjectNode corpo = json.createObjectNode();
         corpo.put("model", config.modelo());
@@ -99,7 +105,7 @@ public class ClaudeClient {
             int status = resposta.statusCode();
             if (status == 200) {
                 JsonNode raiz = json.readTree(resposta.body());
-                registrarConsumo(raiz.path("usage"));
+                registrarConsumo(origem, raiz.path("usage"));
                 return raiz;
             }
             if (STATUS_TEMPORARIOS.contains(status) && tentativa < tentativas) {
@@ -112,16 +118,28 @@ public class ClaudeClient {
     }
 
     /**
-     * Mostra no log quanto a chamada consumiu. Os dois campos de cache só aparecem quando há cache:
-     * {@code cache_escrito} na primeira chamada (quando o prefixo é gravado) e {@code cache_lido}
-     * nas seguintes. Se as duas ficarem sempre em zero, o bloco fixo não está sendo cacheado.
+     * Mostra no log quanto a chamada consumiu e soma isso ao diário de custo. Os dois campos de
+     * cache só aparecem quando há cache: {@code cache_escrito} na primeira chamada (quando o
+     * prefixo é gravado) e {@code cache_lido} nas seguintes. Se as duas ficarem sempre em zero, o
+     * bloco fixo não está sendo cacheado.
+     *
+     * <p>Este é o <b>único</b> ponto em que uma chamada à Messages API vira custo, e ele roda só
+     * no HTTP 200, dentro do laço de tentativas: as repetições são de 429/500/502/503/529, que não
+     * carregam {@code usage} e nunca chegam aqui. Uma chamada repetida conta uma vez.
+     *
+     * <p>A contagem de buscas que o {@code Assistente} faz do mesmo campo <b>não</b> é duplicação:
+     * ela alimenta o teto de {@code BUSCA_WEB_MAX_USOS}, que é outro assunto. São dois leitores do
+     * mesmo número, com fins diferentes.
      */
-    private void registrarConsumo(JsonNode usage) {
+    private void registrarConsumo(Origem origem, JsonNode usage) {
+        long entrada = Json.numero(usage.path("input_tokens"));
+        long saida = Json.numero(usage.path("output_tokens"));
+        long cacheEscrito = Json.numero(usage.path("cache_creation_input_tokens"));
+        long cacheLido = Json.numero(usage.path("cache_read_input_tokens"));
+        long buscas = Json.numero(usage.path("server_tool_use").path("web_search_requests"));
         log.info("Claude: entrada={} saída={} cache_escrito={} cache_lido={}",
-                Json.numero(usage.path("input_tokens")),
-                Json.numero(usage.path("output_tokens")),
-                Json.numero(usage.path("cache_creation_input_tokens")),
-                Json.numero(usage.path("cache_read_input_tokens")));
+                entrada, saida, cacheEscrito, cacheLido);
+        medidor.registrar(origem, config.modelo(), entrada, saida, cacheEscrito, cacheLido, buscas);
     }
 
     private String detalheSeguro(String corpo) {

@@ -151,6 +151,7 @@ devolva textos curtos e objetivos: tudo que a ferramenta retorna vira tokens (cu
 | "como está o tempo?" | `clima` |
 | "quais as notícias de hoje?" | `noticias` |
 | "me dá o briefing" | `briefing_do_dia` |
+| "quanto você gastou hoje?" / "e na semana?" | `custo_do_jarvis` |
 | "a voz está funcionando?" | `status_voz` |
 | (na HUD) uma pergunta que precisa da sua resposta | `ouvir_resposta` |
 
@@ -828,17 +829,34 @@ location /api/ {
 
 ## Custos
 
-Com o modelo padrão (Claude Haiku 5.5: US$ 0,10 por milhão de tokens de entrada e US$ 0,50 por milhão de
-saída), uma mensagem comum custa uma fração de centavo de dólar. O texto da personalidade vai em cache de
-prompt, então ele é pago cheio uma vez e sai por cerca de um décimo disso nas chamadas seguintes — é o que
-os campos `cache_escrito` e `cache_lido` do log mostram. Você acompanha o gasto no console da Anthropic e
-pode definir um limite mensal por lá.
+O Jarvis registra cada resposta dos modelos Anthropic e, quando escolhido para computer use, OpenAI.
+`custo_do_jarvis` responde quanto gastou hoje, nos últimos sete dias ou nos últimos trinta, por
+origem e por modelo. Os números ficam num JSON por dia em `CUSTO_PASTA` (padrão
+`/data/jarvis/custo`, volume `custo`), com troca atômica, `.bak` e retenção de 90 dias. O fuso
+usado para separar os dias é `FUSO_HORARIO`. `CUSTO_TETO_DIARIO_USD` é opcional: ao cruzar 80% e
+100% do teto, o Jarvis manda um aviso no Telegram uma vez por limite por dia. O teto não bloqueia
+o serviço.
+
+Os preços vêm do `.env`, não do código. `CUSTO_PRECOS` usa
+`modelo=entrada/saida/cache_escrita/cache_leitura`, em dólares por milhão de tokens;
+`CUSTO_PRECO_BUSCA_WEB` usa dólares por mil buscas. Para o Haiku 5.5, há uma segunda faixa no
+`CUSTO_PRECOS_CONTEXTO_LONGO`, no formato `modelo@limiar=...`. O limiar soma tokens de entrada,
+cache escrito e cache lido. Acima de 100 mil tokens de prompt, a tarifa maior vale para a chamada
+inteira, inclusive saída e cache. O `.env.example` traz as duas faixas do modelo padrão;
+[confira os valores atuais na Anthropic](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
+antes de usar. Modelo sem preço mantém a contagem de tokens, mas marca o valor em dólares como
+incompleto e gera um WARN por dia.
+
+O texto da personalidade usa cache de prompt de cinco minutos quando alcança o mínimo de tokens
+do modelo; `cache_escrito` e `cache_lido` no log ajudam a conferir seu uso. O console da Anthropic
+continua sendo a referência para a cobrança efetiva e permite definir um limite mensal.
 
 Se trocar `ANTHROPIC_MODELO`, ajuste `ANTHROPIC_CACHE_MINIMO_TOKENS` junto: o menor prefixo cacheável muda
 por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 
-Fora o modelo, há três contas que podem aparecer: a **busca na web** da Anthropic (US$ 10 por 1.000
-buscas, mais os tokens dos resultados), a **ElevenLabs** quando `VOZ_PROVEDOR=elevenlabs` (com
+Fora o modelo, há três contas que podem aparecer: a **busca na web** da Anthropic (configure o
+preço por mil buscas, além dos tokens dos resultados), a **ElevenLabs** quando
+`VOZ_PROVEDOR=elevenlabs` (com
 `VOZ_RESERVA_PCT` guardando uma fatia da cota para a voz nunca acabar no meio de um briefing) e a
 **YouTube Data API**, cuja cota diária de 10.000 unidades dá umas 100 buscas por dia.
 

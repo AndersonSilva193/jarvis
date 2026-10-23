@@ -17,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import dev.jarvis.custo.Origem;
 import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
 import dev.jarvis.ia.ClaudeClient;
 import tools.jackson.databind.JsonNode;
@@ -43,14 +44,16 @@ class ClassificadorDeRespostaTest {
                 "deixa quieto", "espera", "cancela", "nem pensar", "Melhor não!", "negativo" })
             assertEquals(Decisao.NAO, classificador.classificar(PERGUNTA, nao), nao);
 
-        verify(claude, never()).criarMensagem(any(ArrayNode.class), any(ArrayNode.class),
+        verify(claude, never()).criarMensagem(any(Origem.class), any(ArrayNode.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), anyInt(), any(Duration.class));
     }
 
     @Test
     @DisplayName("frase com ressalva não bate na lista e vai ao modelo, curta e sem ferramentas")
     void frasesLongasVaoAoModelo() throws Exception {
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class),
                 anyInt(), any(Duration.class))).thenReturn(resposta("{\"decisao\":\"ajuste\"}"));
 
         assertEquals(Decisao.AJUSTE,
@@ -58,7 +61,7 @@ class ClassificadorDeRespostaTest {
 
         ArgumentCaptor<ArrayNode> ferramentas = ArgumentCaptor.forClass(ArrayNode.class);
         ArgumentCaptor<ArrayNode> mensagens = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude).criarMensagem(any(ArrayNode.class), mensagens.capture(),
+        verify(claude).criarMensagem(any(Origem.class), any(ArrayNode.class), mensagens.capture(),
                 ferramentas.capture(), eq(60), eq(Duration.ofSeconds(5)));
         assertTrue(ferramentas.getValue().isEmpty(), "um classificador não chama ferramenta");
         String enviado = mensagens.getValue().toString();
@@ -82,7 +85,8 @@ class ClassificadorDeRespostaTest {
         assertEquals(Decisao.DUVIDA, comModelo("{\"decisao\":\"talvez\"}"));
         assertEquals(Decisao.DUVIDA, comModelo("{\"decisao\":"));
 
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class),
                 anyInt(), any(Duration.class))).thenThrow(new IOException("timeout"));
         assertEquals(Decisao.DUVIDA, classificador.classificar(PERGUNTA, "faz aí se der tempo"));
     }
@@ -98,7 +102,8 @@ class ClassificadorDeRespostaTest {
     }
 
     private Decisao comModelo(String texto) throws Exception {
-        when(claude.criarMensagem(any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class),
                 anyInt(), any(Duration.class))).thenReturn(resposta(texto));
         return classificador.classificar(PERGUNTA, "faz aí se der tempo");
     }

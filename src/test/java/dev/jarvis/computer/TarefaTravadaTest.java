@@ -20,6 +20,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
 import dev.jarvis.conversa.RegistroConversas;
 import dev.jarvis.ia.Canal;
 import dev.jarvis.ia.SistemaDoJarvis;
@@ -76,7 +77,7 @@ class TarefaTravadaTest {
                     new ResultadoPc(comando.id(), true, "", MESMA_TELA, "image/png"));
         });
         var tarefas = new TarefasComputerUse(e2, sistema, props, json, null, telegram, conversas,
-                eventos, () -> provedorPreso);
+                eventos, mock(MedidorDeCusto.class), () -> provedorPreso);
 
         assertTrue(tarefas.iniciar("clicar no botao de entrar", "telegram", 42)
                 .contains("iniciada"));

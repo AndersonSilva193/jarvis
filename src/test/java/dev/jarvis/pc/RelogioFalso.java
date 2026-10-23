@@ -15,6 +15,14 @@ public class RelogioFalso extends Clock {
 
     private Instant agora = Instant.parse("2026-10-15T12:00:00Z");
 
+    public RelogioFalso() {
+    }
+
+    /** Quando o teste precisa de um instante específico — uma virada de dia no fuso, por exemplo. */
+    public RelogioFalso(String instante) {
+        this.agora = Instant.parse(instante);
+    }
+
     @Override
     public Instant instant() {
         return agora;

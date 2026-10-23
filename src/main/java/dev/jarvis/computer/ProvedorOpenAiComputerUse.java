@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -21,14 +23,17 @@ public final class ProvedorOpenAiComputerUse implements ProvedorComputerUse {
     private final JsonMapper json;
     private final String chave;
     private final String modelo;
+    private final MedidorDeCusto medidor;
     private String respostaAnterior;
     private String chamadaAnterior;
     private String instrucoes;
 
-    public ProvedorOpenAiComputerUse(HttpClient http, JsonMapper json, JarvisProperties props) {
+    public ProvedorOpenAiComputerUse(HttpClient http, JsonMapper json, JarvisProperties props,
+            MedidorDeCusto medidor) {
         this.http = http; this.json = json;
         this.chave = props.computerUse().openaiApiKey();
         this.modelo = props.computerUse().modeloOpenai();
+        this.medidor = medidor;
     }
     @Override public String nome() { return "openai"; }
     @Override public String modelo() { return modelo; }
@@ -78,6 +83,13 @@ public final class ProvedorOpenAiComputerUse implements ProvedorComputerUse {
             throw new IllegalStateException("OpenAI computer use HTTP " + resposta.statusCode());
         JsonNode raiz = json.readTree(resposta.body());
         respostaAnterior = Json.texto(raiz.path("id"));
+        // Como no provedor da Anthropic: o custo entra aqui, e o TarefasComputerUse segue só com a
+        // soma que ele mostra na HUD. A Responses API não tem campos de cache, então os dois vão
+        // em zero — não é o cache falhando, é o provedor não informar.
+        JsonNode usage = raiz.path("usage");
+        medidor.registrar(Origem.COMPUTER_USE, modelo,
+                Json.numero(usage.path("input_tokens")),
+                Json.numero(usage.path("output_tokens")), 0, 0, 0);
         Passo passo = interpretarResposta(raiz);
         if (!passo.chamadas().isEmpty()) chamadaAnterior = passo.chamadas().getFirst().id();
         return passo;

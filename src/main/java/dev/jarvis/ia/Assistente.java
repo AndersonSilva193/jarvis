@@ -13,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import dev.jarvis.conversa.*;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.ferramentas.ResultadoFerramenta;
 
 import org.slf4j.Logger;
@@ -463,7 +464,7 @@ public class Assistente {
                 mensagens.add(m);
             }
 
-            JsonNode resposta = claude.criarMensagem(system, mensagens, definicoes);
+            JsonNode resposta = claude.criarMensagem(Origem.CONVERSA, system, mensagens, definicoes);
             buscas += (int) Json.numero(resposta.path("usage").path("server_tool_use")
                     .path("web_search_requests"));
             JsonNode conteudo = resposta.path("content");
