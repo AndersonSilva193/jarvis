@@ -51,10 +51,12 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
                 vai falar em voz alta, para a tela e a voz não divergirem.
 
                 O layout 'grafico' é para números que mudam ao longo de um eixo — dias, meses, \
-                rodadas. Use SÓ com números que vieram de uma pesquisa feita NESTE pedido, e aí \
-                o titulo também é a conclusão: "A temperatura cai 8 °C até quinta", não \
-                "Previsão da semana". Para dados do próprio Jarvis ou de planilhas, use \
-                grafico_de_dados, não esta ferramenta.
+                rodadas — ou que compõem um todo. O 'tipo' escolhe o desenho: linha e barras \
+                comparam, barras_empilhadas mostra de que cada período é feito e rosca mostra de \
+                que o todo é feito agora. Use SÓ com números que vieram de uma pesquisa feita \
+                NESTE pedido, e aí o titulo também é a conclusão: "A temperatura cai 8 °C até \
+                quinta", não "Previsão da semana". Para dados do próprio Jarvis ou de planilhas, \
+                use grafico_de_dados, não esta ferramenta.
 
                 Se o contexto não traz a linha "Na tela agora", nenhuma HUD está aberta e esta \
                 ferramenta não vai abrir nada — responda apenas falando.""";
@@ -138,7 +140,15 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
         tipo.put("type", "string");
         tipo.put("description", "linha para o que anda no tempo (2 a "
                 + MontadorDeCardDePesquisa.MAX_PONTOS_LINHA + " pontos); "
-                + "barras para comparar categorias (até " + MontadorDeCardDePesquisa.MAX_BARRAS + ").");
+                + "barras para comparar categorias (até " + MontadorDeCardDePesquisa.MAX_BARRAS
+                + "); barras_empilhadas para composição ao longo de um eixo — de que cada período é "
+                + "feito (até " + MontadorDeCardDePesquisa.MAX_BARRAS + " períodos e "
+                + MontadorDeCardDePesquisa.MAX_PARTES_EMPILHADAS + " partes, uma série por parte); "
+                + "rosca para composição de um instante — de que o todo é feito agora ("
+                + MontadorDeCardDePesquisa.MIN_FATIAS_ROSCA + " a "
+                + MontadorDeCardDePesquisa.MAX_FATIAS_ROSCA + " fatias no eixoX e UMA série só, "
+                + "com um valor por fatia). Os dois últimos não aceitam valor negativo, e a soma "
+                + "da rosca tem de ser maior que zero.");
         MontadorDeCardDePesquisa.TIPOS_GRAFICO.forEach(tipo.putArray("enum")::add);
 
         ObjectNode eixoX = campos.putObject("eixoX");
@@ -148,10 +158,13 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
 
         ObjectNode series = campos.putObject("series");
         series.put("type", "array");
-        series.put("maxItems", MontadorDeCardDePesquisa.MAX_SERIES);
+        // O teto do schema é o maior dos tipos; quem cobra o teto de cada um é o montador, que
+        // sabe qual tipo veio — anunciar 3 aqui barraria a quarta parte da barra empilhada.
+        series.put("maxItems", MontadorDeCardDePesquisa.MAX_PARTES_EMPILHADAS);
         series.put("description", "Até " + MontadorDeCardDePesquisa.MAX_SERIES
-                + " séries. Cada uma com 'nome' e 'valores' — um número por rótulo do eixoX, "
-                + "na mesma ordem e na mesma quantidade.");
+                + " séries em linha e barras, " + MontadorDeCardDePesquisa.MAX_PARTES_EMPILHADAS
+                + " em barras_empilhadas e UMA na rosca. Cada uma com 'nome' e 'valores' — um "
+                + "número por rótulo do eixoX, na mesma ordem e na mesma quantidade.");
         ObjectNode serie = series.putObject("items");
         serie.put("type", "object");
         ObjectNode camposDaSerie = serie.putObject("properties");

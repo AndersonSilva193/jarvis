@@ -57,20 +57,17 @@ public final class MontadorDeCardDeDados {
             List<DadosDoCard.Grafico.Serie> series, String unidade,
             DadosDoCard.Grafico.Destaque destaque) {
         if (!MontadorDeCardDePesquisa.TIPOS_GRAFICO.contains(tipo)) {
-            throw new IllegalArgumentException(
-                    "tipo do gráfico deve ser linha ou barras, não '" + tipo + "'");
+            throw new IllegalArgumentException("tipo do gráfico deve ser um de "
+                    + MontadorDeCardDePesquisa.TIPOS_GRAFICO + ", não '" + tipo + "'");
         }
         if (eixoX == null || eixoX.isEmpty()) {
             throw new IllegalArgumentException("gráfico sem rótulos no eixoX");
         }
-        boolean linha = "linha".equals(tipo);
-        int minimo = linha ? MontadorDeCardDePesquisa.MIN_PONTOS_LINHA : 1;
-        int maximo = linha ? MontadorDeCardDePesquisa.MAX_PONTOS_LINHA
-                : MontadorDeCardDePesquisa.MAX_BARRAS;
-        if (eixoX.size() < minimo || eixoX.size() > maximo) {
-            throw new IllegalArgumentException("gráfico de " + tipo + " precisa de " + minimo
-                    + " a " + maximo + (linha ? " pontos" : " categorias") + " no eixoX; são "
-                    + eixoX.size());
+        MontadorDeCardDePesquisa.LimiteDoEixo limite = MontadorDeCardDePesquisa.limiteDoEixo(tipo);
+        if (eixoX.size() < limite.minimo() || eixoX.size() > limite.maximo()) {
+            throw new IllegalArgumentException("gráfico de " + tipo + " precisa de "
+                    + limite.minimo() + " a " + limite.maximo() + " " + limite.substantivo()
+                    + " no eixoX; são " + eixoX.size());
         }
         for (int i = 0; i < eixoX.size(); i++) {
             String rotulo = eixoX.get(i);
@@ -86,9 +83,11 @@ public final class MontadorDeCardDeDados {
         if (series == null || series.isEmpty()) {
             throw new IllegalArgumentException("gráfico sem séries");
         }
-        if (series.size() > MontadorDeCardDePesquisa.MAX_SERIES) {
-            throw new IllegalArgumentException("no máximo " + MontadorDeCardDePesquisa.MAX_SERIES
-                    + " séries; são " + series.size());
+        int maxSeries = MontadorDeCardDePesquisa.maxSeries(tipo);
+        if (series.size() > maxSeries) {
+            throw new IllegalArgumentException(MontadorDeCardDePesquisa.ROSCA.equals(tipo)
+                    ? "a rosca aceita uma série só; são " + series.size()
+                    : "no máximo " + maxSeries + " séries; são " + series.size());
         }
         for (DadosDoCard.Grafico.Serie serie : series) {
             if (serie == null) {
@@ -108,6 +107,8 @@ public final class MontadorDeCardDeDados {
                 }
             }
         }
+
+        MontadorDeCardDePesquisa.conferirRegrasDoTipo(tipo, series);
 
         String medida = unidade == null ? "" : unidade.trim();
         if (medida.length() > MontadorDeCardDePesquisa.MAX_UNIDADE) {

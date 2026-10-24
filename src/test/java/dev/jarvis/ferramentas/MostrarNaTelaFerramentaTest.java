@@ -117,13 +117,15 @@ class MostrarNaTelaFerramentaTest {
     }
 
     @Test
-    @DisplayName("o schema do grafico anuncia os dois tipos e não expõe a origem")
+    @DisplayName("o schema do grafico anuncia os quatro tipos e não expõe a origem")
     void schemaDoGrafico() {
         ObjectNode grafico = (ObjectNode) com(() -> 1).esquemaEntrada()
                 .path("properties").path("grafico");
 
-        assertEquals(2, grafico.path("properties").path("tipo").path("enum").size());
-        assertEquals(3, grafico.path("properties").path("series").path("maxItems").asInt());
+        assertEquals(4, grafico.path("properties").path("tipo").path("enum").size());
+        // Quatro é o teto do tipo mais generoso; o teto de cada tipo é cobrado pelo montador,
+        // que sabe qual veio — anunciar 3 aqui barraria a quarta parte da barra empilhada.
+        assertEquals(4, grafico.path("properties").path("series").path("maxItems").asInt());
         assertTrue(grafico.path("required").toString().contains("series"));
         assertTrue(grafico.path("properties").path("origem").isMissingNode(),
                 "marcar um número como vindo do próprio Jarvis é trabalho do Java");
@@ -154,5 +156,33 @@ class MostrarNaTelaFerramentaTest {
         assertTrue(dados.itens().isEmpty());
         assertEquals("linha", dados.grafico().tipo());
         assertEquals("pesquisa", dados.grafico().origem());
+    }
+
+    @Test
+    @DisplayName("card de rosca sai pela ferramenta: fatias no eixoX e uma série só")
+    void cardDeRosca() throws Exception {
+        ObjectNode entrada = entrada();
+        entrada.remove("itens");
+        entrada.put("layout", "grafico");
+        entrada.put("referencia", "outubro de 2026");
+        ObjectNode fonte = entrada.putArray("fontes").addObject();
+        fonte.put("nome", "StatCounter");
+        fonte.put("url", "https://gs.statcounter.com/");
+        ObjectNode grafico = entrada.putObject("grafico");
+        grafico.put("tipo", "rosca");
+        grafico.put("unidade", "%");
+        grafico.putArray("eixoX").add("Chrome").add("Safari").add("Edge");
+        ObjectNode serie = grafico.putArray("series").addObject();
+        serie.put("nome", "fatia do mercado");
+        serie.putArray("valores").add(66.4).add(18.1).add(5.2);
+
+        ResultadoFerramenta resultado =
+                com(() -> 1).executarDetalhado(entrada, new OuvinteProgresso() { });
+
+        var dados = assertInstanceOf(DadosDoCard.Pesquisa.class,
+                resultado.cards().getFirst().dados());
+        assertEquals("rosca", dados.grafico().tipo());
+        assertEquals(3, dados.grafico().eixoX().size());
+        assertEquals(1, dados.grafico().series().size());
     }
 }

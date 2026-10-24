@@ -40,15 +40,25 @@ public final class MontadorDeCardDePesquisa {
     public static final List<String> LAYOUTS =
             List.of("ranking", "ficha", "lista", "linha_do_tempo", "destaque", GRAFICO);
 
-    /** Os dois desenhos de gráfico. Também vira enum no schema. */
-    public static final List<String> TIPOS_GRAFICO = List.of("linha", "barras");
+    /** Os desenhos que empilham: é neles que valor negativo não é representável. */
+    public static final String BARRAS_EMPILHADAS = "barras_empilhadas";
+    public static final String ROSCA = "rosca";
+
+    /** Os quatro desenhos de gráfico. Também vira enum no schema. */
+    public static final List<String> TIPOS_GRAFICO =
+            List.of("linha", "barras", BARRAS_EMPILHADAS, ROSCA);
 
     public static final int MAX_SERIES = 3;
+    /** Quatro partes é o que o olho separa por cor numa barra; acima disso é um borrão. */
+    public static final int MAX_PARTES_EMPILHADAS = 4;
     /** Dois pontos é o mínimo para existir uma linha; 24 é um dia de hora em hora. */
     public static final int MIN_PONTOS_LINHA = 2;
     public static final int MAX_PONTOS_LINHA = 24;
     /** Doze barras é um ano mês a mês; acima disso a tela vira um pente. */
     public static final int MAX_BARRAS = 12;
+    /** Duas fatias no mínimo — uma fatia só é sempre 100% e não compara nada — e seis no teto. */
+    public static final int MIN_FATIAS_ROSCA = 2;
+    public static final int MAX_FATIAS_ROSCA = 6;
     // Públicos porque o gráfico do servidor é conferido contra os mesmos limites da HUD, e o
     // schema das duas ferramentas anuncia os mesmos números ao modelo.
     public static final int MAX_ROTULO_EIXO = 24;
@@ -62,6 +72,63 @@ public final class MontadorDeCardDePesquisa {
     private static final Set<String> ESQUEMAS = Set.of("http", "https");
 
     private MontadorDeCardDePesquisa() {
+    }
+
+    /** A faixa do eixo e o nome do que ele conta, que mudam com o desenho. */
+    public record LimiteDoEixo(int minimo, int maximo, String substantivo) {
+    }
+
+    /**
+     * Quantos rótulos o eixo aceita, por tipo.
+     *
+     * Está aqui, e público, porque os dois montadores e o {@code grafico_de_dados} precisam
+     * exatamente da mesma conta: três cópias do mesmo ternário é onde eles iam divergir.
+     */
+    public static LimiteDoEixo limiteDoEixo(String tipo) {
+        return switch (tipo) {
+            case "linha" -> new LimiteDoEixo(MIN_PONTOS_LINHA, MAX_PONTOS_LINHA, "pontos");
+            case ROSCA -> new LimiteDoEixo(MIN_FATIAS_ROSCA, MAX_FATIAS_ROSCA, "fatias");
+            default -> new LimiteDoEixo(1, MAX_BARRAS, "categorias");
+        };
+    }
+
+    /** Quantas séries cada desenho aceita: a rosca é uma só, a empilhada vai a quatro. */
+    public static int maxSeries(String tipo) {
+        return switch (tipo) {
+            case ROSCA -> 1;
+            case BARRAS_EMPILHADAS -> MAX_PARTES_EMPILHADAS;
+            default -> MAX_SERIES;
+        };
+    }
+
+    /**
+     * O que vale só para quem empilha: valor negativo nunca, e soma zero só fora da rosca.
+     *
+     * Segmentos de sinais trocados não compartilham a mesma base, então o tamanho que o olho mede
+     * deixa de ser o total — é o mesmo tipo de mentira que uma série fora de escala. A rosca ainda
+     * precisa de soma maior que zero: sem total não há fatia, e um anel vazio não é desenhável.
+     * Uma barra empilhada somando zero, ao contrário, é um período legítimo sem movimento.
+     */
+    static void conferirRegrasDoTipo(String tipo, List<DadosDoCard.Grafico.Serie> series) {
+        if (!ROSCA.equals(tipo) && !BARRAS_EMPILHADAS.equals(tipo)) {
+            return;
+        }
+        double soma = 0;
+        for (DadosDoCard.Grafico.Serie serie : series) {
+            for (int v = 0; v < serie.valores().size(); v++) {
+                double valor = serie.valores().get(v);
+                if (valor < 0) {
+                    throw new IllegalArgumentException("gráfico de " + tipo + ", série '"
+                            + serie.nome() + "', valor " + (v + 1) + ": " + valor
+                            + " é negativo, e o que empilha precisa de valor zero ou positivo");
+                }
+                soma += valor;
+            }
+        }
+        if (ROSCA.equals(tipo) && soma <= 0) {
+            throw new IllegalArgumentException(
+                    "gráfico de rosca precisa de soma maior que zero; as fatias somam " + soma);
+        }
     }
 
     /**
@@ -119,14 +186,17 @@ public final class MontadorDeCardDePesquisa {
         if (no == null || !no.isObject()) {
             throw new IllegalArgumentException("mande o objeto 'grafico' com tipo, eixoX e series");
         }
-        String tipo = texto(no, "tipo", 10, true);
+        // O teto é 20, e não 10, porque 'barras_empilhadas' tem 17: com 10 o modelo receberia
+        // "'tipo' acima de 10 caracteres" em vez da lista de tipos, que é a única frase que ajuda.
+        String tipo = texto(no, "tipo", 20, true);
         if (!TIPOS_GRAFICO.contains(tipo)) {
             throw new IllegalArgumentException(
-                    "tipo do gráfico deve ser linha ou barras, não '" + tipo + "'");
+                    "tipo do gráfico deve ser um de " + TIPOS_GRAFICO + ", não '" + tipo + "'");
         }
 
         List<String> eixoX = eixoX(no.path("eixoX"), tipo);
-        List<DadosDoCard.Grafico.Serie> series = series(no.path("series"), eixoX.size());
+        List<DadosDoCard.Grafico.Serie> series = series(no.path("series"), eixoX.size(), tipo);
+        conferirRegrasDoTipo(tipo, series);
         String unidade = texto(no, "unidade", MAX_UNIDADE, false);
         DadosDoCard.Grafico.Destaque destaque = destaque(no.path("destaque"), series.size(),
                 eixoX.size());
@@ -157,11 +227,10 @@ public final class MontadorDeCardDePesquisa {
         if (lista == null || !lista.isArray() || lista.isEmpty()) {
             throw new IllegalArgumentException("mande os rótulos em 'eixoX'");
         }
-        int minimo = "linha".equals(tipo) ? MIN_PONTOS_LINHA : 1;
-        int maximo = "linha".equals(tipo) ? MAX_PONTOS_LINHA : MAX_BARRAS;
-        if (lista.size() < minimo || lista.size() > maximo) {
-            throw new IllegalArgumentException("gráfico de " + tipo + " precisa de " + minimo
-                    + " a " + maximo + ("linha".equals(tipo) ? " pontos" : " categorias")
+        LimiteDoEixo limite = limiteDoEixo(tipo);
+        if (lista.size() < limite.minimo() || lista.size() > limite.maximo()) {
+            throw new IllegalArgumentException("gráfico de " + tipo + " precisa de "
+                    + limite.minimo() + " a " + limite.maximo() + " " + limite.substantivo()
                     + " no eixoX; você mandou " + lista.size());
         }
         List<String> eixoX = new ArrayList<>(lista.size());
@@ -180,13 +249,15 @@ public final class MontadorDeCardDePesquisa {
     }
 
     /** As séries, todas do tamanho do eixo e só com número que existe de verdade. */
-    private static List<DadosDoCard.Grafico.Serie> series(JsonNode lista, int pontos) {
+    private static List<DadosDoCard.Grafico.Serie> series(JsonNode lista, int pontos, String tipo) {
+        int max = maxSeries(tipo);
         if (lista == null || !lista.isArray() || lista.isEmpty()) {
-            throw new IllegalArgumentException("mande de 1 a " + MAX_SERIES + " séries em 'series'");
+            throw new IllegalArgumentException("mande de 1 a " + max + " séries em 'series'");
         }
-        if (lista.size() > MAX_SERIES) {
-            throw new IllegalArgumentException(
-                    "no máximo " + MAX_SERIES + " séries; você mandou " + lista.size());
+        if (lista.size() > max) {
+            throw new IllegalArgumentException(ROSCA.equals(tipo)
+                    ? "a rosca aceita uma série só; você mandou " + lista.size()
+                    : "no máximo " + max + " séries; você mandou " + lista.size());
         }
         List<DadosDoCard.Grafico.Serie> series = new ArrayList<>(lista.size());
         for (int i = 0; i < lista.size(); i++) {

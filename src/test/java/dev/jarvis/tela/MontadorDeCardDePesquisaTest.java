@@ -424,12 +424,72 @@ class MontadorDeCardDePesquisaTest {
     }
 
     @Test
-    @DisplayName("tipo de gráfico fora dos dois conhecidos é recusado")
+    @DisplayName("tipo de gráfico fora dos quatro conhecidos é recusado")
     void tipoDesconhecido() {
         ObjectNode entrada = validaGrafico();
         ((ObjectNode) entrada.path("grafico")).put("tipo", "pizza");
 
         assertTrue(erroDe(entrada).contains("pizza"), erroDe(entrada));
+    }
+
+    @Test
+    @DisplayName("'barras_empilhadas' não é recusado por tamanho: a frase que ajuda é a dos tipos")
+    void tipoLongoNaoCaiPorTamanho() {
+        ObjectNode entrada = comGrafico("barras_empilhadas", 3);
+
+        assertEquals("barras_empilhadas", montarGrafico(entrada).tipo());
+    }
+
+    @Test
+    @DisplayName("barras empilhadas: até 12 períodos e 4 partes, nunca com valor negativo")
+    void barrasEmpilhadas() {
+        assertEquals(12, montarGrafico(comGrafico("barras_empilhadas", 12)).eixoX().size());
+        assertTrue(erroDe(comGrafico("barras_empilhadas", 13)).contains("1 a 12 categorias"),
+                erroDe(comGrafico("barras_empilhadas", 13)));
+
+        ObjectNode quatro = comGrafico("barras_empilhadas", 2);
+        ArrayNode series = (ArrayNode) quatro.path("grafico").path("series");
+        serie(series, "p2", new double[] { 1, 2 });
+        serie(series, "p3", new double[] { 1, 2 });
+        serie(series, "p4", new double[] { 1, 2 });
+        assertEquals(4, montarGrafico(quatro).series().size());
+
+        ObjectNode cinco = comGrafico("barras_empilhadas", 2);
+        ArrayNode demais = (ArrayNode) cinco.path("grafico").path("series");
+        serie(demais, "p2", new double[] { 1, 2 });
+        serie(demais, "p3", new double[] { 1, 2 });
+        serie(demais, "p4", new double[] { 1, 2 });
+        serie(demais, "p5", new double[] { 1, 2 });
+        assertTrue(erroDe(cinco).contains("no máximo 4 séries"), erroDe(cinco));
+
+        ObjectNode negativo = comGrafico("barras_empilhadas", 3);
+        valorCru(negativo, 1, JSON.getNodeFactory().numberNode(-2));
+        assertTrue(erroDe(negativo).contains("negativo"), erroDe(negativo));
+    }
+
+    @Test
+    @DisplayName("rosca: 2 a 6 fatias, uma série só, valores não negativos e soma acima de zero")
+    void rosca() {
+        assertEquals("rosca", montarGrafico(comGrafico("rosca", 2)).tipo());
+        assertEquals(6, montarGrafico(comGrafico("rosca", 6)).eixoX().size());
+        assertTrue(erroDe(comGrafico("rosca", 7)).contains("2 a 6 fatias"),
+                erroDe(comGrafico("rosca", 7)));
+        assertTrue(erroDe(comGrafico("rosca", 1)).contains("2 a 6 fatias"),
+                erroDe(comGrafico("rosca", 1)));
+
+        ObjectNode duasSeries = comGrafico("rosca", 2);
+        serie((ArrayNode) duasSeries.path("grafico").path("series"), "outra",
+                new double[] { 3, 4 });
+        assertTrue(erroDe(duasSeries).contains("uma série só"), erroDe(duasSeries));
+
+        ObjectNode negativo = comGrafico("rosca", 3);
+        valorCru(negativo, 2, JSON.getNodeFactory().numberNode(-1));
+        assertTrue(erroDe(negativo).contains("negativo"), erroDe(negativo));
+
+        ObjectNode zerada = comGrafico("rosca", 2);
+        valorCru(zerada, 0, JSON.getNodeFactory().numberNode(0));
+        valorCru(zerada, 1, JSON.getNodeFactory().numberNode(0));
+        assertTrue(erroDe(zerada).contains("soma maior que zero"), erroDe(zerada));
     }
 
     @Test

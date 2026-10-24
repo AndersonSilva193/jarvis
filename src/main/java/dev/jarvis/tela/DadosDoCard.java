@@ -97,13 +97,18 @@ public sealed interface DadosDoCard {
     }
 
     /**
-     * Uma série de números ao longo de um eixo, para a HUD desenhar em linha ou em barras.
+     * Uma série de números ao longo de um eixo, para a HUD desenhar.
      *
      * Vive dentro de {@link Pesquisa}, no layout {@code grafico}: não é um tipo de card nem um
      * {@link ItemDoCard}, é o conteúdo inteiro de um card de pesquisa que, em vez de itens, mostra
      * um gráfico.
      *
-     * @param tipo     "linha" para o que anda no tempo, "barras" para o que compara categorias.
+     * A rosca não ganhou campo próprio: ela é este mesmo par, lido de outro jeito — {@code eixoX}
+     * são os rótulos das fatias e {@code series} tem uma entrada só, com um valor por fatia.
+     *
+     * @param tipo     "linha" para o que anda no tempo, "barras" para o que compara categorias,
+     *                 "barras_empilhadas" para composição ao longo de um eixo e "rosca" para
+     *                 composição de um instante. Os dois últimos não aceitam valor negativo.
      * @param eixoX    os rótulos, na ordem em que a HUD desenha.
      * @param unidade  "°C", "R$", "%" — o que os valores significam. Pode ser vazia.
      * @param destaque o ponto que a HUD realça, ou null. Índices base zero, já conferidos contra o

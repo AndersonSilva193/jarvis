@@ -4,7 +4,9 @@ import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -16,6 +18,8 @@ import dev.jarvis.briefing.fontes.ClimaService;
 import dev.jarvis.briefing.fontes.ClimaService.PrevisaoDia;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.custo.MedidorDeCusto;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.tela.CardTela;
 import dev.jarvis.tela.DadosDoCard;
@@ -40,8 +44,8 @@ import tools.jackson.databind.node.ObjectNode;
  * escrever um número, e não é por educação que ele não escreve.
  *
  * Fonte nova entra em dois lugares: uma entrada em {@link #FONTES} e um {@code case} no
- * {@code executarDetalhado}. O {@code custo_30_dias} é o próximo, com
- * {@code MedidorDeCusto.serieDiaria(30)}.
+ * {@code executarDetalhado}. Hoje são três: {@code clima_7_dias}, {@code planilha} e
+ * {@code custo_30_dias}.
  */
 @Component
 public class GraficoDeDadosFerramenta extends FerramentaDeTela {
@@ -52,7 +56,8 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
     /** As fontes de número que o Jarvis mede ou lê sozinho. */
     static final String CLIMA_7_DIAS = "clima_7_dias";
     static final String PLANILHA = "planilha";
-    static final List<String> FONTES = List.of(CLIMA_7_DIAS, PLANILHA);
+    static final String CUSTO_30_DIAS = "custo_30_dias";
+    static final List<String> FONTES = List.of(CLIMA_7_DIAS, PLANILHA, CUSTO_30_DIAS);
 
     /** Dias do gráfico de clima: a semana à frente, hoje inclusive. */
     static final int DIAS_DO_CLIMA = 7;
@@ -60,17 +65,34 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
     static final int MAX_COLUNAS = MontadorDeCardDePesquisa.MAX_SERIES;
     /** O agente recusa leitura de 100 linhas ou mais numa chamada. */
     static final int MAX_LINHAS_LIDAS = 99;
+    /** Dias do gráfico de custo: o mês para trás, hoje inclusive. */
+    static final int DIAS_DO_CUSTO = 30;
+    /** Cinco dias por barra: trinta pontos não cabem nas doze categorias da empilhada. */
+    static final int DIAS_POR_BLOCO = 5;
+    /**
+     * O que a planilha desenha.
+     *
+     * Rosca e barra empilhada pedem dado de composição — fatias de um todo —, e uma coluna
+     * qualquer de um XLSX não é isso. Deixar o enum aberto aqui aceitaria calado um desenho que
+     * este caminho não valida.
+     */
+    static final List<String> TIPOS_DA_PLANILHA = List.of("linha", "barras");
+
+    private static final DateTimeFormatter DIA = DateTimeFormatter.ofPattern("dd");
+    private static final DateTimeFormatter DIA_E_MES = DateTimeFormatter.ofPattern("dd/MM");
 
     private final ClimaService clima;
     private final PcService pc;
+    private final MedidorDeCusto medidor;
     private final JarvisProperties props;
 
     public GraficoDeDadosFerramenta(PresencaDaHud hud, JsonMapper json, JarvisProperties props,
-            ClimaService clima, PcService pc) {
+            ClimaService clima, PcService pc, MedidorDeCusto medidor) {
         super(hud, json);
         this.props = props;
         this.clima = clima;
         this.pc = pc;
+        this.medidor = medidor;
     }
 
     @Override
@@ -84,9 +106,11 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
                 + "Você escolhe a fonte e escreve a conclusão no título; eixo, valores e unidade "
                 + "são preenchidos pelo servidor, e o card fica marcado como dado da casa. "
                 + "Fontes: clima_7_dias (máxima, mínima e chance de chuva da semana à frente, "
-                + "dois cards) e planilha (colunas de um XLSX ou CSV da pasta do Jarvis, pelo id de "
-                + "listar_arquivos). Use para 'mostra a previsão da semana num gráfico' ou 'faz um "
-                + "gráfico da coluna de vendas daquela planilha'. "
+                + "dois cards), planilha (colunas de um XLSX ou CSV da pasta do Jarvis, pelo id de "
+                + "listar_arquivos) e custo_30_dias (o que o Jarvis gastou no mês, em barras "
+                + "empilhadas por origem). Use para 'mostra a previsão da semana num gráfico', "
+                + "'faz um gráfico da coluna de vendas daquela planilha' ou 'mostra num gráfico "
+                + "o meu gasto do mês'. "
                 + "Para números que você pesquisou na web, a ferramenta é mostrar_na_tela com "
                 + "layout grafico — esta não aceita valor nenhum escrito por você. "
                 + "Se o contexto não traz a linha 'Na tela agora', nenhuma HUD está aberta.";
@@ -100,8 +124,8 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
 
         ObjectNode fonte = campos.putObject("fonte");
         fonte.put("type", "string");
-        fonte.put("description", "De onde o servidor tira os números. clima_7_dias não precisa de "
-                + "mais nada; planilha precisa do arquivo e das colunas.");
+        fonte.put("description", "De onde o servidor tira os números. clima_7_dias e custo_30_dias "
+                + "não precisam de mais nada; planilha precisa do arquivo e das colunas.");
         FONTES.forEach(fonte.putArray("enum")::add);
 
         campos.putObject("titulo").put("type", "string")
@@ -120,8 +144,8 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
         tipo.put("description", "Só na fonte planilha: linha para o que anda no tempo ("
                 + MontadorDeCardDePesquisa.MAX_PONTOS_LINHA + " pontos no máximo), barras para "
                 + "comparar categorias (até " + MontadorDeCardDePesquisa.MAX_BARRAS + "). "
-                + "No clima o servidor escolhe.");
-        MontadorDeCardDePesquisa.TIPOS_GRAFICO.forEach(tipo.putArray("enum")::add);
+                + "No clima e no custo o servidor escolhe.");
+        TIPOS_DA_PLANILHA.forEach(tipo.putArray("enum")::add);
 
         campos.putObject("arquivoId").put("type", "string")
                 .put("description", "Fonte planilha: o id do XLSX ou CSV, vindo de listar_arquivos.");
@@ -169,6 +193,7 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
         return switch (fonte) {
             case CLIMA_7_DIAS -> doClima(entrada, progresso);
             case PLANILHA -> daPlanilha(entrada, progresso);
+            case CUSTO_30_DIAS -> doCusto(entrada, progresso);
             default -> throw new IllegalArgumentException(
                     "fonte deve ser uma de " + FONTES + ", não '" + fonte + "'");
         };
@@ -281,6 +306,123 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
         return new DadosDoCard.Grafico.Destaque(0, indice);
     }
 
+    // ---------------------------------------------------------------- custo
+
+    /**
+     * O gasto do mês em barras empilhadas por origem.
+     *
+     * Trinta pontos não cabem nas doze categorias da barra empilhada, então os dias são somados em
+     * blocos de cinco — seis barras, com o mês inteiro à vista. Bloco sem nenhum dia registrado sai
+     * do eixo pela mesma razão que o {@code serieDiaria} omite o dia: zero ali desenharia "não
+     * gastei nada" onde a verdade é "eu estava desligado".
+     *
+     * O modelo não escolhe o tipo nem a divisão: o total do mês é a pergunta errada ("gastei US$
+     * 1,20" não diz o que mexer), e é a composição por origem que responde.
+     */
+    private ResultadoFerramenta doCusto(JsonNode entrada, OuvinteProgresso progresso) {
+        LocalDate hoje = LocalDate.now(props.zona());
+        LocalDate inicio = hoje.minusDays(DIAS_DO_CUSTO - 1L);
+        int quantosBlocos = DIAS_DO_CUSTO / DIAS_POR_BLOCO;
+
+        List<Map<Origem, Double>> baldes = new ArrayList<>(quantosBlocos);
+        for (int b = 0; b < quantosBlocos; b++) {
+            baldes.add(new EnumMap<>(Origem.class));
+        }
+        for (MedidorDeCusto.DiaDeCusto dia : medidor.serieDiaria(DIAS_DO_CUSTO)) {
+            long desdeOInicio = ChronoUnit.DAYS.between(inicio, dia.dia());
+            if (desdeOInicio < 0 || desdeOInicio >= DIAS_DO_CUSTO) {
+                continue;
+            }
+            Map<Origem, Double> balde = baldes.get((int) (desdeOInicio / DIAS_POR_BLOCO));
+            dia.porOrigem().forEach((origem, custo) -> balde.merge(origem, custo, Double::sum));
+        }
+
+        List<String> eixoX = new ArrayList<>(quantosBlocos);
+        List<Map<Origem, Double>> comGasto = new ArrayList<>(quantosBlocos);
+        Map<Origem, Double> doPeriodo = new EnumMap<>(Origem.class);
+        for (int b = 0; b < quantosBlocos; b++) {
+            Map<Origem, Double> balde = baldes.get(b);
+            if (balde.isEmpty()) {
+                continue;
+            }
+            LocalDate comeco = inicio.plusDays((long) b * DIAS_POR_BLOCO);
+            eixoX.add(comeco.format(DIA) + "-"
+                    + comeco.plusDays(DIAS_POR_BLOCO - 1L).format(DIA_E_MES));
+            comGasto.add(balde);
+            balde.forEach((origem, custo) -> doPeriodo.merge(origem, custo, Double::sum));
+        }
+        if (eixoX.isEmpty()) {
+            return ResultadoFerramenta.texto("Não há gasto registrado nos últimos "
+                    + DIAS_DO_CUSTO + " dias. Responda sem prometer card.");
+        }
+
+        List<Origem> maiores = doPeriodo.entrySet().stream()
+                .sorted(Map.Entry.<Origem, Double>comparingByValue().reversed())
+                .map(Map.Entry::getKey)
+                .toList();
+        CardTela card = MontadorDeCardDeDados.montar(
+                Json.texto(entrada.path("titulo")).trim(),
+                ou(entrada, "categoria", "custo"),
+                ou(entrada, "tema", "últimos " + DIAS_DO_CUSTO + " dias, por origem"),
+                Json.texto(entrada.path("resumo")).trim(),
+                MontadorDeCardDePesquisa.BARRAS_EMPILHADAS, eixoX, partes(comGasto, maiores),
+                "US$", null, origem(progresso), agora());
+        return ResultadoFerramenta.comCard("Card na tela (id " + card.id() + "). "
+                + resumoDoCusto(doPeriodo, maiores.getFirst())
+                + " Diga só uma frase curta; os números já estão à vista.", card);
+    }
+
+    /**
+     * Uma parte da barra por origem, com as menores somadas em "outras" quando passam de quatro.
+     *
+     * Quem corta é o Java: deixar o modelo escolher qual origem desaparece seria deixá-lo escolher
+     * o que o dono não vê.
+     */
+    private static List<DadosDoCard.Grafico.Serie> partes(List<Map<Origem, Double>> blocos,
+            List<Origem> maiores) {
+        int teto = MontadorDeCardDePesquisa.MAX_PARTES_EMPILHADAS;
+        boolean juntarOResto = maiores.size() > teto;
+        List<Origem> proprias = juntarOResto ? maiores.subList(0, teto - 1) : maiores;
+
+        List<DadosDoCard.Grafico.Serie> series = new ArrayList<>(proprias.size() + 1);
+        for (Origem origem : proprias) {
+            List<Double> valores = new ArrayList<>(blocos.size());
+            for (Map<Origem, Double> balde : blocos) {
+                valores.add(arredondado(balde.getOrDefault(origem, 0.0)));
+            }
+            series.add(new DadosDoCard.Grafico.Serie(origem.chave(), valores));
+        }
+        if (juntarOResto) {
+            List<Double> outras = new ArrayList<>(blocos.size());
+            for (Map<Origem, Double> balde : blocos) {
+                double soma = 0;
+                for (Map.Entry<Origem, Double> item : balde.entrySet()) {
+                    if (!proprias.contains(item.getKey())) {
+                        soma += item.getValue();
+                    }
+                }
+                outras.add(arredondado(soma));
+            }
+            series.add(new DadosDoCard.Grafico.Serie("outras", outras));
+        }
+        return series;
+    }
+
+    /** Quatro casas: o custo é da ordem de centavos, e o lixo de ponto flutuante viraria rótulo. */
+    private static double arredondado(double valor) {
+        return Math.round(valor * 10_000d) / 10_000d;
+    }
+
+    /** A frase do custo, escrita em Java pelo mesmo motivo do {@link #resumoDoClima}. */
+    private static String resumoDoCusto(Map<Origem, Double> doPeriodo, Origem maior) {
+        double total = 0;
+        for (double custo : doPeriodo.values()) {
+            total += custo;
+        }
+        return String.format(BR, "US$ %.2f nos últimos %d dias, a maior parte em %s (US$ %.2f).",
+                total, DIAS_DO_CUSTO, maior.chave(), doPeriodo.get(maior));
+    }
+
     // ------------------------------------------------------------- planilha
 
     /**
@@ -298,7 +440,7 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
                     "falta o 'arquivoId'; pegue o id em listar_arquivos");
         }
         String tipo = Json.texto(entrada.path("tipo")).trim();
-        if (!MontadorDeCardDePesquisa.TIPOS_GRAFICO.contains(tipo)) {
+        if (!TIPOS_DA_PLANILHA.contains(tipo)) {
             throw new IllegalArgumentException("mande 'tipo' linha ou barras, não '" + tipo + "'");
         }
         int colunaRotulos = coluna(Json.texto(entrada.path("colunaRotulos")).trim(), "colunaRotulos");
@@ -326,12 +468,10 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
                     "linhaInicial e linhaFinal têm de ser linhas válidas, com a final não menor que a inicial");
         }
         int pontos = linhaFinal - linhaInicial + 1;
-        int maximo = "linha".equals(tipo) ? MontadorDeCardDePesquisa.MAX_PONTOS_LINHA
-                : MontadorDeCardDePesquisa.MAX_BARRAS;
-        if (pontos > maximo) {
-            throw new IllegalArgumentException("gráfico de " + tipo + " cabe " + maximo
-                    + (("linha".equals(tipo)) ? " pontos" : " categorias") + "; o intervalo pedido tem "
-                    + pontos + " linhas");
+        MontadorDeCardDePesquisa.LimiteDoEixo limite = MontadorDeCardDePesquisa.limiteDoEixo(tipo);
+        if (pontos > limite.maximo()) {
+            throw new IllegalArgumentException("gráfico de " + tipo + " cabe " + limite.maximo()
+                    + " " + limite.substantivo() + "; o intervalo pedido tem " + pontos + " linhas");
         }
         int linhaCabecalho = (int) Json.numero(entrada.path("linhaCabecalho"));
 

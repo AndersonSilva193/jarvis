@@ -100,8 +100,9 @@ guardado sem os blocos de pensamento.
 
 Cinco ferramentas abrem e comandam janelas na HUD: `mostrar_na_tela` (card de pesquisa com
 ranking, ficha, lista, linha do tempo, destaque ou gráfico — este último é o único sem `itens`:
-o conteúdo vai no campo irmão `dados.grafico`, linha ou barras, e só com número pesquisado, porque
-`origem: "servidor"` é marcada pelo Java), `grafico_de_dados` (o gráfico de número da casa),
+o conteúdo vai no campo irmão `dados.grafico`, em um dos quatro desenhos, e só com número
+pesquisado, porque `origem: "servidor"` é marcada pelo Java), `grafico_de_dados` (o gráfico de
+número da casa),
 `tocar_youtube`, `abrir_pagina` e
 `controlar_tela` (as 20 ações de `ComandoTela.ACOES`). Valem para pedido vindo da HUD **e** do
 Telegram — "mostra na tela o vídeo X" pelo celular abre o card do mesmo jeito, e é o
@@ -149,14 +150,58 @@ de sete pontos não parece engano, parece tendência. Então no `grafico_de_dado
 `eixoX`, `series`, `valores` nem `origem` — o modelo escolhe a fonte, o tipo de desenho e escreve a
 conclusão no título, e não tem onde escrever um número. O `MontadorDeCardDePesquisa` recusa
 `origem: "servidor"` vindo do JSON do modelo; quem a marca é o `MontadorDeCardDeDados`, que valida
-listas montadas em Java contra os mesmos limites da HUD (24 pontos na linha, 12 barras, 3 séries) e
-não cobra fonte nem referência — o dado é da casa e o `consultadoEm` é o relógio do servidor. Até a
+listas montadas em Java contra os mesmos limites da HUD e não cobra fonte nem referência — o dado é da casa e o `consultadoEm` é o relógio do servidor. Até a
 frase que volta ao modelo (`"Máxima de 28 °C e mínima de 12 °C na semana."`) é montada em Java, para
 nem a fala depender de ele ter lido certo um número que não viu.
 
 **Fonte nova toca dois lugares**: uma entrada em `GraficoDeDadosFerramenta.FONTES` e um `case` no
-`executarDetalhado`. Hoje são `clima_7_dias` e `planilha`; `custo_30_dias` entra com
-`MedidorDeCusto.serieDiaria(30)`.
+`executarDetalhado`. Hoje são `clima_7_dias`, `planilha` e `custo_30_dias`.
+
+### Os quatro desenhos, e o que cada um proíbe
+
+| `tipo` | Eixo | Séries | Para |
+|---|---|---|---|
+| `linha` | 2 a 24 pontos | até 3 | o que anda no tempo |
+| `barras` | 1 a 12 categorias | até 3 | comparar categorias |
+| `barras_empilhadas` | 1 a 12 categorias | até 4 partes | de que cada período é feito |
+| `rosca` | 2 a 6 fatias | **uma** | de que o todo é feito agora |
+
+As três regras por tipo moram em **um** lugar — `MontadorDeCardDePesquisa.limiteDoEixo`,
+`maxSeries` e `conferirRegrasDoTipo` —, e os dois montadores mais o `grafico_de_dados` as
+consultam. Antes eram quatro cópias de `"linha".equals(tipo) ? ... : ...` em três arquivos, e é
+exatamente o lugar onde a validação do JSON do modelo e a das listas do Java iam divergir.
+
+Quem empilha **não aceita valor negativo**: segmentos de sinais trocados não compartilham a base, e
+o tamanho que o olho mede deixa de ser o total. A rosca ainda exige **soma maior que zero** — sem
+total não há fatia. Barra empilhada somando zero, ao contrário, passa: é um período legítimo sem
+movimento. E o teto do campo `tipo` no JSON do modelo é 20, não 10: com 10, `barras_empilhadas`
+(17 caracteres) receberia "acima de 10 caracteres" em vez da lista de tipos, que é a única frase
+que ajuda o modelo a se corrigir.
+
+A `rosca` **não ganhou campo**: ela é o mesmo `eixoX` + `series` do resto, com os rótulos das
+fatias no eixo e uma série só. Campo novo mudaria o contrato JSON e os construtores de todos os
+testes de tela para não dizer nada que o par já não diga.
+
+*(A HUD ainda desenha só `linha` e `barras` — `grafico-hud.modelo.ts:desenhar()` e o tipo `Grafico`
+em `nucleo/tela.modelos.ts`. Até ela acompanhar, a rosca aparece como linha e a empilhada como
+barras lado a lado, o que subestima o total na vista; o JSON já está certo.)*
+
+### `custo_30_dias`: seis barras de cinco dias
+
+`MedidorDeCusto.serieDiaria(30)` dá até 30 pontos e a barra empilhada cabe 12, então o Java soma os
+dias em blocos de cinco — seis barras, rótulo `19-23/10`, o mês inteiro à vista. Bloco sem nenhum
+dia registrado **sai do eixo**, pela mesma regra do `serieDiaria`: zero ali desenharia "não gastei
+nada" onde a verdade é "eu estava desligado"; mês sem gasto nenhum responde em texto, sem card.
+
+Para isso o `DiaDeCusto` ganhou `porOrigem` — o dado já existia por dia no `EstadoDoDia` e no JSON
+do volume `custo`, e era a série que o descartava. São seis origens e quatro partes, então as
+origens vão ordenadas pelo total: até quatro entram uma a uma, e acima disso ficam as três maiores
+mais `outras`, que é a soma do resto. **Quem corta é o Java** — deixar o modelo escolher qual
+origem desaparece seria deixá-lo escolher o que o dono não vê. O `tipo` não entra no schema desta
+fonte: o total do mês é a pergunta errada ("gastei US$ 1,20" não diz o que mexer), e é a composição
+por origem que responde. Por isso o campo `tipo` do schema anuncia só `linha` e `barras`
+(`TIPOS_DA_PLANILHA`): rosca e empilhada pedem dado de composição, que uma coluna qualquer de um
+XLSX não é.
 
 O `clima_7_dias` abre **dois cards**, e é de propósito: `DadosDoCard.Grafico` tem um `tipo` e uma
 `unidade` só, então temperatura (°C, linha, máxima e mínima) e chance de chuva (%, barras) não

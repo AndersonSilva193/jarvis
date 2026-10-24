@@ -267,8 +267,10 @@ public class MedidorDeCusto {
                 cacheEscrito += uso.cacheEscrito;
                 cacheLido += uso.cacheLido;
             }
+            Map<Origem, Double> porOrigem = new LinkedHashMap<>();
+            estado.porOrigem().forEach((origem, uso) -> porOrigem.put(origem, uso.custoUsd));
             serie.add(new DiaDeCusto(estado.dia(), estado.totalUsd(), entrada, saida, cacheEscrito,
-                    cacheLido, estado.buscasWeb(), !estado.semPreco().isEmpty()));
+                    cacheLido, estado.buscasWeb(), !estado.semPreco().isEmpty(), porOrigem));
         }
         return serie;
     }
@@ -457,9 +459,21 @@ public class MedidorDeCusto {
 
     // ---------------------------------------------------------------- retratos públicos
 
-    /** Um ponto da série que o gráfico de custo desenha. */
+    /**
+     * Um ponto da série que o gráfico de custo desenha.
+     *
+     * @param porOrigem o custo do dia dividido por origem, que é o que a barra empilhada mostra.
+     *                  Só as origens com gasto aparecem; dia lido de um arquivo antigo, sem o
+     *                  bloco, vem com o mapa vazio e o {@code totalUsd} ainda certo.
+     */
     public record DiaDeCusto(LocalDate dia, double totalUsd, long tokensEntrada, long tokensSaida,
-            long cacheEscrito, long cacheLido, long buscasWeb, boolean custoIncompleto) { }
+            long cacheEscrito, long cacheLido, long buscasWeb, boolean custoIncompleto,
+            Map<Origem, Double> porOrigem) {
+
+        public DiaDeCusto {
+            porOrigem = porOrigem == null ? Map.of() : Map.copyOf(porOrigem);
+        }
+    }
 
     /**
      * O gasto de um intervalo, já dividido.

@@ -150,6 +150,22 @@ class MedidorDeCustoDiaTest {
     }
 
     @Test
+    @DisplayName("a série traz o custo do dia dividido por origem, que é o que a barra empilha")
+    void serieTrazOCustoPorOrigem() {
+        var medidor = subir(new RelogioFalso("2026-10-22T15:00:00Z"));
+        medidor.registrar(Origem.CONVERSA, "modelo-a", 2_000_000, 0, 0, 0, 0);
+        medidor.registrar(Origem.CLASSIFICADOR, "modelo-a", 1_000_000, 0, 0, 0, 0);
+        medidor.aguardar();
+
+        var dia = medidor.serieDiaria(7).getLast();
+
+        assertEquals(2.0, dia.porOrigem().get(Origem.CONVERSA), 1e-9);
+        assertEquals(1.0, dia.porOrigem().get(Origem.CLASSIFICADOR), 1e-9);
+        assertEquals(3.0, dia.totalUsd(), 1e-9, "as partes somam o total do dia");
+        assertFalse(dia.porOrigem().containsKey(Origem.BRIEFING), "origem sem gasto não entra");
+    }
+
+    @Test
     @DisplayName("arquivo do dia corrompido cai no .bak em vez de perder a conta")
     void corrompidoCaiNoBak() throws IOException {
         var relogio = new RelogioFalso("2026-10-22T15:00:00Z");

@@ -114,9 +114,9 @@ class MontadorDeCardDeDadosTest {
                 .getMessage().contains("no máximo 3 séries"));
 
         assertTrue(assertThrows(IllegalArgumentException.class,
-                () -> MontadorDeCardDeDados.grafico("rosca", List.of("seg", "ter"),
+                () -> MontadorDeCardDeDados.grafico("pizza", List.of("seg", "ter"),
                         List.of(serie("n", 1, 2)), "", null))
-                .getMessage().contains("linha ou barras"));
+                .getMessage().contains("pizza"));
 
         assertTrue(assertThrows(IllegalArgumentException.class,
                 () -> MontadorDeCardDeDados.grafico("linha", List.of("seg", "ter"),
@@ -135,6 +135,99 @@ class MontadorDeCardDeDadosTest {
                 () -> MontadorDeCardDeDados.grafico("linha", List.of("seg", "ter"),
                         List.of(serie("n", 1, 2)), "", new DadosDoCard.Grafico.Destaque(0, 5)))
                 .getMessage().contains("ponto 5 não existe"));
+    }
+
+    @Test
+    @DisplayName("barras empilhadas: até 12 períodos e 4 partes, nunca com valor negativo")
+    void barrasEmpilhadas() {
+        assertEquals(4, MontadorDeCardDeDados.grafico("barras_empilhadas", List.of("a", "b"),
+                List.of(serie("p1", 1, 2), serie("p2", 1, 2), serie("p3", 1, 2),
+                        serie("p4", 1, 2)), "US$", null)
+                .series().size());
+
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("barras_empilhadas", List.of("a", "b"),
+                        List.of(serie("p1", 1, 2), serie("p2", 1, 2), serie("p3", 1, 2),
+                                serie("p4", 1, 2), serie("p5", 1, 2)), "", null))
+                .getMessage().contains("no máximo 4 séries"));
+
+        assertEquals(12, MontadorDeCardDeDados.grafico("barras_empilhadas", doze(),
+                List.of(new DadosDoCard.Grafico.Serie("p", umDoze())), "", null).eixoX().size());
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("barras_empilhadas", treze(),
+                        List.of(new DadosDoCard.Grafico.Serie("p", umTreze())), "", null))
+                .getMessage().contains("1 a 12 categorias"));
+
+        // Um segmento negativo não compartilha a base com os outros: o total que o olho mede
+        // deixa de ser o total. Somar zero, ao contrário, é um período legítimo sem movimento.
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("barras_empilhadas", List.of("a", "b"),
+                        List.of(serie("p1", 1, -2)), "", null))
+                .getMessage().contains("negativo"));
+        assertEquals(1, MontadorDeCardDeDados.grafico("barras_empilhadas", List.of("a", "b"),
+                List.of(serie("p1", 0, 0)), "", null).series().size());
+    }
+
+    @Test
+    @DisplayName("rosca: 2 a 6 fatias, uma série só, valores não negativos e soma acima de zero")
+    void rosca() {
+        DadosDoCard.Grafico g = MontadorDeCardDeDados.grafico("rosca",
+                List.of("conversa", "briefing"), List.of(serie("gasto", 0.8, 0.2)), "US$", null);
+        assertEquals("rosca", g.tipo());
+        assertEquals("servidor", g.origem());
+
+        assertEquals(6, MontadorDeCardDeDados.grafico("rosca",
+                List.of("a", "b", "c", "d", "e", "f"), List.of(serie("n", 1, 1, 1, 1, 1, 1)),
+                "", null).eixoX().size());
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("rosca", List.of("a", "b", "c", "d", "e", "f", "g"),
+                        List.of(serie("n", 1, 1, 1, 1, 1, 1, 1)), "", null))
+                .getMessage().contains("2 a 6 fatias"));
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("rosca", List.of("a"),
+                        List.of(serie("n", 1)), "", null)).getMessage().contains("2 a 6 fatias"));
+
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("rosca", List.of("a", "b"),
+                        List.of(serie("n", 1, 2), serie("outra", 3, 4)), "", null))
+                .getMessage().contains("uma série só"));
+
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("rosca", List.of("a", "b"),
+                        List.of(serie("n", 1, -1)), "", null)).getMessage().contains("negativo"));
+        // Sem total não há fatia, e um anel vazio não é desenhável.
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> MontadorDeCardDeDados.grafico("rosca", List.of("a", "b"),
+                        List.of(serie("n", 0, 0)), "", null))
+                .getMessage().contains("soma maior que zero"));
+    }
+
+    private static List<String> doze() {
+        List<String> rotulos = new ArrayList<>(12);
+        for (int i = 1; i <= 12; i++) {
+            rotulos.add("m" + i);
+        }
+        return rotulos;
+    }
+
+    private static List<String> treze() {
+        List<String> rotulos = doze();
+        rotulos.add("m13");
+        return rotulos;
+    }
+
+    private static List<Double> umDoze() {
+        List<Double> valores = new ArrayList<>(12);
+        for (int i = 1; i <= 12; i++) {
+            valores.add((double) i);
+        }
+        return valores;
+    }
+
+    private static List<Double> umTreze() {
+        List<Double> valores = umDoze();
+        valores.add(13.0);
+        return valores;
     }
 
     @Test

@@ -4,10 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +21,8 @@ import dev.jarvis.briefing.fontes.ClimaService;
 import dev.jarvis.briefing.fontes.ClimaService.PrevisaoDia;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.custo.MedidorDeCusto;
+import dev.jarvis.custo.Origem;
 import dev.jarvis.tela.CardTela;
 import dev.jarvis.tela.DadosDoCard;
 import dev.jarvis.tela.PresencaDaHud;
@@ -66,13 +73,13 @@ class GraficoDeDadosFerramentaTest {
                 return dias;
             }
         };
-        return new GraficoDeDadosFerramenta(hud, JSON, PROPS, clima, null);
+        return new GraficoDeDadosFerramenta(hud, JSON, PROPS, clima, null, null);
     }
 
     /** A ferramenta com a leitura do PC trocada por um JSON fixo, no formato do agente. */
     private static GraficoDeDadosFerramenta comPlanilha(ConsultaArquivosPc.Resposta resposta) {
         ClimaService clima = new ClimaService(null, JSON, PROPS);
-        return new GraficoDeDadosFerramenta(() -> 1, JSON, PROPS, clima, null) {
+        return new GraficoDeDadosFerramenta(() -> 1, JSON, PROPS, clima, null, null) {
             @Override
             protected ConsultaArquivosPc.Resposta lerPlanilha(ObjectNode pedido,
                     OuvinteProgresso progresso) {
@@ -143,7 +150,7 @@ class GraficoDeDadosFerramentaTest {
                     public List<PrevisaoDia> previsaoDias(int quantos) {
                         throw new AssertionError("não devia consultar o clima sem tela aberta");
                     }
-                }, null).executarDetalhado(entradaDeClima(), DO_TELEGRAM);
+                }, null, null).executarDetalhado(entradaDeClima(), DO_TELEGRAM);
 
         assertEquals(FerramentaDeTela.SEM_TELA, resultado.texto());
         assertTrue(resultado.cards().isEmpty(),
@@ -319,7 +326,7 @@ class GraficoDeDadosFerramentaTest {
         entrada.put("linhaFinal", 20);
 
         GraficoDeDadosFerramenta ferramenta = new GraficoDeDadosFerramenta(() -> 1, JSON, PROPS,
-                new ClimaService(null, JSON, PROPS), null) {
+                new ClimaService(null, JSON, PROPS), null, null) {
             @Override
             protected ConsultaArquivosPc.Resposta lerPlanilha(ObjectNode pedido,
                     OuvinteProgresso progresso) {
@@ -354,6 +361,135 @@ class GraficoDeDadosFerramentaTest {
         assertTrue(assertThrows(IllegalArgumentException.class,
                 () -> ferramenta.executarDetalhado(colunaEstranha, DO_TELEGRAM))
                 .getMessage().contains("letra da coluna"));
+    }
+
+    // ---------------------------------------------------------------- custo
+
+    private static ObjectNode entradaDeCusto() {
+        ObjectNode entrada = JSON.createObjectNode();
+        entrada.put("fonte", "custo_30_dias");
+        entrada.put("titulo", "O classificador é metade da conta");
+        entrada.put("resumo", "O gasto do mês vem quase todo da conversa.");
+        return entrada;
+    }
+
+    /** Um dia da série, com o total somado das origens — é assim que o medidor o monta. */
+    private static MedidorDeCusto.DiaDeCusto diaDeCusto(LocalDate dia, Map<Origem, Double> custos) {
+        double total = 0;
+        for (double custo : custos.values()) {
+            total += custo;
+        }
+        return new MedidorDeCusto.DiaDeCusto(dia, total, 0, 0, 0, 0, 0, false, custos);
+    }
+
+    private static GraficoDeDadosFerramenta comCusto(List<MedidorDeCusto.DiaDeCusto> dias) {
+        MedidorDeCusto medidor = mock(MedidorDeCusto.class);
+        when(medidor.serieDiaria(GraficoDeDadosFerramenta.DIAS_DO_CUSTO)).thenReturn(dias);
+        return new GraficoDeDadosFerramenta(() -> 1, JSON, PROPS,
+                new ClimaService(null, JSON, PROPS), null, medidor);
+    }
+
+    private static LocalDate hoje() {
+        return LocalDate.now(PROPS.zona());
+    }
+
+    @Test
+    @DisplayName("30 dias viram 6 barras de 5 dias, empilhadas por origem e marcadas 'servidor'")
+    void custoViraSeisBarras() throws Exception {
+        List<MedidorDeCusto.DiaDeCusto> dias = new ArrayList<>(30);
+        for (int i = 0; i < 30; i++) {
+            dias.add(diaDeCusto(hoje().minusDays(29L - i), Map.of(Origem.CONVERSA, 0.01)));
+        }
+
+        ResultadoFerramenta resultado =
+                comCusto(dias).executarDetalhado(entradaDeCusto(), DO_TELEGRAM);
+
+        DadosDoCard.Grafico g = grafico(resultado.cards().getFirst());
+        assertEquals("barras_empilhadas", g.tipo());
+        assertEquals("servidor", g.origem());
+        assertEquals("US$", g.unidade());
+        assertEquals(6, g.eixoX().size(), "trinta pontos não cabem nas doze da barra empilhada");
+        assertEquals(1, g.series().size());
+        assertEquals("conversa", g.series().getFirst().nome());
+        for (double valor : g.series().getFirst().valores()) {
+            assertEquals(0.05d, valor, 1e-9, "cinco dias de um centavo por barra");
+        }
+        // A última barra termina hoje: é assim que o eixo diz de quando é a conta.
+        assertTrue(g.eixoX().getLast().endsWith(
+                hoje().format(DateTimeFormatter.ofPattern("dd/MM"))), g.eixoX().toString());
+        assertTrue(resultado.texto().contains("US$ 0,30"), resultado.texto());
+        assertTrue(resultado.texto().contains("conversa"), resultado.texto());
+    }
+
+    @Test
+    @DisplayName("mais de quatro origens: as três maiores e o resto somado em 'outras'")
+    void origensDemaisViramOutras() throws Exception {
+        Map<Origem, Double> custos = new EnumMap<>(Origem.class);
+        custos.put(Origem.CONVERSA, 1.0);
+        custos.put(Origem.COMPUTER_USE, 0.5);
+        custos.put(Origem.BRIEFING, 0.25);
+        custos.put(Origem.ANOTADOR, 0.1);
+        custos.put(Origem.CLASSIFICADOR, 0.05);
+        custos.put(Origem.INICIALIZACAO, 0.01);
+
+        DadosDoCard.Grafico g = grafico(comCusto(List.of(diaDeCusto(hoje(), custos)))
+                .executarDetalhado(entradaDeCusto(), DO_TELEGRAM).cards().getFirst());
+
+        assertEquals(List.of("conversa", "computer_use", "briefing", "outras"),
+                g.series().stream().map(DadosDoCard.Grafico.Serie::nome).toList());
+        assertEquals(0.16d, g.series().getLast().valores().getFirst(), 1e-9,
+                "'outras' é a soma das menores, não um descarte");
+    }
+
+    @Test
+    @DisplayName("quatro origens cabem uma a uma, sem 'outras'")
+    void quatroOrigensNaoViramOutras() throws Exception {
+        Map<Origem, Double> custos = new EnumMap<>(Origem.class);
+        custos.put(Origem.CONVERSA, 1.0);
+        custos.put(Origem.BRIEFING, 0.5);
+        custos.put(Origem.ANOTADOR, 0.25);
+        custos.put(Origem.CLASSIFICADOR, 0.1);
+
+        DadosDoCard.Grafico g = grafico(comCusto(List.of(diaDeCusto(hoje(), custos)))
+                .executarDetalhado(entradaDeCusto(), DO_TELEGRAM).cards().getFirst());
+
+        assertEquals(4, g.series().size());
+        assertFalse(g.series().stream().anyMatch(s -> "outras".equals(s.nome())));
+    }
+
+    @Test
+    @DisplayName("bloco sem dia registrado sai do eixo: zero ali diria 'não gastei'")
+    void blocoSemDiaSaiDoEixo() throws Exception {
+        List<MedidorDeCusto.DiaDeCusto> dias = List.of(
+                diaDeCusto(hoje().minusDays(29), Map.of(Origem.CONVERSA, 0.2)),
+                diaDeCusto(hoje(), Map.of(Origem.CONVERSA, 0.3)));
+
+        DadosDoCard.Grafico g = grafico(comCusto(dias)
+                .executarDetalhado(entradaDeCusto(), DO_TELEGRAM).cards().getFirst());
+
+        assertEquals(2, g.eixoX().size(), "os quatro blocos do meio não tiveram movimento");
+        assertEquals(List.of(0.2d, 0.3d), g.series().getFirst().valores());
+    }
+
+    @Test
+    @DisplayName("mês sem gasto nenhum responde em texto, sem prometer card")
+    void custoSemGastoNaoAbreCard() throws Exception {
+        ResultadoFerramenta resultado =
+                comCusto(List.of()).executarDetalhado(entradaDeCusto(), DO_TELEGRAM);
+
+        assertTrue(resultado.cards().isEmpty());
+        assertTrue(resultado.texto().contains("Não há gasto registrado"), resultado.texto());
+    }
+
+    @Test
+    @DisplayName("o campo 'tipo' do schema é só da planilha: rosca e empilhada não entram por lá")
+    void schemaDoTipoEhSoDaPlanilha() {
+        JsonNode campos = com(() -> 1, semana()).esquemaEntrada().path("properties");
+
+        ArrayNode tipos = (ArrayNode) campos.path("tipo").path("enum");
+        assertEquals(List.of("linha", "barras"),
+                tipos.valueStream().map(JsonNode::stringValue).toList());
+        assertTrue(campos.path("fonte").path("enum").toString().contains("custo_30_dias"));
     }
 
     @Test

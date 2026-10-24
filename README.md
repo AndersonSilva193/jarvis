@@ -265,6 +265,7 @@ jeito.
 | "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
 | "mostra a previsão da semana num gráfico" | `grafico_de_dados` |
 | "faz um gráfico da coluna de vendas daquela planilha" | `grafico_de_dados` |
+| "mostra num gráfico o meu gasto do mês" | `grafico_de_dados` |
 | "põe um lo-fi para estudar" | `tocar_youtube` |
 | "abre essa página na tela" | `abrir_pagina` |
 | "fecha aquele card" / "limpa a tela" | `controlar_tela` |
@@ -275,7 +276,10 @@ tela de casa.
 
 Cinco tipos de card: `pesquisa` (ranking, ficha, lista, linha do tempo, destaque ou **gráfico**),
 `video`, `musica`, `pagina` e `noticia`. O layout `grafico` é o único sem `itens`: o conteúdo vai
-em `dados.grafico`, com `eixoX`, até três `series`, a `unidade` e o desenho em `linha` ou `barras`.
+em `dados.grafico`, com `eixoX`, as `series`, a `unidade` e o desenho em `linha` (2 a 24 pontos),
+`barras` (até 12 categorias), `barras_empilhadas` (até 12 períodos e 4 partes) ou `rosca` (2 a 6
+fatias e uma série só). Os dois últimos não aceitam valor negativo, e a soma da rosca tem de ser
+maior que zero: segmento de sinal trocado não compartilha a base, e anel sem total não tem fatia.
 Dois eventos no SSE:
 
 | Evento | Carga |
@@ -317,7 +321,7 @@ tem campo onde um valor caiba — não é uma regra de conduta, é a forma do sc
 mais convincente de errar: um número trocado numa série de sete pontos não parece engano, parece
 tendência.
 
-Duas fontes hoje:
+Três fontes hoje:
 
 - **`clima_7_dias`** — máxima, mínima e chance de chuva da semana à frente, numa só consulta à
   Open-Meteo. Abre **dois cards**, porque um gráfico tem uma unidade só: temperatura em linha (°C) e
@@ -329,6 +333,13 @@ Duas fontes hoje:
   `listar_arquivos`. Uma linha vira um ponto, e o nome de cada série sai do cabeçalho da própria
   planilha. Célula que não é número **derruba o gráfico** dizendo qual é ("célula B3 ('sem dados')
   não é número"): texto virando zero seria uma barra zerada que você leria como "vendeu nada".
+
+- **`custo_30_dias`** — o que o Jarvis gastou no mês, em barras empilhadas por origem. Trinta dias
+  não cabem nas doze categorias da empilhada, então os dias vão somados em **blocos de cinco**: seis
+  barras, rótulo `19-23/10`. Bloco sem nenhum dia registrado sai do eixo — zero ali desenharia "não
+  gastei nada" onde a verdade é "eu estava desligado". São seis origens e quatro partes, então as
+  três maiores vão uma a uma e o resto é somado em `outras`; quem corta é o Java, porque deixar o
+  Jarvis escolher qual origem desaparece seria deixá-lo escolher o que você não vê.
 
 A única coisa que o Jarvis escreve num gráfico de planilha, além do título, é a unidade — a planilha
 não declara se a coluna está em reais ou em quilos, então ele copia o símbolo do cabeçalho. No clima
