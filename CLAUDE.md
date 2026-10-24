@@ -98,10 +98,11 @@ guardado sem os blocos de pensamento.
 
 ## A tela dirigida pelo Jarvis
 
-Quatro ferramentas abrem e comandam janelas na HUD: `mostrar_na_tela` (card de pesquisa com
+Cinco ferramentas abrem e comandam janelas na HUD: `mostrar_na_tela` (card de pesquisa com
 ranking, ficha, lista, linha do tempo, destaque ou gráfico — este último é o único sem `itens`:
 o conteúdo vai no campo irmão `dados.grafico`, linha ou barras, e só com número pesquisado, porque
-`origem: "servidor"` é marcada pelo Java), `tocar_youtube`, `abrir_pagina` e
+`origem: "servidor"` é marcada pelo Java), `grafico_de_dados` (o gráfico de número da casa),
+`tocar_youtube`, `abrir_pagina` e
 `controlar_tela` (as 20 ações de `ComandoTela.ACOES`). Valem para pedido vindo da HUD **e** do
 Telegram — "mostra na tela o vídeo X" pelo celular abre o card do mesmo jeito, e é o
 `CardTela.origem` que registra de onde veio.
@@ -133,6 +134,55 @@ prompt embora.
 O id da janela é do servidor (`CardTela.novoId()`: `c` mais quatro caracteres sorteados). Não é
 sequencial de propósito — o container reinicia com a HUD aberta, e um contador voltaria a `c1`
 colidindo com janela que ainda está na tela.
+
+### Gráfico: quem escolhe e quem preenche
+
+O layout `grafico` tem duas entradas, e a diferença entre elas é de onde vêm os números:
+
+| Ferramenta | Números | `grafico.origem` | Exige |
+|---|---|---|---|
+| `mostrar_na_tela` com `layout: "grafico"` | o modelo digita, de uma pesquisa | `pesquisa` | ao menos uma fonte e a `referencia` |
+| `grafico_de_dados` | o Java preenche, da fonte escolhida | `servidor` | nada além do título e do resumo |
+
+A separação existe porque gráfico é a forma mais convincente de errar: um valor trocado numa série
+de sete pontos não parece engano, parece tendência. Então no `grafico_de_dados` o **schema não tem**
+`eixoX`, `series`, `valores` nem `origem` — o modelo escolhe a fonte, o tipo de desenho e escreve a
+conclusão no título, e não tem onde escrever um número. O `MontadorDeCardDePesquisa` recusa
+`origem: "servidor"` vindo do JSON do modelo; quem a marca é o `MontadorDeCardDeDados`, que valida
+listas montadas em Java contra os mesmos limites da HUD (24 pontos na linha, 12 barras, 3 séries) e
+não cobra fonte nem referência — o dado é da casa e o `consultadoEm` é o relógio do servidor. Até a
+frase que volta ao modelo (`"Máxima de 28 °C e mínima de 12 °C na semana."`) é montada em Java, para
+nem a fala depender de ele ter lido certo um número que não viu.
+
+**Fonte nova toca dois lugares**: uma entrada em `GraficoDeDadosFerramenta.FONTES` e um `case` no
+`executarDetalhado`. Hoje são `clima_7_dias` e `planilha`; `custo_30_dias` entra com
+`MedidorDeCusto.serieDiaria(30)`.
+
+O `clima_7_dias` abre **dois cards**, e é de propósito: `DadosDoCard.Grafico` tem um `tipo` e uma
+`unidade` só, então temperatura (°C, linha, máxima e mínima) e chance de chuva (%, barras) não
+cabem no mesmo card sem compartilhar escala — 30% na escala de 22 °C é exatamente o gráfico que
+mente. Jogar a chuva na fala e deixar só a temperatura na tela tiraria de vista o número que decide
+levar guarda-chuva. Não há encanamento novo: `ResultadoFerramenta.cards()` já é lista e o
+`Ferramentas.publicarNaTela` já a percorre. A chuva só vira card quando **todos** os dias trouxeram
+a chance, e um dia sem temperatura corta a série ali — `Grafico.Serie` exige `Double.isFinite`, e
+linha com buraco não é representável. Os sete dias vêm de `ClimaService.previsaoDias(7)`, **uma**
+chamada à Open-Meteo, com cache no mesmo mapa por data do `previsao(LocalDate)`: os dois caminhos
+guardam a mesma coisa, um dia de previsão, e se aproveitam um do outro.
+
+A fonte `planilha` lê pelo `ler_arquivo` do agente, sem ação nova de `ComandoPc` — ele já devolve
+`celulas[]` com endereço, tipo e valor por aba e intervalo. O modelo manda o id do catálogo, a aba,
+a letra da coluna de rótulos e até três de valores; o Java converte cada célula e **recusa o
+gráfico inteiro** nomeando o endereço quando uma delas não é número ("célula B3 ('sem dados') não é
+número"). Texto ou célula vazia virando zero desenharia um ponto no chão, que é uma afirmação que
+ninguém fez. Intervalo maior do que o gráfico aceita é recusado **antes** de falar com o PC. A
+leitura cobre a linha de cabeçalho junto com os dados, numa ida só, e é de lá que sai o nome de cada
+série. Para isso o `ConsultaArquivosPc` ganhou `consultar(...)`, que devolve o `JsonNode` do agente;
+o `executar(...)` continua a casca que serializa para o modelo, e as duas ferramentas de consulta não
+mudaram.
+
+A `unidade` é a única exceção ao "nada de texto do modelo" na fonte `planilha`: a planilha não
+declara em que unidade está, então o modelo copia o símbolo do cabeçalho. É rótulo, não número — no
+`clima_7_dias` o Java sabe a unidade e ignora o campo.
 
 ## O PC Windows pelo Telegram
 
