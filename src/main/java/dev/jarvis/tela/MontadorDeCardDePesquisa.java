@@ -30,7 +30,7 @@ public final class MontadorDeCardDePesquisa {
     static final int MAX_RESUMO = 600;
     public static final int MAX_FONTES = 4;
     static final int MAX_REFERENCIA = 40;
-    static final int MAX_CATEGORIA = 60;
+    public static final int MAX_CATEGORIA = 60;
     static final int MAX_URL = 2048;
 
     /** O layout que não tem itens: o conteúdo todo vai no objeto 'grafico'. */
@@ -45,13 +45,15 @@ public final class MontadorDeCardDePesquisa {
 
     public static final int MAX_SERIES = 3;
     /** Dois pontos é o mínimo para existir uma linha; 24 é um dia de hora em hora. */
-    static final int MIN_PONTOS_LINHA = 2;
+    public static final int MIN_PONTOS_LINHA = 2;
     public static final int MAX_PONTOS_LINHA = 24;
     /** Doze barras é um ano mês a mês; acima disso a tela vira um pente. */
     public static final int MAX_BARRAS = 12;
-    static final int MAX_ROTULO_EIXO = 24;
-    static final int MAX_NOME_SERIE = 40;
-    static final int MAX_UNIDADE = 10;
+    // Públicos porque o gráfico do servidor é conferido contra os mesmos limites da HUD, e o
+    // schema das duas ferramentas anuncia os mesmos números ao modelo.
+    public static final int MAX_ROTULO_EIXO = 24;
+    public static final int MAX_NOME_SERIE = 40;
+    public static final int MAX_UNIDADE = 10;
 
     /** As origens possíveis de um gráfico; o modelo só pode pedir a primeira. */
     static final String DE_PESQUISA = "pesquisa";

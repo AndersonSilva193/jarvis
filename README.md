@@ -263,6 +263,8 @@ jeito.
 | Você pede | Ferramenta usada |
 |---|---|
 | "mostra na tela a tabela do Brasileirão" | `mostrar_na_tela` |
+| "mostra a previsão da semana num gráfico" | `grafico_de_dados` |
+| "faz um gráfico da coluna de vendas daquela planilha" | `grafico_de_dados` |
 | "põe um lo-fi para estudar" | `tocar_youtube` |
 | "abre essa página na tela" | `abrir_pagina` |
 | "fecha aquele card" / "limpa a tela" | `controlar_tela` |
@@ -271,8 +273,10 @@ A HUD é dirigida pelo Jarvis: ele abre cards e comanda os que já estão aberto
 feito na própria HUD **e** no Telegram — "mostra na tela o vídeo X" pelo celular abre a janela na
 tela de casa.
 
-Cinco tipos de card: `pesquisa` (ranking, ficha, lista, linha do tempo ou destaque), `video`,
-`musica`, `pagina` e `noticia`. Dois eventos no SSE:
+Cinco tipos de card: `pesquisa` (ranking, ficha, lista, linha do tempo, destaque ou **gráfico**),
+`video`, `musica`, `pagina` e `noticia`. O layout `grafico` é o único sem `itens`: o conteúdo vai
+em `dados.grafico`, com `eixoX`, até três `series`, a `unidade` e o desenho em `linha` ou `barras`.
+Dois eventos no SSE:
 
 | Evento | Carga |
 |---|---|
@@ -301,6 +305,34 @@ modelo e não publicam nada — nem pelo Telegram.
 
 A fala, nesses casos, é curta de propósito ("Aqui está, senhor.", "Tela limpa."): o card já mostra
 os dados, e repetir em voz alta o que está na tela é ruído. Essa regra vive no `Canal.HUD`.
+
+#### Gráficos: os números não passam pelo modelo
+
+Todo gráfico diz de onde vieram seus números, no campo `dados.grafico.origem`. Num gráfico de
+pesquisa (`mostrar_na_tela` com `layout: "grafico"`) ele vale `pesquisa`, o Jarvis teve de informar
+a fonte e a data, e os valores foram digitados por ele a partir do que leu na web. Num gráfico de
+`grafico_de_dados` ele vale `servidor`: aí o Jarvis escolheu só **qual** gráfico quer e escreveu a
+conclusão no título, enquanto eixo, valores e unidade foram preenchidos pelo Java. A ferramenta não
+tem campo onde um valor caiba — não é uma regra de conduta, é a forma do schema. Gráfico é a maneira
+mais convincente de errar: um número trocado numa série de sete pontos não parece engano, parece
+tendência.
+
+Duas fontes hoje:
+
+- **`clima_7_dias`** — máxima, mínima e chance de chuva da semana à frente, numa só consulta à
+  Open-Meteo. Abre **dois cards**, porque um gráfico tem uma unidade só: temperatura em linha (°C) e
+  chance de chuva em barras (%). 30% desenhado na mesma escala de 22 °C seria um gráfico que mente,
+  e deixar a chuva só na fala tiraria da tela justamente o número que decide levar guarda-chuva. Dia
+  que a previsão ainda não tem encerra a série; sem a chance de chuva em todos os dias, vai só o
+  card de temperatura.
+- **`planilha`** — até três colunas de um XLSX ou CSV da pasta do Jarvis, pelo id de
+  `listar_arquivos`. Uma linha vira um ponto, e o nome de cada série sai do cabeçalho da própria
+  planilha. Célula que não é número **derruba o gráfico** dizendo qual é ("célula B3 ('sem dados')
+  não é número"): texto virando zero seria uma barra zerada que você leria como "vendeu nada".
+
+A única coisa que o Jarvis escreve num gráfico de planilha, além do título, é a unidade — a planilha
+não declara se a coluna está em reais ou em quilos, então ele copia o símbolo do cabeçalho. No clima
+nem isso: a unidade é do servidor.
 
 O estado aceita também `resposta` e todas as janelas minimizadas, sem o antigo teto de 24. A HUD
 envia primeiro o foco e a mídia em reprodução; o contexto continua limitado a 12 linhas. `limpar`

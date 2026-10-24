@@ -6,7 +6,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * O que as quatro ferramentas de tela têm em comum: a guarda de "tem HUD aberta?" e o jeito de
+ * O que as cinco ferramentas de tela têm em comum: a guarda de "tem HUD aberta?" e o jeito de
  * descobrir de onde veio o pedido.
  *
  * Nenhuma delas faz sentido sem tela: abrir um card para ninguém gastaria uma ida de ferramenta

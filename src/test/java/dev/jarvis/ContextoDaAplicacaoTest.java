@@ -135,7 +135,8 @@ class ContextoDaAplicacaoTest {
         String nomes = ferramentas.definicoes().toString();
 
         for (String nome : new String[] {
-                "mostrar_na_tela", "tocar_youtube", "abrir_pagina", "controlar_tela" }) {
+                "mostrar_na_tela", "tocar_youtube", "abrir_pagina", "controlar_tela",
+                "grafico_de_dados" }) {
             assertTrue(nomes.contains(nome), "ferramenta '" + nome + "' não foi registrada");
         }
     }

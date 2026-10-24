@@ -12,14 +12,32 @@ import tools.jackson.databind.JsonNode;
 /** Chamada comum às duas consultas de arquivos, preservando o timeout da fila. */
 final class ConsultaArquivosPc {
     private ConsultaArquivosPc() { }
+
+    /**
+     * O que voltou do PC: ou o JSON do agente, ou a frase que explica a falta.
+     *
+     * As duas ferramentas de consulta repassam o JSON cru ao modelo, mas o gráfico de planilha
+     * precisa ler as células em Java — e {@code dados().toString()} não serve para isso.
+     */
+    record Resposta(JsonNode dados, String recado) {
+        boolean temDados() { return dados != null; }
+    }
+
     static String executar(PcService pc, String acao, JsonNode entrada) throws Exception {
         return executar(pc, acao, entrada, new OuvinteProgresso() { });
     }
+
     static String executar(PcService pc, String acao, JsonNode entrada,
             OuvinteProgresso progresso) throws Exception {
-        if (!pc.online()) return "O PC está offline; os arquivos originais locais estão indisponíveis.";
+        Resposta resposta = consultar(pc, acao, entrada, progresso);
+        return resposta.temDados() ? resposta.dados().toString() : resposta.recado();
+    }
+
+    static Resposta consultar(PcService pc, String acao, JsonNode entrada,
+            OuvinteProgresso progresso) throws Exception {
+        if (!pc.online()) return falta("O PC está offline; os arquivos originais locais estão indisponíveis.");
         if (entrada == null || !entrada.isObject() || entrada.toString().length() > 2000)
-            return "Parâmetros de consulta inválidos.";
+            return falta("Parâmetros de consulta inválidos.");
         ComandoPc comando = new ComandoPc(UUID.randomUUID().toString(), acao, "",
                 Instant.now().toString(), entrada.deepCopy());
         ResultadoPc resultado;
@@ -28,20 +46,24 @@ final class ConsultaArquivosPc {
         catch (java.util.concurrent.TimeoutException e) {
             if (pc.estadoE2(comando.id()).isPresent()) {
                 pc.pedirAviso(comando.id());
-                return "Consulta em andamento no PC: " + comando.id()
-                        + ". Consulte status_operacao_pc; o resultado será avisado.";
+                return falta("Consulta em andamento no PC: " + comando.id()
+                        + ". Consulte status_operacao_pc; o resultado será avisado.");
             }
-            pc.cancelar(comando.id()); return "O PC não respondeu à consulta a tempo.";
+            pc.cancelar(comando.id()); return falta("O PC não respondeu à consulta a tempo.");
         } catch (java.util.concurrent.ExecutionException e) {
             pc.cancelar(comando.id());
-            return "A conexão com o PC falhou; os arquivos originais locais estão indisponíveis.";
+            return falta("A conexão com o PC falhou; os arquivos originais locais estão indisponíveis.");
         } catch (InterruptedException e) {
             if (pc.estadoE2(comando.id()).isPresent()) pc.pedirAviso(comando.id());
             else pc.cancelar(comando.id());
             Thread.currentThread().interrupt(); throw e;
         }
-        if (!resultado.ok()) return "Consulta de arquivos: " + resultado.mensagem();
-        if (resultado.dados() == null) return "O PC não devolveu dados estruturados.";
-        return resultado.dados().toString();
+        if (!resultado.ok()) return falta("Consulta de arquivos: " + resultado.mensagem());
+        if (resultado.dados() == null) return falta("O PC não devolveu dados estruturados.");
+        return new Resposta(resultado.dados(), "");
+    }
+
+    private static Resposta falta(String recado) {
+        return new Resposta(null, recado);
     }
 }

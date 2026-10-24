@@ -12,6 +12,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -131,6 +133,51 @@ public class ClimaService {
     }
 
     /**
+     * A previsão de vários dias seguidos, a partir de hoje, numa chamada só à Open-Meteo.
+     *
+     * É o que o gráfico de 7 dias precisa: pedir dia a dia seriam sete requisições para desenhar
+     * uma linha. O cache é o mesmo mapa por data do {@link #previsao(LocalDate)} — se o dono já
+     * perguntou o clima de amanhã há pouco, aquele dia não é buscado de novo, e o que vem desta
+     * chamada serve às perguntas de um dia só pela hora seguinte. Os dois caminhos se aproveitam
+     * um do outro justamente por guardarem a mesma coisa: um dia de previsão.
+     *
+     * Sem {@code synchronized}, como o {@code previsao}: quem protege é o {@code ConcurrentHashMap}.
+     * Duas chamadas ao mesmo tempo podem repetir a busca, e isso é mais barato que serializar o
+     * clima inteiro atrás de uma requisição de 15 s.
+     */
+    public List<PrevisaoDia> previsaoDias(int dias) throws IOException, InterruptedException {
+        if (dias < 1) {
+            throw new IllegalArgumentException("pedido de previsão precisa de ao menos um dia");
+        }
+        LocalDate hoje = LocalDate.now(zona);
+        LocalDate fim = hoje.plusDays(dias - 1L);
+        validarJanela(fim, hoje);
+        cachePrevisao.keySet().removeIf(d -> d.isBefore(hoje));
+
+        List<PrevisaoDia> doCache = new ArrayList<>(dias);
+        Instant agora = Instant.now();
+        for (int i = 0; i < dias; i++) {
+            CachePrevisao guardado = cachePrevisao.get(hoje.plusDays(i));
+            if (guardado == null
+                    || Duration.between(guardado.quando(), agora).compareTo(VALIDADE_PREVISAO) >= 0) {
+                doCache = null;
+                break;
+            }
+            doCache.add(guardado.dados());
+        }
+        if (doCache != null) {
+            return List.copyOf(doCache);
+        }
+
+        List<PrevisaoDia> previsoes = buscarPrevisoes(hoje, fim);
+        Instant quando = Instant.now();
+        for (PrevisaoDia previsao : previsoes) {
+            cachePrevisao.put(previsao.data(), new CachePrevisao(previsao, quando));
+        }
+        return previsoes;
+    }
+
+    /**
      * Recusa data fora do que a API cobre, antes de gastar uma chamada. A mensagem vai para o modelo,
      * então é em português e já diz qual é a janela possível.
      */
@@ -148,18 +195,28 @@ public class ClimaService {
     }
 
     private PrevisaoDia buscarPrevisao(LocalDate data) throws IOException, InterruptedException {
-        String url = URL_BASE
+        JsonNode raiz = chamar(urlDiaria(data, data));
+        log.info("Previsão de {} para {} atualizada na Open-Meteo", config.cidade(), data);
+        return interpretarPrevisao(raiz, config.cidade(), data);
+    }
+
+    private List<PrevisaoDia> buscarPrevisoes(LocalDate de, LocalDate ate)
+            throws IOException, InterruptedException {
+        JsonNode raiz = chamar(urlDiaria(de, ate));
+        log.info("Previsão de {} de {} a {} atualizada na Open-Meteo", config.cidade(), de, ate);
+        return interpretarPrevisoes(raiz, config.cidade());
+    }
+
+    /** A URL do bloco diário. Um dia só é o intervalo com as duas pontas iguais. */
+    private String urlDiaria(LocalDate de, LocalDate ate) {
+        return URL_BASE
                 + "?latitude=" + config.latitude()
                 + "&longitude=" + config.longitude()
                 // No bloco daily o vento é wind_speed_10m_max; wind_speed_10m só existe em current.
                 + "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
                 + "precipitation_probability_max,wind_speed_10m_max"
                 + "&timezone=" + URLEncoder.encode(timezone, StandardCharsets.UTF_8)
-                + "&start_date=" + data + "&end_date=" + data;
-
-        JsonNode raiz = chamar(url);
-        log.info("Previsão de {} para {} atualizada na Open-Meteo", config.cidade(), data);
-        return interpretarPrevisao(raiz, config.cidade(), data);
+                + "&start_date=" + de + "&end_date=" + ate;
     }
 
     private ClimaHoje buscar() throws IOException, InterruptedException {
@@ -231,20 +288,54 @@ public class ClimaService {
      * é "ainda não sei", não uma resposta malformada.
      */
     static PrevisaoDia interpretarPrevisao(JsonNode raiz, String cidade, LocalDate data) throws IOException {
+        return emIndice(exigirDiario(raiz), cidade, data, 0);
+    }
+
+    /**
+     * Converte a resposta de um intervalo, um dia por posição do bloco {@code daily}.
+     *
+     * A data de cada dia vem do próprio {@code daily.time}, não de uma contagem a partir de hoje:
+     * é a API que diz a que dia cada número pertence, e um gráfico com os rótulos deslocados em um
+     * dia seria errado sem parecer errado.
+     */
+    static List<PrevisaoDia> interpretarPrevisoes(JsonNode raiz, String cidade) throws IOException {
+        JsonNode diario = exigirDiario(raiz);
+        JsonNode datas = diario.path("time");
+        List<PrevisaoDia> previsoes = new ArrayList<>(datas.size());
+        for (int i = 0; i < datas.size(); i++) {
+            String dia = Json.texto(datas.get(i));
+            LocalDate data;
+            try {
+                data = LocalDate.parse(dia);
+            } catch (java.time.format.DateTimeParseException e) {
+                throw new IOException("resposta inesperada da Open-Meteo: daily.time[" + i
+                        + "] não é uma data ('" + dia + "')");
+            }
+            previsoes.add(emIndice(diario, cidade, data, i));
+        }
+        return List.copyOf(previsoes);
+    }
+
+    private static JsonNode exigirDiario(JsonNode raiz) throws IOException {
         JsonNode diario = raiz.path("daily");
         if (diario.isMissingNode() || diario.path("time").isEmpty()) {
             throw new IOException("resposta inesperada da Open-Meteo: falta o bloco daily");
         }
-        Double codigo = numeroOuNulo(diario.path("weather_code").path(0));
-        Double chance = numeroOuNulo(diario.path("precipitation_probability_max").path(0));
+        return diario;
+    }
+
+    /** Um dia do bloco diário. Campo ausente vira null, como manda o javadoc de PrevisaoDia. */
+    private static PrevisaoDia emIndice(JsonNode diario, String cidade, LocalDate data, int i) {
+        Double codigo = numeroOuNulo(diario.path("weather_code").path(i));
+        Double chance = numeroOuNulo(diario.path("precipitation_probability_max").path(i));
 
         return new PrevisaoDia(
                 data,
                 cidade,
-                numeroOuNulo(diario.path("temperature_2m_min").path(0)),
-                numeroOuNulo(diario.path("temperature_2m_max").path(0)),
+                numeroOuNulo(diario.path("temperature_2m_min").path(i)),
+                numeroOuNulo(diario.path("temperature_2m_max").path(i)),
                 chance == null ? null : (int) Math.round(chance),
-                numeroOuNulo(diario.path("wind_speed_10m_max").path(0)),
+                numeroOuNulo(diario.path("wind_speed_10m_max").path(i)),
                 codigo == null ? "" : descrever((int) codigo.doubleValue()));
     }
 

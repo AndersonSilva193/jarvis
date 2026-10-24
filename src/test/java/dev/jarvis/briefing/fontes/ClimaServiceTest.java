@@ -118,6 +118,39 @@ class ClimaServiceTest {
     }
 
     @Test
+    @DisplayName("lê os sete dias do intervalo, cada um com a data que a própria API informou")
+    void interpretaIntervaloDeDias() throws Exception {
+        var dias = ClimaService.interpretarPrevisoes(arquivo("/clima-previsao-7-dias.json"), "Curitiba");
+
+        assertEquals(7, dias.size());
+        // A data sai do daily.time, não de uma contagem a partir de hoje: rótulo deslocado em um
+        // dia desenharia um gráfico errado sem parecer errado.
+        assertEquals(LocalDate.of(2026, 10, 23), dias.getFirst().data());
+        assertEquals(LocalDate.of(2026, 10, 29), dias.getLast().data());
+        assertEquals("Curitiba", dias.getFirst().cidade());
+        assertEquals(21.5, dias.getFirst().maxima(), 0.001);
+        assertEquals(12.1, dias.getFirst().minima(), 0.001);
+        assertEquals(10, dias.getFirst().chanceChuvaPct());
+        assertEquals("nublado", dias.getFirst().descricao());
+        assertEquals(28.0, dias.get(4).maxima(), 0.001);
+        assertEquals("trovoada", dias.getLast().descricao());
+        for (PrevisaoDia dia : dias) {
+            assertTrue(dia.completa(), "faltou temperatura em " + dia.data());
+        }
+    }
+
+    @Test
+    @DisplayName("intervalo sem o bloco daily é erro, igual ao caminho de um dia")
+    void intervaloSemDaily() throws Exception {
+        var semDaily = (tools.jackson.databind.node.ObjectNode) arquivo("/clima-previsao-7-dias.json");
+        semDaily.remove("daily");
+
+        IOException erro = assertThrows(IOException.class,
+                () -> ClimaService.interpretarPrevisoes(semDaily, "Curitiba"));
+        assertTrue(erro.getMessage().contains("daily"), erro.getMessage());
+    }
+
+    @Test
     @DisplayName("janela aceita hoje e 15 dias à frente, recusa ontem e datas distantes")
     void validaJanelaDePrevisao() {
         LocalDate hoje = LocalDate.of(2026, 10, 13);

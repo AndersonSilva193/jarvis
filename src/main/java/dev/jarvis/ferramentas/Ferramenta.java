@@ -46,6 +46,7 @@ public interface Ferramenta {
             case "tocar_youtube" -> "procurando no YouTube";
             case "abrir_pagina" -> "preparando a página";
             case "mostrar_na_tela" -> "montando o card";
+            case "grafico_de_dados" -> "montando o gráfico";
             case "controlar_tela" -> "ajustando a tela";
             case "controlar_pc" -> "falando com o PC";
             default -> "executando " + nome().replace('_', ' ');
