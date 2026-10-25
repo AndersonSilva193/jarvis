@@ -36,8 +36,8 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 
 | Pacote | Responsabilidade |
 |---|---|
-| `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (loop + filtro de usuário) |
-| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
+| `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (leitura + filtro de usuário numa thread, fila e um trabalhador na outra) |
+| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
@@ -621,12 +621,29 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
   `/data/voz`; e o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias. Todos
   usam a troca atômica do `ArquivoAtomico`.
-- O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC e as confirmações
-  pendentes são **em memória**: depois de um restart o Jarvis fica cego para a tela até a HUD
-  repostar o estado, e qualquer confirmação pendente se perde.
+- O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC, a fila de mensagens do
+  Telegram e as confirmações pendentes são **em memória**: depois de um restart o Jarvis fica cego
+  para a tela até a HUD repostar o estado, qualquer confirmação pendente se perde e o que estava
+  esperando a vez na fila do Telegram morre com o processo.
 - No Telegram só entende texto (nada de áudio ou foto). Na HUD, quem transcreve e sintetiza é o
   navegador — ou a ElevenLabs, quando `VOZ_PROVEDOR=elevenlabs`.
 - Atende **uma execução por vez**: `Assistente.responder` segura um `ReentrantLock` **justo**
   (`new ReentrantLock(true)`) pelo turno inteiro, e conversas, tarefas e limpeza passam pelo mesmo
   lock. O retrato público do histórico usa um bloqueio curto separado, que nunca é mantido durante
   I/O do modelo.
+
+  **Mas ler não espera mais atender.** No `TelegramPoller` são duas threads: a de leitura só faz
+  `getUpdates`, confere o usuário e enfileira; quem fala com o `Assistente` é um trabalhador só
+  (`LinkedBlockingQueue`, FIFO), então a ordem e o "um pedido por vez" continuam valendo. Mensagem
+  que chega durante um pedido entra na fila e a **primeira** da rajada recebe "Recebi. Respondo
+  assim que terminar o pedido anterior.".
+
+  Uma frase curta de parada — `PedidoDeParada`: até 3 palavras, uma raiz (`para`, `pare`, `parar`,
+  `cancela`, `cancelar`, `espera`, `espere`, `deixa`) e nada além de enfeite conhecido — **não entra
+  na fila**: ela marca o pedido em andamento (`Assistente.interromperPedidoAtual`) e cancela a
+  tarefa de computer use do mesmo usuário, que roda fora do lock. O `executarLoop` confere a marca
+  no começo de cada passo e antes de cada ferramenta, e encerra o turno com "Parei, senhor." sem
+  executar mais nada; como no turno com erro, esse turno **não** entra no histórico, não vai ao
+  disco e não chega ao anotador. Sem nada em andamento, `interromperPedidoAtual` devolve `false` e a
+  mensagem segue o caminho normal — "para" pode ser a resposta a uma aprovação pendente, e quem
+  decide isso é o `ClassificadorDeResposta`.

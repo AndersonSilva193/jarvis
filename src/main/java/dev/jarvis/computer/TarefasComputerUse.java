@@ -144,6 +144,19 @@ public class TarefasComputerUse {
         if (t.executora != null) t.executora.interrupt();
         return true;
     }
+    /** Há tarefa de tela deste usuário rodando agora. */
+    public boolean emAndamentoDe(long usuario) {
+        return tarefas.values().stream().anyMatch(t -> t.usuario == usuario && !finalizada(t.estado));
+    }
+    /**
+     * Cancela a tarefa de tela em andamento deste usuário, se houver. É o que o "para" do Telegram
+     * alcança: a tarefa roda fora do lock da conversa, então sem isso ela seguiria clicando.
+     */
+    public boolean cancelarUltima(long usuario) {
+        return tarefas.values().stream().filter(t -> t.usuario == usuario && !finalizada(t.estado))
+                .max(java.util.Comparator.comparing(t -> t.inicio))
+                .map(t -> cancelar(t.id, usuario)).orElse(false);
+    }
     @Scheduled(fixedRate = 600_000)
     public void limparEncerradas() {
         Instant limite = Instant.now().minus(Duration.ofHours(1));

@@ -57,6 +57,8 @@ public class Assistente {
      * do disco na partida: o arquivo pode ter sido gravado por uma versão que lembrava mais.
      */
     private static final int MAX_TURNOS_HISTORICO = 10;
+    /** A resposta de um turno cortado pelo usuário. Curta de propósito: ele pediu para parar. */
+    private static final String PAREI = "Parei, senhor.";
 
     private static final Logger log = LoggerFactory.getLogger(Assistente.class);
 
@@ -75,6 +77,48 @@ public class Assistente {
     /** O recado de que o {@code esquecer_memoria} aprovado apagou algo fora deste turno. */
     private final EsquecimentosDeMemoria esquecimentos;
     private final ReentrantLock execucao = new ReentrantLock(true);
+    /**
+     * O pedido que está sendo atendido agora, ou nulo. Serve a duas perguntas de quem está na borda
+     * de entrada: "tem pedido em andamento?" e "marque-o como interrompido". Um campo basta porque
+     * o {@code execucao} já garante um pedido por vez.
+     */
+    private final java.util.concurrent.atomic.AtomicReference<EmAndamento> emAndamento =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
+    private record EmAndamento(long chatId, long usuario,
+            java.util.concurrent.atomic.AtomicBoolean parado) { }
+
+    /**
+     * O corte do turno. Sem pilha nem mensagem supressa: ela não é um erro, é o usuário pedindo
+     * para parar, e nunca sai desta classe.
+     */
+    private static final class PedidoInterrompido extends RuntimeException {
+        PedidoInterrompido() {
+            super(PAREI, null, false, false);
+        }
+    }
+
+    /** Há pedido sendo atendido agora. */
+    public boolean ocupado() {
+        return emAndamento.get() != null;
+    }
+
+    /**
+     * Marca o pedido em andamento como interrompido: o {@code executarLoop} o encerra no próximo
+     * passo, sem executar mais nenhuma ferramenta.
+     *
+     * <p>Devolve {@code false} quando não há nada a interromper — e é esse {@code false} que faz a
+     * borda de entrada tratar "para" como mensagem comum, que pode ser a resposta a uma aprovação
+     * pendente. Usuário autenticado diferente do dono do pedido também não interrompe nada.
+     */
+    public boolean interromperPedidoAtual(long usuario) {
+        EmAndamento atual = emAndamento.get();
+        if (atual == null) return false;
+        if (usuario > 0 && atual.usuario() > 0 && atual.usuario() != usuario) return false;
+        atual.parado().set(true);
+        log.info("Pedido interrompido a pedido do usuário (chat {})", atual.chatId());
+        return true;
+    }
 
     /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
     private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
@@ -210,6 +254,9 @@ public class Assistente {
         };
         String id = progresso.idPedido() == null ? UUID.randomUUID().toString() : progresso.idPedido();
         execucao.lockInterruptibly();
+        EmAndamento marca = new EmAndamento(chatId, progresso.usuarioAutenticado(),
+                new java.util.concurrent.atomic.AtomicBoolean());
+        emAndamento.set(marca);
         try {
             if (canal == Canal.HUD && progresso.idPedido() != null && !conversas.pendente(chatId, id))
                 throw new IllegalStateException("Pedido encerrado pela limpeza do histórico");
@@ -223,6 +270,7 @@ public class Assistente {
 
             List<ResultadoFerramenta> resultados = new ArrayList<>();
             String resposta;
+            boolean interrompido = false;
             var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id);
             // Só quando o texto não é um código nem uma frase fixa é que vale classificar: a
             // pergunta pendente é a única coisa que a mensagem pode estar respondendo, e sem
@@ -290,7 +338,13 @@ public class Assistente {
                     @Override public String idMemoriaEsquecida() { return progresso.idMemoriaEsquecida(); }
                     @Override public long revisaoMemoriaEsquecida() { return progresso.revisaoMemoriaEsquecida(); }
                 };
-                resposta = executarLoop(historico, turno, canal, comAnexo, resultados);
+                try {
+                    resposta = executarLoop(historico, turno, canal, comAnexo, resultados,
+                            marca.parado()::get);
+                } catch (PedidoInterrompido e) {
+                    resposta = PAREI;
+                    interrompido = true;
+                }
             }
             List<Anexo> publicados = new ArrayList<>();
             Confirmacao confirmacao = null;
@@ -316,7 +370,9 @@ public class Assistente {
             // fica intacta, então ele nunca chega ao histórico do modelo nem ao prefixo de cache.
             // `fala` guarda a resposta sem o aviso — ele é para ler na tela, não para ouvir.
             String fala = null;
-            if (anotador != null && !progresso.memoriaEsquecida()) {
+            // Turno cortado não drena o aviso: ele fica na fila para a resposta seguinte, em vez de
+            // sair pendurado numa frase de duas palavras.
+            if (anotador != null && !progresso.memoriaEsquecida() && !interrompido) {
                 String aviso = anotador.drenarAviso(chatId);
                 if (!aviso.isEmpty()) {
                     fala = resposta;
@@ -340,6 +396,11 @@ public class Assistente {
                 historicos.remove(chatId);
                 arquivo.apagar(chatId);
                 conversas.concluirSemHistorico(chatId, publica);
+            } else if (interrompido) {
+                // Mesma regra do turno com erro: nada pela metade no histórico. O pedido público é
+                // encerrado para a HUD não ficar esperando, mas o turno não entra no Deque, não vai
+                // ao disco e não chega ao anotador.
+                conversas.concluirSemHistorico(chatId, publica);
             } else {
                 historico.addLast(semPensamentos(turno));
                 while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
@@ -354,7 +415,7 @@ public class Assistente {
                 }
             }
             return publica;
-        } finally { execucao.unlock(); }
+        } finally { emAndamento.compareAndSet(marca, null); execucao.unlock(); }
     }
 
     static String ultimoAnexoDeArquivo(RegistroConversas.Historico historico, Canal canal, Instant agora) {
@@ -408,11 +469,19 @@ public class Assistente {
     /** Tarefa de planilha com autorização já registrada pelo servidor. */
     public String executarTarefa(String instrucao, Canal canal, OuvinteProgresso contexto) throws Exception {
         execucao.lockInterruptibly();
+        // A tarefa avulsa também publica a marca: senão o "tem pedido em andamento?" da borda de
+        // entrada mentiria justamente durante o pedido mais longo.
+        EmAndamento marca = new EmAndamento(0, contexto.usuarioAutenticado(),
+                new java.util.concurrent.atomic.AtomicBoolean());
+        emAndamento.set(marca);
         try {
             List<ObjectNode> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(instrucao));
-            return executarLoop(new ArrayDeque<>(), turno, canal, contexto, new ArrayList<>());
-        } finally { execucao.unlock(); }
+            return executarLoop(new ArrayDeque<>(), turno, canal, contexto, new ArrayList<>(),
+                    marca.parado()::get);
+        } catch (PedidoInterrompido e) {
+            return PAREI;
+        } finally { emAndamento.compareAndSet(marca, null); execucao.unlock(); }
     }
 
     public void limparHistorico(long chatId) {
@@ -425,7 +494,8 @@ public class Assistente {
     }
 
     private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno, Canal canal,
-            OuvinteProgresso progresso, List<ResultadoFerramenta> detalhados)
+            OuvinteProgresso progresso, List<ResultadoFerramenta> detalhados,
+            java.util.function.BooleanSupplier parado)
             throws Exception {
         // Montado UMA vez por pedido, de propósito. O bloco dinâmico tem a hora: remontá-lo a cada
         // ida e vinda de ferramenta mudaria o system no meio do turno, e o modelo rejeita (HTTP 400)
@@ -454,6 +524,9 @@ public class Assistente {
         String ultimoResultadoUtil = "";
 
         for (int passo = 0; passo < MAX_PASSOS; passo++) {
+            // A conferência de cada passo: o usuário pediu para parar, e o passo que vem custaria
+            // mais uma chamada paga ao modelo para um turno que não vai ser usado.
+            if (parado.getAsBoolean()) throw new PedidoInterrompido();
             ArrayNode mensagens = json.createArrayNode();
             for (List<ObjectNode> turnoAnterior : historico) {
                 for (ObjectNode m : turnoAnterior) {
@@ -571,6 +644,9 @@ public class Assistente {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }
                     };
+                    // A parada vale também dentro do passo que já voltou com tool_use: o que o
+                    // usuário mandou parar é a ferramenta, não a chamada ao modelo.
+                    if (parado.getAsBoolean()) throw new PedidoInterrompido();
                     int anteriores = detalhados.size();
                     ObjectNode resultado = ferramentas.executar(bloco, seguro, detalhados::add);
                     if ("editar_arquivo".equals(nomeFerramenta)) {
