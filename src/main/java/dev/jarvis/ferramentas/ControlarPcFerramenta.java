@@ -192,7 +192,9 @@ public class ControlarPcFerramenta implements Ferramenta {
         if (ComandoPc.perigosa(acao)) {
             try {
                 String pergunta = "Vou " + acao + " o PC em 60 segundos. Posso?";
-                var confirmacao = aprovacoes.pedir("pc", acao + " o PC",
+                // Tipo próprio, e não o "pc" genérico de apagar_arquivo: é por ele que o diário
+                // de ações distingue "desliguei o PC" de "apaguei um arquivo" sem farejar texto.
+                var confirmacao = aprovacoes.pedir(Aprovacoes.TIPO_PC_ENERGIA, acao + " o PC",
                         pergunta, Aprovacoes.Risco.CRITICO,
                         progresso.usuarioAutenticado(), progresso.idPedido(), () -> {
                             if (!pc.online()) return "PC offline; ação não iniciada.";

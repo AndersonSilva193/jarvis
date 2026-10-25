@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.UnaryOperator;
 import org.springframework.stereotype.Service;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.ferramentas.ResultadoFerramenta;
 import dev.jarvis.telegram.TelegramClient;
 import dev.jarvis.util.Json;
@@ -24,13 +26,21 @@ public class FluxoEdicaoPc {
     private final ArquivosPcService arquivos;
     private final TelegramClient telegram;
     private final JsonMapper json;
+    /** Pode ser nulo: os testes antigos montam este serviço sem o diário. */
+    private final DiarioDeAcoes diario;
     private record UltimaEdicao(String editId, String comandoId) { }
     private final ConcurrentHashMap<Long, UltimaEdicao> ultimasEdicoes = new ConcurrentHashMap<>();
 
     public FluxoEdicaoPc(OperacoesPcService operacoes, ArquivosPcService arquivos,
             TelegramClient telegram, JsonMapper json) {
+        this(operacoes, arquivos, telegram, json, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FluxoEdicaoPc(OperacoesPcService operacoes, ArquivosPcService arquivos,
+            TelegramClient telegram, JsonMapper json, DiarioDeAcoes diario) {
         this.operacoes = operacoes; this.arquivos = arquivos;
-        this.telegram = telegram; this.json = json;
+        this.telegram = telegram; this.json = json; this.diario = diario;
     }
 
     public ResultadoPc preparar(String acao, JsonNode dados, OuvinteProgresso contexto) throws Exception {
@@ -78,6 +88,10 @@ public class FluxoEdicaoPc {
         if (!resultado.ok())
             return ResultadoFerramenta.texto("Não apliquei: " + resultado.mensagem());
         String nome = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
+        // Daqui para baixo o arquivo já mudou no disco do PC, e os três retornos abaixo só diferem
+        // na entrega do anexo. É aqui, então, que a ação entra no diário — uma vez, e com o nome
+        // que o agente devolveu, nunca o que o modelo escreveu.
+        anotarNoDiario(acao, nome, contexto);
         if (!resultado.arquivo()) return ResultadoFerramenta.texto(sucesso.apply(nome)
                 + " Salvo, mas a entrega do arquivo falhou.");
         var arquivo = arquivos.obter(comando.id());
@@ -91,6 +105,21 @@ public class FluxoEdicaoPc {
         return new ResultadoFerramenta(sucesso.apply(nome) + aviso,
                 List.of(new ResultadoFerramenta.Artefato(arquivo.get(), nome, mime(nome))),
                 List.of(), null, List.of(), List.of());
+    }
+
+    /**
+     * Anota a edição no diário de ações: ela é feita <b>sem perguntar</b> (o agente guarda backup
+     * protegido de cada versão), então o registro é o único jeito de o dono saber depois.
+     *
+     * A cópia entra como edição também — ela cria um arquivo no PC do dono do mesmo jeito.
+     */
+    private void anotarNoDiario(String acao, String nome, OuvinteProgresso contexto) {
+        if (diario == null) return;
+        TipoDeAcao tipo = "aplicar_desfazer".equals(acao)
+                ? TipoDeAcao.DESFAZER_EDICAO : TipoDeAcao.EDICAO_ARQUIVO;
+        String descricao = tipo == TipoDeAcao.DESFAZER_EDICAO
+                ? "voltei " + nome + " para a versão anterior" : "editei " + nome;
+        diario.registrarDoCanal(tipo, descricao, contexto.canal());
     }
 
     public Optional<String> ultimaEdicaoConcluida(long usuario) {

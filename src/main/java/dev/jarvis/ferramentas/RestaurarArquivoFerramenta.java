@@ -2,6 +2,8 @@ package dev.jarvis.ferramentas;
 
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.pc.LixeiraPcService;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.util.Json;
@@ -26,10 +28,19 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
 
     private final LixeiraPcService lixeira;
     private final JsonMapper json;
+    /** Pode ser nulo: os testes antigos montam a ferramenta sem o diário. */
+    private final DiarioDeAcoes diario;
 
     public RestaurarArquivoFerramenta(LixeiraPcService lixeira, JsonMapper json) {
+        this(lixeira, json, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RestaurarArquivoFerramenta(LixeiraPcService lixeira, JsonMapper json,
+            DiarioDeAcoes diario) {
         this.lixeira = lixeira;
         this.json = json;
+        this.diario = diario;
     }
 
     @Override
@@ -101,6 +112,11 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
         JsonNode dados = resultado.dados();
         String nome = Json.texto(dados.path("nome"));
         String aviso = Json.texto(dados.path("aviso"));
+        // Restaurar é "faz e avisa": o arquivo volta sem perguntar, então o diário é o que deixa
+        // o dono ver depois que um arquivo voltou — e com o nome que o agente devolveu.
+        if (diario != null)
+            diario.registrarDoCanal(TipoDeAcao.RESTAURAR_ARQUIVO, "restaurei " + nome,
+                    contexto.canal());
         // O ID novo vai para o modelo porque uma edição na sequência precisa dele; a frase para o
         // usuário fala de nome, que é o que ele reconhece.
         return ResultadoFerramenta.texto("Restaurei " + nome + "."

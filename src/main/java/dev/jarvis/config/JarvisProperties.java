@@ -37,12 +37,30 @@ public record JarvisProperties(
         Memoria memoria,
         Lembretes lembretes,
         Historico historico,
-        Custo custo) {
+        Custo custo,
+        Diario diario) {
 
     private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public JarvisProperties { }
+
+    /**
+     * A aridade de antes do diário de ações.
+     *
+     * Existe pelo mesmo motivo dos outros atalhos abaixo: os testes que informam o bloco
+     * {@code Custo} montam este record <b>por posição</b>, e um componente novo no fim os quebraria
+     * todos de uma vez. Quem precisa do diário informa o componente.
+     */
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            ComputerUse computerUse, Google google, Memoria memoria, Lembretes lembretes,
+            Historico historico, Custo custo) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, lembretes,
+                historico, custo, null);
+    }
 
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
             Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
@@ -221,6 +239,16 @@ public record JarvisProperties(
         }
     }
 
+    /**
+     * Pasta do diário de ações: um JSON por dia com o que o Jarvis fez sozinho e o que fez depois
+     * de um "sim". Volume próprio, porque autonomia sem registro é autonomia que não se audita.
+     *
+     * <p>Só a pasta é configurável. Os 30 dias de retenção e o teto de ações por dia são constantes
+     * do {@code DiarioDeAcoes}, pela mesma regra do {@code MedidorDeCusto}: não vale um componente
+     * num record construído por posição em dezenas de testes para um número que ninguém vai mexer.
+     */
+    public record Diario(String pasta) { }
+
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
     public boolean youtubeConfigurado() {
         return youtube != null && youtube.apiKey() != null && !youtube.apiKey().isBlank();
@@ -248,9 +276,14 @@ public record JarvisProperties(
         return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/historico" : caminho);
     }
 
-    /** Validade de um turno salvo, com 24 h de padrão e piso de 1 h (zero desligaria o recurso). */
+    /**
+     * Validade de um turno salvo, com 72 h de padrão e piso de 1 h (zero desligaria o recurso).
+     *
+     * Três dias, e não um: com 24 h a conversa de sexta-feira já não existia na segunda, e o
+     * assunto que o dono deixou pela metade morria no fim de semana.
+     */
     public java.time.Duration validadeDoHistorico() {
-        int horas = historico == null || historico.validadeHoras() <= 0 ? 24 : historico.validadeHoras();
+        int horas = historico == null || historico.validadeHoras() <= 0 ? 72 : historico.validadeHoras();
         return java.time.Duration.ofHours(horas);
     }
 
@@ -273,6 +306,12 @@ public record JarvisProperties(
     public Path pastaDeCusto() {
         String caminho = custo == null ? null : custo.pasta();
         return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/custo" : caminho);
+    }
+
+    /** Pasta do diário de ações. Dentro do container é o volume montado em /data/jarvis/diario. */
+    public Path pastaDoDiario() {
+        String caminho = diario == null ? null : diario.pasta();
+        return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/diario" : caminho);
     }
 
     /** A tabela de preços crua. Quem a interpreta é a {@code TabelaDePrecos}, uma vez só. */

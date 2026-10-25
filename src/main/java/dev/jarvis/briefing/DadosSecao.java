@@ -60,4 +60,20 @@ public sealed interface DadosSecao {
         public record Site(String nome, String resultado) {
         }
     }
+
+    /**
+     * O que o Jarvis fez sozinho desde o último briefing, contado por tipo.
+     *
+     * Só a contagem, nunca a lista: a seção existe para o dono saber que houve, e o detalhe é da
+     * ferramenta {@code acoes_do_jarvis}. Oito linhas de "editei tal arquivo" num briefing falado
+     * seriam o inverso de um resumo.
+     *
+     * @param itens do mais frequente para o menos. Nunca vazio — sem ação a seção não aparece.
+     */
+    record Acoes(List<Item> itens) implements DadosSecao {
+
+        /** @param tipo o rótulo falado ("edições de arquivo"), não a constante Java. */
+        public record Item(String tipo, int quantidade) {
+        }
+    }
 }

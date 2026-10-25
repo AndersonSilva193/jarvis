@@ -96,7 +96,8 @@ jarvis:
     arquivo: ${LEMBRETES_ARQUIVO:/data/jarvis/lembretes/lembretes.json}
   historico:
     pasta: ${HISTORICO_PASTA:/data/jarvis/historico}
-    validade-horas: ${HISTORICO_VALIDADE_HORAS:24}
+    # Três dias: com 24 h a conversa de sexta-feira não existia mais na segunda.
+    validade-horas: ${HISTORICO_VALIDADE_HORAS:72}
   custo:
     # Um JSON por dia com o gasto, 90 dias guardados. Volume nomeado "custo".
     pasta: ${CUSTO_PASTA:/data/jarvis/custo}
@@ -110,6 +111,10 @@ jarvis:
     preco-busca-web: ${CUSTO_PRECO_BUSCA_WEB:}
     # Gasto do dia que dispara aviso em 80% e em 100%. Vazio = sem teto. O teto avisa, não bloqueia.
     teto-diario-usd: ${CUSTO_TETO_DIARIO_USD:}
+  diario:
+    # Um JSON por dia com o que o Jarvis fez sozinho e o que fez depois de um "sim",
+    # 30 dias guardados. Volume nomeado "diario".
+    pasta: ${DIARIO_PASTA:/data/jarvis/diario}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

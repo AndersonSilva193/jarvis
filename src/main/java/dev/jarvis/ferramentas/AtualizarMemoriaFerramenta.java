@@ -2,6 +2,8 @@ package dev.jarvis.ferramentas;
 
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.memoria.MemoriaService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -14,7 +16,20 @@ import tools.jackson.databind.node.ObjectNode;
  */
 @Component
 public class AtualizarMemoriaFerramenta extends FerramentaMemoria {
-    public AtualizarMemoriaFerramenta(MemoriaService memoria, JsonMapper json) { super(memoria, json); }
+    /** Pode ser nulo: os testes antigos montam a ferramenta sem o diário. */
+    private final DiarioDeAcoes diario;
+
+    public AtualizarMemoriaFerramenta(MemoriaService memoria, JsonMapper json) {
+        this(memoria, json, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AtualizarMemoriaFerramenta(MemoriaService memoria, JsonMapper json,
+            DiarioDeAcoes diario) {
+        super(memoria, json);
+        this.diario = diario;
+    }
+
     @Override public String nome() { return "atualizar_memoria"; }
     @Override public String descricao() {
         return """
@@ -51,6 +66,11 @@ public class AtualizarMemoriaFerramenta extends FerramentaMemoria {
                 : "usuario:" + progresso.canal();
         var r = memoria.atualizar(u, texto(entrada, "id"), revisao(entrada), conteudo,
                 tipo, origem, pedido(progresso));
+        // Corrigir memória é "faz e avisa", e o que foi corrigido sai de vista: a revisão antiga
+        // vai para o .historico. O diário é o que deixa o dono reencontrar a mudança depois.
+        if (diario != null)
+            diario.registrarDoCanal(TipoDeAcao.ATUALIZAR_MEMORIA, "corrigi \"" + r.assunto() + "\"",
+                    progresso.canal());
         return resposta("Atualizei: " + r.assunto() + ".");
     }
 }

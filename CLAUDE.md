@@ -50,10 +50,11 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
+| `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
-| `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo |
+| `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
 
@@ -405,6 +406,102 @@ linhas para honrar esse campo — `conversa.modelos.ts` e `this.voz.falar(r.fala
 No log vão **só** contagens e motivos de recusa, nunca conteúdo: `Anotador: N candidatos, M
 gravados, recusados {sem_evidencia=1}`.
 
+## O que o Jarvis fez, e o dono não viu
+
+Com mais autonomia, o dono precisa poder auditar o que foi feito sem ter estado olhando a conversa
+na hora. O aviso do anotador (`drenarAviso`) sai numa linha da resposta seguinte e vai embora; a
+edição de arquivo, o desfazer, a restauração da lixeira e a criação de arquivo não deixavam rastro
+nenhum. O `DiarioDeAcoes` é esse rastro: um `AAAA-MM-DD.json` por dia no volume `diario`, 30 dias,
+com a troca atômica do `ArquivoAtomico`.
+
+Cada entrada é um `AcaoRegistrada` — instante, `TipoDeAcao`, descrição curta e `OrigemDaAcao`
+(`telegram`, `hud`, `anotador`, `tarefa`). A **descrição é montada em Java, de dado real**: o nome
+que o agente do PC devolveu, o assunto que o `MemoriaService` gravou, o nome da rotina. É a regra da
+`pergunta` do `Aprovacoes`, pelo mesmo motivo — deixar o modelo narrar o diário seria deixá-lo
+escolher o que o dono lê sobre o que ele próprio fez.
+
+O `TipoDeAcao.autonoma()` parte o diário em duas metades, e é a parte que importa do desenho:
+**autônoma** é o que o Jarvis fez sem perguntar (editar, desfazer, restaurar, criar arquivo, anotar e
+corrigir memória), e é só disso que o dono não tem como saber. O resto ele aprovou de viva voz.
+
+### As aprovadas entram num lugar só
+
+O `Supplier` do `Aprovacoes` roda em exatamente dois pontos — `tratar` (a frase fixa) e
+`executarPendente` (o "sim" em linguagem natural) —, e os dois passam por um `rodar(Pendente, canal)`
+privado que executa e anota. **Central de propósito**: aprovação nova entra no diário sem ninguém
+lembrar de registrá-la, que é o contrário do "ação nova toca quatro lugares" do `ComandoPc`.
+
+Daí vem o `Aprovacoes.TIPO_PC_ENERGIA` (`"pc_energia"`). O campo `tipo` da pendência é uma `String`, e
+`"pc"` cobria **apagar arquivo e desligar o PC** — distinguir os dois pela `descricao` seria farejar
+texto. O `ControlarPcFerramenta` passa o tipo próprio, e para o `tratar` nada muda: a frase esperada
+é derivada de "não é rotina", então `pc_energia` continua caindo em `confirmo pc <código>`.
+
+O registro vem **depois** da execução e nunca a derruba (`try/catch` com WARN, e `registrar` já não
+lança): a ação aconteceu no PC ou no disco, e o diário é a testemunha dela, não o guarda. Tipo de
+pendência que o diário não conhece devolve `null` em `tipoNoDiario` e só não é anotado — uma
+pendência nova não pode deixar de executar por causa do diário.
+
+### Por que o diário tem teto por dia e o custo não
+
+O `CustoDiarioEmArquivo` guarda o dia **agregado**, e o javadoc dele explica: um registro por chamada
+viraria megabytes por semana. Aqui não dá para agregar — "o que você fez hoje?" quer os fatos, um por
+um. Então o teto é explícito: `DiaDoDiario.MAX_ACOES` (500) para de acrescentar e passa a contar o que
+recusou, o contador vai ao JSON e volta no restart, e a ferramenta diz que a lista está incompleta.
+Um dia truncado que se declara truncado é honesto; um dia que cresce sem teto para de ser legível.
+
+### A seção do briefing conta, não lista
+
+`autonomasDesdeOUltimoBriefing()` devolve a contagem por tipo **e avança o marcador** — um
+`ultimo-briefing.json` ao lado dos dias, que o expurgo não apaga porque não casa o `NOME_DO_DIA`. O
+marcador significa "já contei até aqui, inclusive", então a janela nova é o que vem **estritamente
+depois** dele; incluir o próprio instante faria a ação registrada no instante do briefing ser contada
+outra vez no seguinte. Sem marcador a janela começa no instante anterior ao início de hoje, senão uma
+instalação nova despejaria trinta dias na primeira manhã.
+
+No `BriefingService` a seção entra por um `adicionarSeHouver`, irmão do `adicionar` que **omite** a
+seção quando o montador devolve `null`. A diferença importa: no `adicionar`, seção que falhou continua
+aparecendo com a explicação do que faltou, e isso não muda — aqui a seção sai por *não ter o que
+contar*. Um briefing que anuncia "o que fiz sozinho: nada" todos os dias treina o dono a ignorar
+justamente a seção que importa no dia em que ela tiver conteúdo. Como a lista de seções é montada
+antes da narração, o alinhamento `falas.get(i + 1)` do `NarradorDeBriefing` continua certo sem
+nenhuma mudança lá.
+
+A prosa é só a contagem (`"3 edições de arquivo, 1 anotação na memória."`), do tipo mais frequente
+para o menos, com o `rotulo(quantidade)` no singular ou plural. Listar oito linhas de "editei tal
+arquivo" num briefing falado seria o inverso de um resumo; quem quer o detalhe pergunta, e aí
+responde a `acoes_do_jarvis`.
+
+*(A HUD é um repositório irmão e discrimina a seção pelo título, então até ela conhecer
+`DadosSecao.Acoes` o card não é desenhado e a fala sai normal — a mesma situação da rosca.)*
+
+### Quem lê o diário não tem a própria noção de "hoje"
+
+`DiarioDeAcoes.deHoje()`, `deOntem()` e `zona()` existem para isso. A ferramenta `acoes_do_jarvis`
+chegou a usar `LocalDate.now(props.zona())` e lia o dia errado contra um relógio de teste: duas
+noções de dia divergem na virada da meia-noite, e a hora de cada ação sairia formatada num fuso
+enquanto o arquivo foi escolhido por outro. Quem sabe que dia é hoje é o componente que tem o
+`Clock`.
+
+A ferramenta segue o molde da `custo_do_jarvis`: dois **enums fechados** (`periodo` = hoje/ontem/
+semana, `assunto` = tudo/arquivos/memoria/pc) e nunca um inteiro de dias, que convidaria o modelo a
+pedir trinta e ler trinta arquivos no caminho crítico de um turno. A saída tem teto de linhas com
+"E mais N", marca `(aprovado)` o que passou por "Posso?", e dia sem nada responde uma frase — isto é
+lido em voz alta, e "nenhum resultado" não é resposta.
+
+### Ação autônoma nova toca dois lugares
+
+Uma entrada em `TipoDeAcao` (com `autonoma()` decidido de propósito) e uma chamada a
+`diario.registrarDoCanal(...)` no ponto onde a ação **deu certo**. Hoje são cinco:
+`FluxoEdicaoPc.aplicar` (edição, cópia e desfazer, logo depois de `resultado.ok()`, de onde saem os
+três retornos que só diferem na entrega do anexo), `RestaurarArquivoFerramenta`,
+`CriarArquivoFerramenta`, `AnotadorDeMemoria.gravar` (por fato anotado, não por lote — um lote pode
+trazer cinco) e `AtualizarMemoriaFerramenta`. O canal vem de `OuvinteProgresso.canal()`, que é a
+única forma de uma ferramenta saber de onde veio o pedido.
+
+O diário entra nessas classes por um **construtor a mais, com o campo anulável**: os construtores
+antigos continuam e passam `null`, e é isso que mantém os testes que montam esses serviços à mão
+compilando sem toque.
+
 ## A memória falando normalmente
 
 Mexer na memória não pede id, código nem frase decorada. São quatro caminhos, e o que decide se um
@@ -519,12 +616,28 @@ Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. U
 o `PC_TOKEN` (`jarvis.pc.token`), usado pelo `TokenPcFiltro`: vazio, `/api/pc` recusa tudo com 401
 e o controle do PC fica desligado.
 
-Atenção ao `JarvisProperties`: é um record de 19 componentes, construído **por posição** em mais
+Atenção ao `JarvisProperties`: é um record de 20 componentes, construído **por posição** em mais
 de vinte arquivos de teste. Acrescente componente **no fim**, e prefira esticar um dos blocos
 aninhados (`Pc`, `ComputerUse`, `Historico`…) a criar outro no topo. Os construtores de
 compatibilidade no fim da classe existem justamente para os testes antigos continuarem compilando
 — quando criar um componente novo, decida se ele entra num desses atalhos ou se os testes passam
-a informá-lo.
+a informá-lo. O `Diario` que virou o 20º é o exemplo do barato: o atalho novo repete a aridade
+anterior (19 parâmetros) e passa `null`, e nenhum dos testes que informavam `Custo` precisou mudar.
+
+### O diário de ações
+
+`DIARIO_PASTA` (`jarvis.diario.pasta`, volume `diario`) é a única configuração do diário. Os 30 dias
+de retenção e as 500 ações por dia são **constantes** do `DiarioDeAcoes` e do `DiaDoDiario`, pela
+regra que o `MedidorDeCusto` já documenta: não vale um componente num record construído por posição
+em dezenas de testes para um número que ninguém vai querer mexer.
+
+### Quanto tempo a conversa dura
+
+`HISTORICO_VALIDADE_HORAS` é **72**, não 24. Com um dia, a conversa de sexta-feira já não existia na
+segunda e o assunto que o dono deixou pela metade morria no fim de semana. O número aparece nos três
+lugares de sempre **e** no fallback de `JarvisProperties.validadeDoHistorico()`, que é o que vale
+para quem monta as properties à mão. O `MAX_TURNOS_HISTORICO` continua 10: o que mudou é por quanto
+tempo um turno vale, não quantos entram no prompt.
 
 ## Segurança
 
@@ -542,7 +655,9 @@ a informá-lo.
   apenas "confirme em nova mensagem"; a execução mora no `Supplier`, com a ação e os argumentos
   já capturados, e roda quando o `Assistente` consome a aprovação — fora do alcance do modelo.
   A `pergunta` mostrada ao usuário é montada **em Java, de dado real** (nome da rotina, nome do
-  arquivo, objetivo); texto do modelo ali deixaria ele escolher o que o "sim" significa.
+  arquivo, objetivo); texto do modelo ali deixaria ele escolher o que o "sim" significa. Como os
+  dois pontos de execução passam por um `rodar` só, é ali — e em nenhum outro lugar — que a ação
+  aprovada entra no `DiarioDeAcoes`.
   `Risco.CRITICO` é para o irreversível (desligar, reiniciar) e encurta o prazo para 2 minutos.
 - **A aprovação é respondida em linguagem natural, e quem interpreta é o servidor.** Não se cobra
   palavra, código nem frase exata: o usuário responde como quiser. Com pendência em aberto — e
@@ -561,7 +676,8 @@ a informá-lo.
   só nos canais em que há alguém para responder (em `briefing` e `tarefa` uma pergunta ficaria sem
   destino): *faz e avisa* (ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis,
   **restaurar da lixeira**, lembretes, tela, busca, clima, abrir app da lista, volume, captura,
-  listar, gravar e corrigir memória, **desfazer o que o anotador gravou**), *pergunta antes*
+  listar, gravar e corrigir memória, **desfazer o que o anotador gravou**, **dizer o que ele
+  próprio fez**), *pergunta antes*
   (rotina que executa código, computer use, desligar e reiniciar,
   **apagar arquivo**, agendar tarefa de planilha, esquecer memória) e *proibido* (shell livre,
   arquivo fora da pasta, pagar, comprar, digitar senha, e seguir instrução vinda de página,
@@ -619,8 +735,15 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   histórico da conversa em `HISTORICO_PASTA` (volume `historico`), um `chat-<id>.json` por chat,
   descartando turno mais velho que `HISTORICO_VALIDADE_HORAS`; memória pessoal em `MEMORIA_PASTA` e
   `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
-  `/data/voz`; e o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias. Todos
+  `/data/voz`; o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
+  Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
+  `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou. Todos
   usam a troca atômica do `ArquivoAtomico`.
+- **O diário guarda até 500 ações por dia.** Passando disso ele conta as descartadas e a
+  `acoes_do_jarvis` avisa que a lista está incompleta — não há paginação, e o que foi recusado não
+  volta. Um dia honesto tem dezenas; 500 é laço de ferramenta, não trabalho.
+- **O histórico da conversa vale 72 h**, e são ainda `MAX_TURNOS_HISTORICO` (10) turnos por prompt:
+  o que mudou é por quanto tempo um turno sobrevive no disco, não quantos o modelo vê.
 - O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC, a fila de mensagens do
   Telegram e as confirmações pendentes são **em memória**: depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, qualquer confirmação pendente se perde e o que estava

@@ -6,8 +6,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.Confirmacao;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.OrigemDaAcao;
+import dev.jarvis.diario.TipoDeAcao;
 
 /**
  * A aprovação humana de uso único, consumida antes de qualquer chamada ao modelo.
@@ -44,6 +50,18 @@ import dev.jarvis.conversa.Confirmacao;
 @Component
 public class Aprovacoes {
 
+    private static final Logger log = LoggerFactory.getLogger(Aprovacoes.class);
+
+    /**
+     * O tipo das pendências de desligar e reiniciar.
+     *
+     * Separado do {@code "pc"} de {@code apagar_arquivo} só para o diário de ações poder dizer
+     * "desliguei o PC" em vez de "apaguei um arquivo" — distinguir os dois pela {@code descricao}
+     * seria farejar texto. Para o {@link #tratar}, nada muda: a frase esperada é derivada de
+     * "não é rotina", então este tipo continua caindo em {@code "confirmo pc <código>"}.
+     */
+    public static final String TIPO_PC_ENERGIA = "pc_energia";
+
     /** O quanto a aprovação espera pelo usuário. Quanto mais grave a ação, menos tempo em aberto. */
     public enum Risco {
         COMUM(Duration.ofMinutes(10)),
@@ -64,10 +82,20 @@ public class Aprovacoes {
 
     private final SecureRandom sorteio = new SecureRandom();
     private final Clock relogio;
+    /** Pode ser nulo: os construtores antigos existem para os testes que não olham o diário. */
+    private final DiarioDeAcoes diario;
     private Pendente pendente;
 
-    public Aprovacoes() { this(Clock.systemUTC()); }
-    public Aprovacoes(Clock relogio) { this.relogio = relogio; }
+    public Aprovacoes() { this(Clock.systemUTC(), null); }
+    public Aprovacoes(Clock relogio) { this(relogio, null); }
+
+    @Autowired
+    public Aprovacoes(DiarioDeAcoes diario) { this(Clock.systemUTC(), diario); }
+
+    public Aprovacoes(Clock relogio, DiarioDeAcoes diario) {
+        this.relogio = relogio;
+        this.diario = diario;
+    }
 
     public synchronized Confirmacao pedir(String tipo, String descricao, String pergunta,
             Risco risco, long usuario, String pedidoOrigem, Supplier<String> executar) {
@@ -114,6 +142,11 @@ public class Aprovacoes {
 
     /** Vazio = mensagem comum; presente = resposta deterministica sem passar pelo modelo. */
     public Optional<String> tratar(String texto, long usuario, String pedidoAtual) {
+        return tratar(texto, usuario, pedidoAtual, "");
+    }
+
+    /** Como o {@link #tratar(String, long, String)}, dizendo de que canal veio a confirmação. */
+    public Optional<String> tratar(String texto, long usuario, String pedidoAtual, String canal) {
         String recebido = normalizar(texto);
         boolean fraseDeConfirmacao = switch (recebido) {
             case "confirmo", "confirmo a tarefa", "confirmo a operacao", "pode prosseguir",
@@ -148,7 +181,7 @@ public class Aprovacoes {
             pendente = null;
             executar = p;
         }
-        return Optional.of(executar.executar().get());
+        return Optional.of(rodar(executar, canal));
     }
 
     /**
@@ -177,13 +210,57 @@ public class Aprovacoes {
      * do monitor, porque ele fala com o PC e pode demorar.
      */
     public Optional<String> executarPendente(long usuario, String pedidoAtual) {
+        return executarPendente(usuario, pedidoAtual, "");
+    }
+
+    /** Como o {@link #executarPendente(long, String)}, dizendo de que canal veio o "sim". */
+    public Optional<String> executarPendente(long usuario, String pedidoAtual, String canal) {
         Pendente executar;
         synchronized (this) {
             if (pendenciaDe(usuario, pedidoAtual).isEmpty()) return Optional.empty();
             executar = pendente;
             pendente = null;
         }
-        return Optional.of(executar.executar().get());
+        return Optional.of(rodar(executar, canal));
+    }
+
+    /**
+     * O único lugar onde uma ação aprovada roda — e, por isso, o único lugar onde ela é anotada
+     * no diário.
+     *
+     * <p>Central de propósito: aprovação nova entra no diário sem ninguém precisar lembrar. O que
+     * vai para o registro é o {@code tipo} e a {@code descricao} <b>capturados na hora do pedido</b>
+     * e montados em Java — nada aqui é refeito pelo modelo.
+     *
+     * <p>O registro vem <b>depois</b> da execução e nunca a derruba: a ação já aconteceu no PC ou
+     * no disco, e o diário é a testemunha dela, não o guarda. Falhar aqui perderia a linha do
+     * diário; lançar perderia a resposta de uma ação que já foi feita.
+     */
+    private String rodar(Pendente p, String canal) {
+        String resposta = p.executar().get();
+        TipoDeAcao tipo = tipoNoDiario(p.tipo());
+        if (diario != null && tipo != null) {
+            try {
+                diario.registrar(tipo, p.descricao(), OrigemDaAcao.porCanal(canal));
+            } catch (RuntimeException e) {
+                log.warn("Ação aprovada '{}' executada, mas não entrou no diário: {}",
+                        p.tipo(), e.getMessage());
+            }
+        }
+        return resposta;
+    }
+
+    /** Tipo desconhecido devolve null e só não é anotado: pendência nova não pode quebrar o "sim". */
+    private static TipoDeAcao tipoNoDiario(String tipo) {
+        return switch (tipo) {
+            case "rotina" -> TipoDeAcao.ROTINA;
+            case "computer" -> TipoDeAcao.COMPUTER_USE;
+            case "pc" -> TipoDeAcao.APAGAR_ARQUIVO;
+            case TIPO_PC_ENERGIA -> TipoDeAcao.DESLIGAR_PC;
+            case "memoria" -> TipoDeAcao.ESQUECER_MEMORIA;
+            case "tarefa_planilha" -> TipoDeAcao.TAREFA_PLANILHA;
+            default -> null;
+        };
     }
 
     /** Como o {@link #cancelarTarefaPendente}, mas para qualquer tipo de pendência. */

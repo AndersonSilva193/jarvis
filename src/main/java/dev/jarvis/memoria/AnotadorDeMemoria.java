@@ -23,6 +23,9 @@ import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.custo.Origem;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.OrigemDaAcao;
+import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.ia.ClaudeClient;
 import dev.jarvis.util.Json;
 import dev.jarvis.util.Texto;
@@ -111,6 +114,8 @@ public class AnotadorDeMemoria {
     private final JsonMapper json;
     private final JarvisProperties props;
     private final Clock relogio;
+    /** Pode ser nulo: os testes antigos montam o anotador sem o diário. */
+    private final DiarioDeAcoes diario;
 
     private final ExecutorService tarefas = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -134,19 +139,31 @@ public class AnotadorDeMemoria {
      */
     private final Map<Long, Anotado> desfazeveis = new HashMap<>();
 
-    @Autowired
+    /** Sem diário: o anotador grava, mas o que ele gravou não entra no diário de ações. */
     public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
                              JarvisProperties props) {
-        this(memoria, claude, json, props, Clock.systemUTC());
+        this(memoria, claude, json, props, Clock.systemUTC(), null);
+    }
+
+    @Autowired
+    public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
+                             JarvisProperties props, DiarioDeAcoes diario) {
+        this(memoria, claude, json, props, Clock.systemUTC(), diario);
     }
 
     public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
                              JarvisProperties props, Clock relogio) {
+        this(memoria, claude, json, props, relogio, null);
+    }
+
+    public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
+                             JarvisProperties props, Clock relogio, DiarioDeAcoes diario) {
         this.memoria = memoria;
         this.claude = claude;
         this.json = json;
         this.props = props;
         this.relogio = relogio;
+        this.diario = diario;
     }
 
     /**
@@ -309,6 +326,13 @@ public class AnotadorDeMemoria {
             }
             ids.add(anotada.id());
             conteudos.add(anotada.conteudo());
+            // Por fato anotado, e não por lote: "o que você fez hoje?" quer os fatos, e um lote
+            // pode trazer até cinco. O assunto é o que o MemoriaService gravou, não o que o
+            // modelo propôs — ele pode ter caído num registro que já existia.
+            if (diario != null)
+                diario.registrar(TipoDeAcao.ANOTAR_MEMORIA,
+                        (anotada.atualizado() ? "atualizei \"" : "anotei \"") + anotada.assunto() + "\"",
+                        OrigemDaAcao.ANOTADOR);
             return null;
         } catch (MemoriaService.Recusado e) {
             // O dono já mandou tirar este assunto. Anotar de novo seria desfazer o desfazer.

@@ -271,7 +271,7 @@ public class Assistente {
             List<ResultadoFerramenta> resultados = new ArrayList<>();
             String resposta;
             boolean interrompido = false;
-            var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id);
+            var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id, canal.nome());
             // Só quando o texto não é um código nem uma frase fixa é que vale classificar: a
             // pergunta pendente é a única coisa que a mensagem pode estar respondendo, e sem
             // pendência em aberto nada disso roda — nem a lista, nem a chamada curta ao modelo.
@@ -283,7 +283,7 @@ public class Assistente {
             if (!emAberto.isEmpty() && decisao != Decisao.OUTRO_ASSUNTO) {
                 long usuario = progresso.usuarioAutenticado();
                 switch (decisao) {
-                    case SIM -> decisaoPc = aprovacoes.executarPendente(usuario, id);
+                    case SIM -> decisaoPc = aprovacoes.executarPendente(usuario, id, canal.nome());
                     case NAO -> {
                         aprovacoes.cancelarPendente(usuario, id);
                         decisaoPc = java.util.Optional.of("Certo, não fiz.");

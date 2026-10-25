@@ -152,6 +152,7 @@ devolva textos curtos e objetivos: tudo que a ferramenta retorna vira tokens (cu
 | "quais as notícias de hoje?" | `noticias` |
 | "me dá o briefing" | `briefing_do_dia` |
 | "quanto você gastou hoje?" / "e na semana?" | `custo_do_jarvis` |
+| "o que você fez hoje?" / "o que mudou nos meus arquivos ontem?" | `acoes_do_jarvis` |
 | "a voz está funcionando?" | `status_voz` |
 | (na HUD) uma pergunta que precisa da sua resposta | `ouvir_resposta` |
 
@@ -249,8 +250,8 @@ agenda é o mesmo trecho que já decidia guardar o turno em memória.
 
 O que não entra: bloco de pensamento (que já ficava fora, por exigência da API) e imagem em base64 —
 uma captura de tela viraria centenas de kilobytes parados no volume, e no lugar dela fica o texto
-`[imagem omitida]`. Na partida, todo turno mais velho que `HISTORICO_VALIDADE_HORAS` (padrão 24) é
-descartado; o id de sessão é novo a cada partida, e é por ele que a HUD sabe que o histórico
+`[imagem omitida]`. Na partida, todo turno mais velho que `HISTORICO_VALIDADE_HORAS` (padrão 72) é
+descartado — três dias, para o assunto deixado pela metade na sexta ainda existir na segunda; o id de sessão é novo a cada partida, e é por ele que a HUD sabe que o histórico
 restaurado é lista para olhar, não resposta para falar de novo.
 
 Privacidade: esquecer a memória pessoal apaga **na hora** o arquivo de todos os chats daquele
@@ -880,6 +881,27 @@ usado para separar os dias é `FUSO_HORARIO`. `CUSTO_TETO_DIARIO_USD` é opciona
 100% do teto, o Jarvis manda um aviso no Telegram uma vez por limite por dia. O teto não bloqueia
 o serviço.
 
+## O que o Jarvis fez sozinho
+
+Ele edita arquivo, desfaz edição, restaura da lixeira, cria arquivo e anota memória **sem
+perguntar**. Para isso não ficar invisível, cada uma dessas ações vai para um diário: um JSON por dia
+em `DIARIO_PASTA` (padrão `/data/jarvis/diario`, volume `diario`), com troca atômica, `.bak` e
+retenção de 30 dias. As ações que você **aprovou** entram no mesmo diário — rotina, tarefa no
+monitor, apagar arquivo, desligar o PC —, marcadas como aprovadas.
+
+Pergunte a qualquer momento: *"o que você fez hoje?"*, *"o que mudou nos meus arquivos ontem?"*,
+*"o que você anotou essa semana?"*. A ferramenta `acoes_do_jarvis` cobre hoje, ontem e os últimos
+sete dias, e dá para pedir só uma parte (arquivos, memória ou PC).
+
+O briefing também avisa: havendo ação feita por conta própria desde o briefing anterior, aparece uma
+seção curta **"o que fiz sozinho"** com a contagem por tipo ("3 edições de arquivo, 1 anotação na
+memória"). Sem nada feito sozinho, a seção não aparece — um briefing que diz "não fiz nada" todo dia
+treina você a ignorar justamente a seção que importa no dia em que ela tiver conteúdo. O detalhe
+fica para a ferramenta.
+
+A descrição de cada linha é montada pelo servidor, a partir do nome real do arquivo ou do assunto
+gravado — não é o modelo que escreve o que você lê sobre o que ele fez.
+
 Os preços vêm do `.env`, não do código. `CUSTO_PRECOS` usa
 `modelo=entrada/saida/cache_escrita/cache_leitura`, em dólares por milhão de tokens;
 `CUSTO_PRECO_BUSCA_WEB` usa dólares por mil buscas. Para o Haiku 5.5, há uma segunda faixa no
@@ -966,10 +988,12 @@ inclusive `arquivos` e `imagens`: é o que deduplica comando reentregue e susten
 
 ## Limitações atuais
 
-- Lembretes, histórico da conversa, memória pessoal, diário do PC e cache de voz têm volume próprio
-  e sobrevivem ao restart. O que **não** sobrevive: o retrato da tela, o cache de buscas no YouTube,
+- Lembretes, histórico da conversa, memória pessoal, diário do PC, diário de ações e cache de voz
+  têm volume próprio e sobrevivem ao restart. O que **não** sobrevive: o retrato da tela, o cache de buscas no YouTube,
   a fila de comandos do PC e qualquer confirmação pendente. Depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, e uma confirmação em curso precisa ser pedida de novo.
+- O diário de ações guarda até 500 ações por dia. Passando disso, ele conta quantas ficaram de fora e
+  a resposta avisa que a lista está incompleta; o que foi recusado não volta.
 - No Telegram, recebe somente texto (nada de áudio ou foto). Na HUD, o navegador converte voz em
   texto e sintetiza a resposta — ou a ElevenLabs sintetiza, com `VOZ_PROVEDOR=elevenlabs`.
 - Atende **uma execução por vez**: conversas, tarefas e limpeza passam pelo mesmo `ReentrantLock`

@@ -23,6 +23,8 @@ import dev.jarvis.briefing.fontes.ServidorService;
 import dev.jarvis.briefing.fontes.SitesService;
 import dev.jarvis.briefing.fontes.SitesService.Checagem;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.lembretes.LembreteService;
 import dev.jarvis.lembretes.LembreteService.Lembrete;
 
@@ -144,12 +146,13 @@ public class BriefingService {
     private final NarradorDeBriefing narrador;
     private final JarvisProperties props;
     private final ApplicationEventPublisher eventos;
+    private final DiarioDeAcoes diario;
 
     private volatile Briefing ultimo;
 
     public BriefingService(ClimaService clima, NoticiasService noticias, SitesService sites,
             ServidorService servidor, LembreteService lembretes, NarradorDeBriefing narrador,
-            JarvisProperties props, ApplicationEventPublisher eventos) {
+            JarvisProperties props, ApplicationEventPublisher eventos, DiarioDeAcoes diario) {
         this.clima = clima;
         this.noticias = noticias;
         this.sites = sites;
@@ -158,6 +161,7 @@ public class BriefingService {
         this.narrador = narrador;
         this.props = props;
         this.eventos = eventos;
+        this.diario = diario;
     }
 
     /** Monta um briefing novo, agora, consultando todas as fontes. */
@@ -171,6 +175,8 @@ public class BriefingService {
         adicionar(secoes, "clima", this::secaoClima);
         adicionar(secoes, "lembretes de hoje", () -> secaoLembretes(agora));
         adicionar(secoes, "sistemas", this::secaoSistemas);
+        // Antes das notícias de propósito: é informação da casa, e notícia é o fecho do briefing.
+        adicionarSeHouver(secoes, "o que fiz sozinho", this::secaoAcoes);
         adicionar(secoes, "notícias", this::secaoNoticias);
 
         // A narração entra antes do evento: assim a HUD, o /bomdia e o resumo das 8h recebem todos
@@ -223,6 +229,27 @@ public class BriefingService {
     private void adicionar(List<Secao> secoes, String titulo, Montador montador) {
         try {
             Conteudo conteudo = montador.montar();
+            secoes.add(new Secao(titulo, conteudo.prosa(), conteudo.dados()));
+        } catch (Exception e) {
+            log.warn("Seção '{}' do briefing falhou: {}", titulo, e.toString());
+            secoes.add(new Secao(titulo, "não consegui consultar agora (" + motivo(e) + ")"));
+        }
+    }
+
+    /**
+     * Como o {@link #adicionar}, mas a seção <b>desaparece</b> quando o montador devolve null.
+     *
+     * A diferença importa: no {@link #adicionar}, seção que falhou continua aparecendo com a
+     * explicação do que faltou, e isso não muda. Aqui a seção sai por <b>não ter o que contar</b> —
+     * um briefing que anuncia "o que fiz sozinho: nada" todos os dias treina o dono a ignorar
+     * justamente a seção que importa no dia em que ela tiver conteúdo. Falha continua aparecendo.
+     */
+    private void adicionarSeHouver(List<Secao> secoes, String titulo, Montador montador) {
+        try {
+            Conteudo conteudo = montador.montar();
+            if (conteudo == null) {
+                return;
+            }
             secoes.add(new Secao(titulo, conteudo.prosa(), conteudo.dados()));
         } catch (Exception e) {
             log.warn("Seção '{}' do briefing falhou: {}", titulo, e.toString());
@@ -310,6 +337,32 @@ public class BriefingService {
         String doServidor = servidor.estado().curto();
         linhas.add(doServidor);
         return new Conteudo(linhas.toString(), new DadosSecao.Sistemas(dosSites, doServidor));
+    }
+
+    /**
+     * O que o Jarvis fez por conta própria desde o briefing anterior — a contagem, não a lista.
+     *
+     * Devolve {@code null} quando não houve nada, e aí a seção não entra. Só as ações
+     * <b>autônomas</b> entram: o que o dono aprovou ele já sabe, respondeu "Posso?" na hora.
+     *
+     * Chamar isto <b>avança o marcador</b> do diário, então o briefing seguinte conta do zero. É o
+     * que faz "desde o último briefing" significar o que diz.
+     */
+    private Conteudo secaoAcoes() {
+        var contagem = diario.autonomasDesdeOUltimoBriefing();
+        if (contagem.isEmpty()) {
+            return null;
+        }
+        List<DadosSecao.Acoes.Item> itens = new ArrayList<>();
+        contagem.entrySet().stream()
+                .sorted(Comparator.comparingInt((java.util.Map.Entry<TipoDeAcao, Integer> e)
+                        -> e.getValue()).reversed())
+                .forEach(e -> itens.add(new DadosSecao.Acoes.Item(
+                        e.getKey().rotulo(e.getValue()), e.getValue())));
+
+        StringJoiner partes = new StringJoiner(", ");
+        itens.forEach(item -> partes.add(item.quantidade() + " " + item.tipo()));
+        return new Conteudo(partes + ".", new DadosSecao.Acoes(List.copyOf(itens)));
     }
 
     private Conteudo secaoNoticias() {

@@ -8,6 +8,8 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.diario.DiarioDeAcoes;
+import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.pc.ArquivosPcService;
 import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.PcService;
@@ -26,11 +28,20 @@ public class CriarArquivoFerramenta implements Ferramenta {
     private final TelegramClient telegram;
     private final JsonMapper json;
     private final long chatId;
+    /** Pode ser nulo: os testes antigos montam a ferramenta sem o diário. */
+    private final DiarioDeAcoes diario;
 
     public CriarArquivoFerramenta(PcService pc, ArquivosPcService arquivos, TelegramClient telegram,
             JsonMapper json, JarvisProperties props) {
+        this(pc, arquivos, telegram, json, props, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public CriarArquivoFerramenta(PcService pc, ArquivosPcService arquivos, TelegramClient telegram,
+            JsonMapper json, JarvisProperties props, DiarioDeAcoes diario) {
         this.pc = pc; this.arquivos = arquivos; this.telegram = telegram; this.json = json;
         this.chatId = props.telegram() == null ? 0 : props.telegram().usuarioPermitido();
+        this.diario = diario;
     }
 
     @Override public String nome() { return "criar_arquivo"; }
@@ -112,6 +123,10 @@ public class CriarArquivoFerramenta implements Ferramenta {
             try { telegram.enviarDocumento(chatId, Files.readAllBytes(caminho.get()), nome); }
             catch (Exception e) { aviso = " Não consegui enviar pelo Telegram; o anexo está disponível na HUD."; }
         }
+        // Criar arquivo na pasta do Jarvis é "faz e avisa": entra no diário para o dono poder
+        // perguntar depois o que apareceu lá.
+        if (diario != null)
+            diario.registrarDoCanal(TipoDeAcao.CRIAR_ARQUIVO, "criei " + nome, progresso.canal());
         return new ResultadoFerramenta("Arquivo criado: " + nome + "." + aviso, List.of(
                 new ResultadoFerramenta.Artefato(caminho.get(), nome, mime)), List.of(), null,
                 List.of(), List.of());

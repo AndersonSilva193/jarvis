@@ -24,6 +24,9 @@ services:
       - historico:/data/jarvis/historico
       # O diário de custo: um JSON por dia, 90 dias. Sem ele não há conta do mês.
       - custo:/data/jarvis/custo
+      # O diário de ações: o que o Jarvis fez sozinho e o que foi aprovado, 30 dias.
+      # Sem ele o dono perde o rastro da autonomia a cada restart.
+      - diario:/data/jarvis/diario
       - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
@@ -42,4 +45,5 @@ volumes:
   lembretes:
   historico:
   custo:
+  diario:
   pc-operacoes:
