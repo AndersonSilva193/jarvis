@@ -49,6 +49,14 @@ class PromptDeSistemaTest {
         return bloco.path("text").stringValue();
     }
 
+    /** O trecho entre duas marcas, para afirmar em qual nível de autonomia uma ação está. */
+    private static String entre(String inteiro, String de, String ate) {
+        int inicio = inteiro.indexOf(de);
+        int fim = inteiro.indexOf(ate, inicio + de.length());
+        assertTrue(inicio >= 0 && fim > inicio, "não achei o trecho '" + de + "' em: " + inteiro);
+        return inteiro.substring(inicio + de.length(), fim);
+    }
+
     @Test
     @DisplayName("o bloco fixo da personalidade vem antes do dinâmico")
     void fixoAntesDoDinamico() {
@@ -104,6 +112,15 @@ class PromptDeSistemaTest {
             assertTrue(dinamico.contains("Faz e avisa, sem perguntar:"), dinamico);
             assertTrue(dinamico.contains("Pergunta antes:"), dinamico);
             assertTrue(dinamico.contains("Proibido:"), dinamico);
+
+            // Apagar mudou de nível: vai para a lixeira, então o modelo não deve mais anunciar uma
+            // pergunta que o servidor não faz — a não ser no pedido em massa.
+            String fazEAvisa = entre(dinamico, "Faz e avisa, sem perguntar:", "- Pergunta antes:");
+            String perguntaAntes = entre(dinamico, "- Pergunta antes:", "- Proibido:");
+            assertTrue(fazEAvisa.contains("apagar arquivo"), fazEAvisa);
+            assertTrue(fazEAvisa.contains("mais de 5 no mesmo pedido pergunta"), fazEAvisa);
+            assertTrue(fazEAvisa.contains("restaurar da lixeira"), fazEAvisa);
+            assertFalse(perguntaAntes.contains("apagar"), perguntaAntes);
         }
 
         for (Canal canal : new Canal[] { Canal.BRIEFING, Canal.TAREFA }) {

@@ -55,12 +55,25 @@ public class Aprovacoes {
     /**
      * O tipo das pendências de desligar e reiniciar.
      *
-     * Separado do {@code "pc"} de {@code apagar_arquivo} só para o diário de ações poder dizer
-     * "desliguei o PC" em vez de "apaguei um arquivo" — distinguir os dois pela {@code descricao}
-     * seria farejar texto. Para o {@link #tratar}, nada muda: a frase esperada é derivada de
-     * "não é rotina", então este tipo continua caindo em {@code "confirmo pc <código>"}.
+     * Separado do {@code "pc"} genérico só para o diário de ações poder dizer "desliguei o PC" em
+     * vez de "apaguei um arquivo" — distinguir os dois pela {@code descricao} seria farejar texto.
+     * Para o {@link #tratar}, nada muda: a frase esperada é derivada de "não é rotina", então este
+     * tipo continua caindo em {@code "confirmo pc <código>"}.
      */
     public static final String TIPO_PC_ENERGIA = "pc_energia";
+
+    /**
+     * O tipo da pendência de apagar <b>muitos</b> arquivos de uma vez.
+     *
+     * <p>Apagar um arquivo não pergunta mais — vai para a lixeira e volta pelo
+     * {@code restaurar_arquivo}. O que pergunta é o pedido que apaga em massa, e ele é <b>uma</b>
+     * pendência para a lista inteira. De propósito este tipo <b>não</b> está no
+     * {@link #tipoNoDiario}: o {@code Supplier} anota uma linha por arquivo, cada uma com o
+     * {@code idLixeira} que a desfaz, e mapeá-lo aqui somaria uma linha agregada em cima dessas.
+     * Para o {@link #tratar} nada muda: a frase esperada é derivada de "não é rotina", então
+     * {@code pc_lixeira} também cai em {@code confirmo pc <código>}.
+     */
+    public static final String TIPO_PC_LIXEIRA = "pc_lixeira";
 
     /** O quanto a aprovação espera pelo usuário. Quanto mais grave a ação, menos tempo em aberto. */
     public enum Risco {
@@ -250,7 +263,12 @@ public class Aprovacoes {
         return resposta;
     }
 
-    /** Tipo desconhecido devolve null e só não é anotado: pendência nova não pode quebrar o "sim". */
+    /**
+     * Tipo desconhecido devolve null e só não é anotado: pendência nova não pode quebrar o "sim".
+     *
+     * <p>O {@link #TIPO_PC_LIXEIRA} está fora daqui <b>de propósito</b>, e não por esquecimento:
+     * ele anota uma linha por arquivo de dentro do próprio {@code Supplier}.
+     */
     private static TipoDeAcao tipoNoDiario(String tipo) {
         return switch (tipo) {
             case "rotina" -> TipoDeAcao.ROTINA;

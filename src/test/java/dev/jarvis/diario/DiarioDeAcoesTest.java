@@ -157,6 +157,32 @@ class DiarioDeAcoesTest {
     }
 
     @Test
+    @DisplayName("a referência que desfaz a ação sobrevive ao restart, e o JSON antigo volta sem ela")
+    void aReferenciaSobreviveAoDisco() throws Exception {
+        var relogio = new RelogioFalso("2026-10-15T12:00:00Z");
+        var antes = subir(relogio);
+        antes.registrar(TipoDeAcao.APAGAR_ARQUIVO, "apaguei velho.md", OrigemDaAcao.TELEGRAM,
+                "f3a1c0de-0000-0000-0000-000000000001");
+        antes.registrar(TipoDeAcao.EDICAO_ARQUIVO, "editei nota.md", OrigemDaAcao.TELEGRAM);
+        antes.aguardar();
+
+        String gravado = Files.readString(pasta.resolve("2026-10-15.json"));
+        assertTrue(gravado.contains("f3a1c0de-0000-0000-0000-000000000001"), gravado);
+        assertEquals(1, gravado.split("\"referencia\"", -1).length - 1,
+                "ação sem nada a desfazer não carrega campo vazio: " + gravado);
+
+        var depois = subir(relogio);
+        var acoes = depois.deHoje().acoes();
+
+        assertEquals("f3a1c0de-0000-0000-0000-000000000001", acoes.stream()
+                .filter(a -> a.tipo() == TipoDeAcao.APAGAR_ARQUIVO).findFirst().orElseThrow()
+                .referencia());
+        assertEquals("", acoes.stream().filter(a -> a.tipo() == TipoDeAcao.EDICAO_ARQUIVO)
+                .findFirst().orElseThrow().referencia(),
+                "campo ausente no JSON é 'nada a desfazer', não um erro de leitura");
+    }
+
+    @Test
     @DisplayName("o período soma os dias e omite o dia em que o Jarvis estava desligado")
     void periodoSomaOsDiasComMovimento() {
         var relogio = new RelogioFalso("2026-10-15T12:00:00Z");

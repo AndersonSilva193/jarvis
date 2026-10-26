@@ -13,9 +13,15 @@ import java.time.Instant;
  * <p>Vem cortada em {@link #MAX_DESCRICAO} caracteres pela régua da {@code Ficha} de
  * {@code listar_memorias}, e pelo mesmo motivo: isto é lido em voz alta, e vinte linhas longas
  * estourariam o limite de contexto da resposta.
+ *
+ * <p>A {@code referencia} é o que permite <b>desfazer</b> a ação depois: o identificador que o lado
+ * de lá devolveu — hoje o {@code idLixeira} de um {@code apagar_arquivo} —, vazia quando a ação não
+ * tem volta ou não precisa de uma. Não é falada: quem vai ao ouvido do dono é a {@code descricao},
+ * e um UUID lido em voz alta não ajuda ninguém. Como a descrição, é <b>dado real</b> de quem
+ * executou, nunca texto escrito pelo modelo.
  */
 public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao,
-        OrigemDaAcao origem) {
+        OrigemDaAcao origem, String referencia) {
 
     /** O corte da descrição. Um nome de arquivo com caminho longo caberia; um parágrafo, não. */
     public static final int MAX_DESCRICAO = 120;
@@ -29,6 +35,12 @@ public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao
         }
         descricao = encurtar(descricao);
         origem = origem == null ? OrigemDaAcao.DESCONHECIDA : origem;
+        referencia = referencia == null ? "" : referencia.strip();
+    }
+
+    /** Ação sem nada para desfazer, que é a maioria. Mantém quem monta a linha com quatro campos. */
+    public AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao, OrigemDaAcao origem) {
+        this(instante, tipo, descricao, origem, "");
     }
 
     private static String encurtar(String bruto) {

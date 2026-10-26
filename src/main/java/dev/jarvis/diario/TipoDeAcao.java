@@ -19,6 +19,10 @@ public enum TipoDeAcao {
     EDICAO_ARQUIVO("edicao_arquivo", "edição de arquivo", "edições de arquivo", true),
     DESFAZER_EDICAO("desfazer_edicao", "edição desfeita", "edições desfeitas", true),
     RESTAURAR_ARQUIVO("restaurar_arquivo", "arquivo restaurado", "arquivos restaurados", true),
+    // Apagar vai para a lixeira do agente e volta pelo restaurar_arquivo, então não pergunta mais —
+    // e é justamente por isso que o dono só fica sabendo pelo diário. Apagar em massa ainda passa
+    // pelo Aprovacoes, e essa linha aparece sem a marca "(aprovado)": o caminho normal é sem ela.
+    APAGAR_ARQUIVO("apagar_arquivo", "arquivo apagado", "arquivos apagados", true),
     CRIAR_ARQUIVO("criar_arquivo", "arquivo criado", "arquivos criados", true),
     ANOTAR_MEMORIA("anotar_memoria", "anotação na memória", "anotações na memória", true),
     ATUALIZAR_MEMORIA("atualizar_memoria", "memória corrigida", "memórias corrigidas", true),
@@ -26,7 +30,6 @@ public enum TipoDeAcao {
     // ---- o que ele só faz depois de um "sim" ("pergunta antes")
     ROTINA("rotina", "rotina executada", "rotinas executadas", false),
     COMPUTER_USE("computer_use", "tarefa no monitor", "tarefas no monitor", false),
-    APAGAR_ARQUIVO("apagar_arquivo", "arquivo apagado", "arquivos apagados", false),
     DESLIGAR_PC("desligar_pc", "PC desligado", "vezes que desliguei o PC", false),
     ESQUECER_MEMORIA("esquecer_memoria", "memória esquecida", "memórias esquecidas", false),
     TAREFA_PLANILHA("tarefa_planilha", "tarefa de planilha agendada",

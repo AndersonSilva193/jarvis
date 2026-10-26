@@ -138,8 +138,10 @@ class DiarioEmArquivo {
             return null;
         }
         OrigemDaAcao origem = OrigemDaAcao.porChave(Json.texto(no.path("origem")));
+        // Campo ausente no JSON de uma versão anterior volta vazio, que é "nada a desfazer".
         return new AcaoRegistrada(quando, tipo, Json.texto(no.path("descricao")),
-                origem == null ? OrigemDaAcao.DESCONHECIDA : origem);
+                origem == null ? OrigemDaAcao.DESCONHECIDA : origem,
+                Json.texto(no.path("referencia")));
     }
 
     /** Grava o dia inteiro. Lança {@link IOException} para quem chamou decidir o que logar. */
@@ -157,6 +159,11 @@ class DiarioEmArquivo {
             no.put("tipo", acao.tipo().chave());
             no.put("descricao", acao.descricao());
             no.put("origem", acao.origem().chave());
+            // Só quando há algo a desfazer: a maioria das linhas não tem, e um campo vazio em
+            // centenas delas é peso no JSON do dia sem dizer nada.
+            if (!acao.referencia().isBlank()) {
+                no.put("referencia", acao.referencia());
+            }
         }
 
         ArquivoAtomico.gravar(arquivoDe(estado.dia()), json.writeValueAsString(raiz));

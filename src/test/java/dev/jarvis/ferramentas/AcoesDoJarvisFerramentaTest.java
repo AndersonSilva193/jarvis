@@ -80,15 +80,20 @@ class AcoesDoJarvisFerramentaTest {
     void aprovadaVemMarcada() {
         var relogio = new RelogioFalso("2026-10-15T15:00:00Z");
         var diario = diario(relogio);
-        diario.registrar(TipoDeAcao.APAGAR_ARQUIVO, "apagar velho.md", OrigemDaAcao.TELEGRAM);
+        diario.registrar(TipoDeAcao.ROTINA, "Executar rotina backup", OrigemDaAcao.TELEGRAM);
         diario.registrar(TipoDeAcao.EDICAO_ARQUIVO, "editei nota.md", OrigemDaAcao.TELEGRAM);
+        // Apagar virou "faz e avisa": vai para a lixeira e volta sozinho, então a linha dele não
+        // pode dizer "aprovado" — o dono não autorizou nada.
+        diario.registrar(TipoDeAcao.APAGAR_ARQUIVO, "apaguei velho.md", OrigemDaAcao.TELEGRAM);
         diario.aguardar();
 
         String fala = ferramenta(diario).executar(entrada(null, null));
 
-        assertTrue(fala.contains("apagar velho.md (aprovado)"), fala);
+        assertTrue(fala.contains("Executar rotina backup (aprovado)"), fala);
         assertFalse(fala.contains("editei nota.md (aprovado)"),
                 "edição é feita sem perguntar; marcá-la de aprovada seria mentira: " + fala);
+        assertFalse(fala.contains("apaguei velho.md (aprovado)"),
+                "apagar um arquivo também não pergunta mais: " + fala);
     }
 
     @Test

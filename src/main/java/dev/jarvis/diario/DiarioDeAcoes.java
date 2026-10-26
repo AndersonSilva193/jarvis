@@ -108,8 +108,18 @@ public class DiarioDeAcoes {
      * testemunha disso, não a condição para que aconteça.
      */
     public void registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem) {
+        registrar(tipo, descricao, origem, "");
+    }
+
+    /**
+     * Como o {@link #registrar(TipoDeAcao, String, OrigemDaAcao)}, guardando o identificador que
+     * desfaz a ação — o {@code idLixeira} de um arquivo apagado, por exemplo.
+     */
+    public void registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+            String referencia) {
         try {
-            AcaoRegistrada acao = new AcaoRegistrada(relogio.instant(), tipo, descricao, origem);
+            AcaoRegistrada acao = new AcaoRegistrada(relogio.instant(), tipo, descricao, origem,
+                    referencia);
             synchronized (trava) {
                 virarSePrecisar(hojeLocal());
                 if (!dia.somar(acao) && dia.descartadas() == 1) {
@@ -126,7 +136,13 @@ public class DiarioDeAcoes {
 
     /** Atalho de quem registra uma ação de ferramenta, traduzindo o canal do {@code Ouvinte}. */
     public void registrarDoCanal(TipoDeAcao tipo, String descricao, String canal) {
-        registrar(tipo, descricao, OrigemDaAcao.porCanal(canal));
+        registrar(tipo, descricao, OrigemDaAcao.porCanal(canal), "");
+    }
+
+    /** Como o {@link #registrarDoCanal(TipoDeAcao, String, String)}, com o que desfaz a ação. */
+    public void registrarDoCanal(TipoDeAcao tipo, String descricao, String canal,
+            String referencia) {
+        registrar(tipo, descricao, OrigemDaAcao.porCanal(canal), referencia);
     }
 
     /**

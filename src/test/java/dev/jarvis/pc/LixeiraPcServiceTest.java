@@ -103,6 +103,38 @@ class LixeiraPcServiceTest {
     }
 
     @Test
+    @DisplayName("vários IDs saem de uma varredura só, não de uma por arquivo")
+    void loteNumaVarreduraSo() throws Exception {
+        pcOnline();
+        agenteComPaginas(3);
+
+        // O alvo mora na última página, e os "outro-N.md" nas anteriores: pedir os três de uma vez
+        // tem de custar as mesmas três páginas que custaria achar só o último.
+        var nomes = lixeira.nomesPorIds(List.of(
+                "00000001-0000-0000-0000-000000000000",
+                "00000002-0000-0000-0000-000000000000",
+                ALVO), CONTEXTO);
+
+        assertEquals(3, nomes.size());
+        assertEquals("outro-1.md", nomes.get("00000001-0000-0000-0000-000000000000"));
+        assertEquals("planilha_de_teste.xlsx", nomes.get(ALVO));
+        assertEquals(3, recebidos.size(), "três idas ao PC, não nove");
+    }
+
+    @Test
+    @DisplayName("ID que o catálogo não tem simplesmente não aparece no mapa do lote")
+    void loteOmiteOQueNaoExiste() throws Exception {
+        pcOnline();
+        agenteComPaginas(1);
+
+        var nomes = lixeira.nomesPorIds(List.of(ALVO,
+                "99999999-9999-9999-9999-999999999999", "nao-e-id"), CONTEXTO);
+
+        assertEquals(1, nomes.size(), "quem chama compara com o que pediu e recusa o pedido");
+        assertTrue(nomes.containsKey(ALVO));
+    }
+
+    @Test
     @DisplayName("ID malformado nem chega ao PC")
     void idMalformadoNaoVaiAoPc() throws Exception {
         pcOnline();

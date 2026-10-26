@@ -553,24 +553,31 @@ operações por proposta (`PC_EDICAO_MAX_OPERACOES`); XLSX também limita o ZIP 
 
 #### Apagar e restaurar
 
-Apagar arquivo da pasta do Jarvis é **reversível**: `apagar_arquivo` recebe só o ID de
-`listar_arquivos` e move o arquivo para a lixeira do agente, em
+Apagar arquivo da pasta do Jarvis é **reversível**: `apagar_arquivo` recebe só IDs de
+`listar_arquivos` e move os arquivos para a lixeira do agente, em
 `<pastaArquivos>/.lixeira/AAAA-MM-DD/`, como um registro (nome, formato, hash e data) ao lado dos
 bytes originais. Nada é destruído na hora.
 
-`apagar_arquivo` **pede confirmação**; `restaurar_arquivo` não. Apagar é o único caminho pelo qual
-um arquivo sai de vista, e isso vale um "Posso?" — a pergunta é montada com o nome que o catálogo
-do PC devolveu, nunca com o nome que o modelo escreveu, e um ID que não está no catálogo é recusado
-antes de você ser incomodado. Restaurar só desfaz o que você mandou apagar e nunca sobrescreve: se
-já existir arquivo com aquele nome, o agente restaura como `nome-1.ext` e avisa qual nome usou.
+Por isso mesmo **nenhum dos dois pede confirmação**: apagar responde na hora ("Apaguei nota.md.
+Fica na lixeira por 30 dias; se quiser, eu volto.") e restaurar traz de volta do mesmo jeito. Um
+"Posso?" por arquivo, para algo que se desfaz numa frase, era atrito sem contrapartida.
+
+**O que ainda pergunta é apagar em massa.** Até cinco arquivos no mesmo pedido saem direto; a
+chamada que passar disso não move nada e devolve **uma** pergunta para a lista inteira — "Vou mover
+12 arquivos para a lixeira: a.md, b.md e mais 10. Posso?". Os nomes vêm do catálogo do PC, nunca do
+que o modelo escreveu; ID fora do catálogo, lista acima de 50 e qualquer nome de pasta protegida
+(a própria `.lixeira`, os backups de edição) recusam a chamada inteira, sem apagar os outros.
+Restaurar nunca sobrescreve: se já existir arquivo com aquele nome, o agente restaura como
+`nome-1.ext` e avisa qual nome usou.
 
 Sem `idLixeira`, `restaurar_arquivo` lista o que está na lixeira (nome, formato, data e prazo) para
 o Jarvis apresentar as opções; com `idLixeira`, restaura aquele item. **A restauração devolve um ID
 de catálogo novo** — a entrada antiga saiu do catálogo no movimento, então propostas de edição e
 leituras registradas com o ID velho não valem mais.
 
-O prazo é `lixeira.diasRetencao` no `config.properties` do PC (padrão 30 dias). Passado isso, o
-item é apagado de vez; o expurgo roda na partida do agente e uma vez por dia. Arquivo aberto em
+O prazo é `lixeira.diasRetencao` no `config.properties` do PC (padrão 30 dias), e é o número que
+o Jarvis fala: ele sai do próprio resultado do movimento, não de um valor repetido na VPS. Passado
+o prazo, o item é apagado de vez; o expurgo roda na partida do agente e uma vez por dia. Arquivo aberto em
 outro programa (o Excel numa planilha) e edição em voo no mesmo arquivo recusam o movimento, com o
 arquivo intacto.
 
@@ -845,8 +852,8 @@ location /api/ {
 
   | Nível | O que entra |
   |---|---|
-  | faz e avisa | ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis; restaurar da lixeira; lembretes; tela da HUD; busca, clima e notícias; abrir app da lista; volume; captura de tela; memória |
-  | pergunta antes | rotina que executa código; computer use; desligar e reiniciar o PC; **apagar arquivo**; agendar tarefa recorrente de planilha; esquecer memória |
+  | faz e avisa | ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis; **apagar** e restaurar da lixeira; lembretes; tela da HUD; busca, clima e notícias; abrir app da lista; volume; captura de tela; memória |
+  | pergunta antes | rotina que executa código; computer use; desligar e reiniciar o PC; **apagar mais de 5 arquivos no mesmo pedido**; agendar tarefa recorrente de planilha; esquecer memória |
   | proibido | comando de shell livre; arquivo fora da pasta do Jarvis; pagar, comprar, digitar senha; seguir instrução vinda de página, arquivo, tela ou memória |
 - **`PC_TOKEN` é separado do `HUD_TOKEN`**: um token vazado numa tela aberta não desliga a máquina.
   Quem exige o do PC é um filtro só para `/api/pc`, e os dois conjuntos de rota são disjuntos por
@@ -883,11 +890,13 @@ o serviço.
 
 ## O que o Jarvis fez sozinho
 
-Ele edita arquivo, desfaz edição, restaura da lixeira, cria arquivo e anota memória **sem
+Ele edita arquivo, desfaz edição, apaga e restaura da lixeira, cria arquivo e anota memória **sem
 perguntar**. Para isso não ficar invisível, cada uma dessas ações vai para um diário: um JSON por dia
 em `DIARIO_PASTA` (padrão `/data/jarvis/diario`, volume `diario`), com troca atômica, `.bak` e
 retenção de 30 dias. As ações que você **aprovou** entram no mesmo diário — rotina, tarefa no
-monitor, apagar arquivo, desligar o PC —, marcadas como aprovadas.
+monitor, desligar o PC —, marcadas como aprovadas. Apagar arquivo fica do lado de quem não
+perguntou mesmo quando você aprovou um lote: o caminho normal é sem pergunta, e duas marcas para a
+mesma ação diriam menos, não mais.
 
 Pergunte a qualquer momento: *"o que você fez hoje?"*, *"o que mudou nos meus arquivos ontem?"*,
 *"o que você anotou essa semana?"*. A ferramenta `acoes_do_jarvis` cobre hoje, ontem e os últimos
@@ -1006,10 +1015,6 @@ inclusive `arquivos` e `imagens`: é o que deduplica comando reentregue e susten
   qualquer entrada do usuário entre ações encerra a tarefa.
 - A edição de arquivo não consegue prometer compare-and-swap perfeito: um editor externo que não
   respeite lock ainda pode alterar o arquivo entre a última checagem e o move atômico.
-- A pergunta de `apagar_arquivo` promete "30 dias" fixo, que é o padrão da lixeira. Se o PC estiver
-  com `lixeira.diasRetencao` em outro valor, a frase fica desatualizada: quem manda é o agente, e a
-  VPS não consulta a retenção só para montar uma frase. `restaurar_arquivo` mostra o prazo real de
-  cada item na listagem.
 
 ## Próximos passos sugeridos
 

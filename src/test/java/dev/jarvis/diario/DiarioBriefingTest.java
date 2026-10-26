@@ -46,16 +46,18 @@ class DiarioBriefingTest {
         diario.registrar(TipoDeAcao.EDICAO_ARQUIVO, "editei outra.md", OrigemDaAcao.HUD);
         diario.registrar(TipoDeAcao.ANOTAR_MEMORIA, "anotei \"stack\"", OrigemDaAcao.ANOTADOR);
         diario.registrar(TipoDeAcao.DESLIGAR_PC, "desligar o PC", OrigemDaAcao.TELEGRAM);
-        diario.registrar(TipoDeAcao.APAGAR_ARQUIVO, "apagar velho.md", OrigemDaAcao.TELEGRAM);
+        diario.registrar(TipoDeAcao.APAGAR_ARQUIVO, "apaguei velho.md", OrigemDaAcao.TELEGRAM);
         diario.aguardar();
 
         var contagem = diario.autonomasDesdeOUltimoBriefing();
 
-        assertEquals(2, contagem.size(), "só os dois tipos autônomos entram");
+        assertEquals(3, contagem.size(), "só os tipos autônomos entram");
         assertEquals(2, contagem.get(TipoDeAcao.EDICAO_ARQUIVO));
         assertEquals(1, contagem.get(TipoDeAcao.ANOTAR_MEMORIA));
+        // Apagar virou "faz e avisa": vai para a lixeira sem perguntar, então é justamente uma das
+        // coisas que o dono só descobre pelo briefing.
+        assertEquals(1, contagem.get(TipoDeAcao.APAGAR_ARQUIVO));
         assertNull(contagem.get(TipoDeAcao.DESLIGAR_PC), "desligar foi aprovado: o dono já sabe");
-        assertNull(contagem.get(TipoDeAcao.APAGAR_ARQUIVO), "apagar foi aprovado: o dono já sabe");
     }
 
     @Test

@@ -2,7 +2,14 @@ package dev.jarvis.pc;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
@@ -61,20 +68,44 @@ public class LixeiraPcService {
      * substring), então a varredura é por página mesmo. Vazio quando o ID não está lá.
      */
     public Optional<String> nomePorId(String id, OuvinteProgresso contexto) throws Exception {
-        if (id == null || !id.matches("[0-9a-fA-F-]{36}")) return Optional.empty();
+        if (id == null) return Optional.empty();
+        return Optional.ofNullable(nomesPorIds(List.of(id), contexto).get(id.toLowerCase(Locale.ROOT)));
+    }
+
+    /**
+     * Os nomes catalogados destes IDs, numa <b>varredura só</b>.
+     *
+     * <p>Existe pelo lote do {@code apagar_arquivo}: chamar o {@link #nomePorId} cinquenta vezes
+     * seriam cinquenta idas ao PC no caminho crítico de um turno, cada uma podendo percorrer as dez
+     * páginas. Aqui as páginas são percorridas uma vez e todos os IDs pedidos são colhidos de
+     * passagem, parando assim que não falta nenhum.
+     *
+     * <p>As chaves do mapa vêm em minúsculas, como os IDs comparados: o catálogo devolve UUID, e
+     * casar maiúscula com minúscula aqui seria dizer que um arquivo que existe não existe. ID que
+     * não está no catálogo simplesmente não aparece no mapa.
+     */
+    public Map<String, String> nomesPorIds(Collection<String> ids, OuvinteProgresso contexto)
+            throws Exception {
+        Set<String> procurados = new LinkedHashSet<>();
+        for (String id : ids)
+            if (id != null && id.matches("[0-9a-fA-F-]{36}")) procurados.add(id.toLowerCase(Locale.ROOT));
+        Map<String, String> achados = new LinkedHashMap<>();
+        if (procurados.isEmpty()) return achados;
         for (int pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
             var pedido = json.createObjectNode()
                     .put("pagina", pagina).put("tamanhoPagina", TAMANHO_PAGINA);
             ResultadoPc resultado = executar("listar_arquivos", pedido, contexto);
-            if (!resultado.ok() || resultado.dados() == null) return Optional.empty();
+            if (!resultado.ok() || resultado.dados() == null) return achados;
             // "arquivos", não "itens": o catálogo e a lixeira têm chaves diferentes, e confundi-las
             // faz a varredura achar uma lista vazia e jurar que o arquivo não existe.
-            for (JsonNode item : resultado.dados().path("arquivos"))
-                if (id.equalsIgnoreCase(Json.texto(item.path("id"))))
-                    return Optional.of(Json.texto(item.path("nome")));
-            if (!resultado.dados().path("temMais").asBoolean(false)) return Optional.empty();
+            for (JsonNode item : resultado.dados().path("arquivos")) {
+                String id = Json.texto(item.path("id")).toLowerCase(Locale.ROOT);
+                if (procurados.contains(id)) achados.put(id, Json.texto(item.path("nome")));
+            }
+            if (achados.size() == procurados.size()) return achados;
+            if (!resultado.dados().path("temMais").asBoolean(false)) return achados;
         }
-        return Optional.empty();
+        return achados;
     }
 
     /** Move para a lixeira pelo ID do catálogo. O agente guarda os bytes e o registro. */
