@@ -1,11 +1,7 @@
 package dev.jarvis.ferramentas;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
-import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.util.Json;
@@ -66,33 +62,8 @@ public class RodarRotinaFerramenta implements Ferramenta {
         }
     }
 
+    /** O enfileiramento mora no {@code OperacoesPcService}: o monitor de sites usa o mesmo. */
     private String iniciar(String nome, String pedido, OuvinteProgresso contexto) {
-        if (!e2.online() || e2.rotinas().stream().noneMatch(r -> r.nome().equals(nome)))
-            return "Agente offline ou rotina removida; não iniciei.";
-        ObjectNode dados = json.createObjectNode().put("pedido", pedido)
-                .put("confirmado", true);
-        ComandoPc comando = new ComandoPc(java.util.UUID.randomUUID().toString(),
-                "rodar_rotina", nome, Instant.now().toString(), dados);
-        try {
-            var futuro = e2.enfileirar(comando, Duration.ofSeconds(60),
-                    Duration.ofHours(1), contexto.canal(),
-                    contexto.usuarioAutenticado());
-            try {
-                var resultado = futuro.get(30, TimeUnit.SECONDS);
-                return "Operação " + comando.id() + ": "
-                        + (resultado.ok() ? "concluída" : "falhou") + ". " + resultado.mensagem();
-            } catch (java.util.concurrent.TimeoutException espera) {
-                e2.pedirAviso(comando.id());
-                return "Operação " + comando.id() + " em estado "
-                        + e2.estado(comando.id()).orElseThrow().estado()
-                        + ". Consulte status_operacao_pc pelo ID; o resultado final será avisado.";
-            }
-        } catch (InterruptedException interrompida) {
-            e2.pedirAviso(comando.id());
-            Thread.currentThread().interrupt();
-            return "Operação " + comando.id() + " enviada; consulte o estado pelo ID.";
-        } catch (Exception falha) {
-            return "Não iniciei a rotina: " + falha.getMessage();
-        }
+        return e2.iniciarRotina(nome, pedido, contexto.canal(), contexto.usuarioAutenticado());
     }
 }

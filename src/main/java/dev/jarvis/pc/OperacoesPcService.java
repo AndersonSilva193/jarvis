@@ -277,6 +277,47 @@ public class OperacoesPcService {
     }
     public List<RotinaPublica> rotinas() { return rotinas; }
 
+    /**
+     * Enfileira uma rotina do catálogo e descreve em uma frase o que aconteceu.
+     *
+     * <p>Mora aqui, e não na {@code RodarRotinaFerramenta}, porque há <b>dois</b> pedintes: a
+     * ferramenta (o dono pedindo) e o {@code MonitorDeSites} (o Jarvis oferecendo depois de uma
+     * queda). São as mesmas vinte e cinco linhas de enfileirar, esperar trinta segundos, pedir
+     * aviso no timeout e traduzir cada saída — e duas cópias disso divergem na primeira correção
+     * que alguém fizer num lado só.
+     *
+     * <p>Revalida catálogo e {@link #online()} <b>na hora da execução</b>, e não só no pedido: no
+     * caminho da aprovação passam minutos entre o "Posso?" e o "pode", e o agente pode ter saído
+     * do ar nesse meio.
+     */
+    public String iniciarRotina(String nome, String pedido, String canal, long usuario) {
+        if (!online() || rotinas.stream().noneMatch(r -> r.nome().equals(nome)))
+            return "Agente offline ou rotina removida; não iniciei.";
+        ObjectNode dados = json.createObjectNode().put("pedido", pedido).put("confirmado", true);
+        ComandoPc comando = new ComandoPc(java.util.UUID.randomUUID().toString(),
+                "rodar_rotina", nome, Instant.now().toString(), dados);
+        try {
+            var futuro = enfileirar(comando, Duration.ofSeconds(60), Duration.ofHours(1), canal,
+                    usuario);
+            try {
+                var resultado = futuro.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                return "Operação " + comando.id() + ": "
+                        + (resultado.ok() ? "concluída" : "falhou") + ". " + resultado.mensagem();
+            } catch (java.util.concurrent.TimeoutException espera) {
+                pedirAviso(comando.id());
+                return "Operação " + comando.id() + " em estado "
+                        + estado(comando.id()).orElseThrow().estado()
+                        + ". Consulte status_operacao_pc pelo ID; o resultado final será avisado.";
+            }
+        } catch (InterruptedException interrompida) {
+            pedirAviso(comando.id());
+            Thread.currentThread().interrupt();
+            return "Operação " + comando.id() + " enviada; consulte o estado pelo ID.";
+        } catch (Exception falha) {
+            return "Não iniciei a rotina: " + falha.getMessage();
+        }
+    }
+
     @Scheduled(fixedRate = 10_000)
     public synchronized void varrer() {
         Instant agora = relogio.instant(); boolean mudou = false;

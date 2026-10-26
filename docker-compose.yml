@@ -27,6 +27,9 @@ services:
       # O diário de ações: o que o Jarvis fez sozinho e o que foi aprovado, 30 dias.
       # Sem ele o dono perde o rastro da autonomia a cada restart.
       - diario:/data/jarvis/diario
+      # O historico de disponibilidade dos sites: um JSON por dia, 30 dias. Sem ele o Jarvis
+      # avisa a queda e esquece que ela aconteceu.
+      - proativo:/data/jarvis/proativo
       - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
@@ -46,4 +49,5 @@ volumes:
   historico:
   custo:
   diario:
+  proativo:
   pc-operacoes:

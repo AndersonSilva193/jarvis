@@ -115,6 +115,18 @@ jarvis:
     # Um JSON por dia com o que o Jarvis fez sozinho e o que fez depois de um "sim",
     # 30 dias guardados. Volume nomeado "diario".
     pasta: ${DIARIO_PASTA:/data/jarvis/diario}
+  proativo:
+    # Faixa em que o Jarvis não fala sem ser chamado. Cruza a meia-noite; o que acontecer dentro
+    # dela é entregue junto, numa mensagem, no fim. Mesma hora nos dois lados = sem silêncio.
+    # Entre aspas porque sem elas o YAML leria os ":" do default como mapa.
+    silencio: "${PROATIVO_SILENCIO:23:00-07:00}"
+    # Histórico de disponibilidade por site: um JSON por dia, 30 dias. Volume nomeado "proativo".
+    pasta: ${PROATIVO_PASTA:/data/jarvis/proativo}
+    # Minutos entre duas checagens dos SITES_MONITORADOS. Um site só é dado como fora depois de
+    # duas checagens seguidas com falha, então o aviso chega em até o dobro disso.
+    sites-intervalo-minutos: ${SITES_INTERVALO_MINUTOS:5}
+    # Formato: nome_do_site=nome_da_rotina  (a rotina tem de existir no agente do PC)
+    sites-acoes: ${SITES_ACOES:}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

@@ -51,6 +51,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
 | `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
+| `dev.jarvis.proativo` | O Jarvis falando primeiro: `AvisosProativos` (o único caminho do aviso não pedido), `MonitorDeSites`, `FalasService` (o catálogo das frases, com marcadores), `JanelaDeSilencio` e `HistoricoDeDisponibilidade`/`DisponibilidadeEmArquivo`/`DiaDeDisponibilidade` (o JSON por dia no volume `proativo`) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
@@ -385,6 +386,104 @@ ficar muda seria pior que uma frase sem charme.
 `@EventListener aoTela` que já existe no `EventosHud`, que repassa pelo `nome` — tipo novo de
 `TelaEvento` chega à HUD sem fiação nova de SSE.
 
+## O Jarvis falando primeiro
+
+Até aqui tudo que o Jarvis dizia era resposta a um pedido — menos o resumo das 8h, que o dono
+agendou, e o aviso de teto de custo. O `MonitorDeSites` muda isso: ele acompanha os
+`SITES_MONITORADOS` a cada `SITES_INTERVALO_MINUTOS` e avisa quando um site cai e quando volta.
+Antes dele o `SitesService` só era consultado quando alguém perguntava — no briefing e no
+`verificar_site` —, então uma API que caísse às duas da tarde de terça aparecia no briefing de
+quarta.
+
+**Todo aviso não pedido passa pelo `AvisosProativos`, e por mais nada.** Ele é o único lugar onde
+moram as três regras de boa educação, e aviso novo as herda sem ninguém lembrar delas:
+
+- **Horário de silêncio** (`PROATIVO_SILENCIO`, padrão `23:00-07:00`, no fuso configurado). Dentro
+  dele nada sai, e o aviso **não é descartado**: entra numa fila e é entregue junto, numa mensagem
+  só, no primeiro tique de minuto depois do fim da janela. Um site que caiu às 2h ainda importa às
+  7h; o que não importa é o telefone apitando às 2h. A `JanelaDeSilencio` **cruza a meia-noite** de
+  propósito, e é por isso que não é um par de `LocalTime` comparado com `isBefore` — com a
+  comparação ingênua, `23:00-07:00` nunca conteria hora alguma e o silêncio jamais valeria.
+- **Sem repetir**: a dupla *chave do evento + estado* é lembrada (`site:loja` + `fora`), e o mesmo
+  estado não é anunciado duas vezes. "O site caiu" é notícia; "o site continua caído" o dono já
+  sabe.
+- **Um destino só**, o `TELEGRAM_USUARIO_PERMITIDO`. Zero, ninguém é avisado — e aí nem se acumula,
+  porque guardar para ninguém é só memória gasta.
+
+**Duas checagens com falha, não uma.** Uma requisição HTTP sozinha erra por motivos que não são o
+site: um deploy de trinta segundos, um DNS lento, um pico de rede na VPS. Avisar na primeira
+treinaria o dono a ignorar o aviso, que é o único jeito de um monitor falhar de vez. A volta, ao
+contrário, é anunciada na **primeira** checagem boa: a assimetria é de propósito, porque o custo de
+demorar a dizer "voltou" é o dono preocupado à toa. O `desde` que a frase afirma é o instante da
+**primeira** falha da sequência, não o da segunda — é a hora em que o site caiu.
+
+### A pergunta nasce com a mensagem, não antes
+
+Com uma rotina associada em `SITES_ACOES` (`nome_do_site=nome_da_rotina`), o aviso termina num
+"Posso rodar a rotina X para tentar resolver?" criado no `Aprovacoes` com risco `COMUM`. Três
+detalhes que o desenho resolve e que são fáceis de errar:
+
+- **A pergunta entra como `Supplier`, não como texto**, e só é avaliada quando a mensagem realmente
+  sai. É isso que cumpre "durante o silêncio, não crie pendência": uma pendência `COMUM` vale dez
+  minutos, e criada às 2h expiraria horas antes de o dono ler a pergunta — ele responderia "pode" a
+  um "Posso?" que já não existe. Mesmo idioma do `Supplier` do `Aprovacoes`, pelo mesmo motivo: a
+  ação nasce no instante em que faz sentido.
+- **O monitor confere `pendenciaDe` antes de `pedir`.** O `Aprovacoes.pedir` *sobrescreve calado*
+  uma pendência do mesmo usuário com outro `pedidoOrigem` (a exceção é só para outro usuário ou
+  para o mesmo pedido). Sem essa checagem, um site caindo no instante errado trocaria o "Posso?"
+  que o dono está lendo por outro, e o "pode" dele executaria algo que ele não leu. Havendo
+  pendência em aberto, o aviso sai **sem** a pergunta.
+- **O `pedidoOrigem` é sintético** (`proativo:site_fora:<site>:<instante>`), porque `pedir` exige
+  usuário autenticado e pedido de origem, e a confirmação só vale em **mensagem nova**. Um id que
+  nunca colide com o de uma mensagem real é o que faz a próxima mensagem do dono poder confirmar.
+
+O `tipo` da pendência é o **`"rotina"`** que já existe, e não um novo: é literalmente uma rotina, a
+frase fixa já é `confirmo rotina <código>` e o `Aprovacoes.tipoNoDiario` já a anota como
+`TipoDeAcao.ROTINA` — a execução aprovada entra no diário sem tocar em `Aprovacoes`. O
+enfileiramento em si mora no `OperacoesPcService.iniciarRotina`, que a `RodarRotinaFerramenta`
+passou a chamar: são os mesmos trinta segundos de espera e o mesmo `pedirAviso` no timeout, e duas
+cópias disso divergiriam na primeira correção feita num lado só.
+
+### O resultado estruturado do `SitesService`
+
+O `checar(String)` devolve **prosa** (`"HTTP 502 em 80 ms (ERRO no servidor)"`), que é o que o
+briefing lê e onde o `InicializacaoService` procura a marca `(OK)`. Decidir "o site caiu" a partir
+dela significaria farejar texto — acerta hoje e erra calado no dia em que a frase mudar, e um aviso
+proativo é uma afirmação, não um palpite. Então o `SitesService` ganhou `situacaoDe(url)` e
+`checarTodasAsSituacoes()`, que devolvem `Situacao(ok, status, ms, motivo)`, e o `checar` virou a
+**casca que formata** — o texto não mudou um caractere. É o desenho do `ConsultaArquivosPc`, onde
+`consultar` devolve o dado e `executar` serializa.
+
+### O histórico de disponibilidade conta, não lista
+
+`HistoricoDeDisponibilidade` guarda um `AAAA-MM-DD.json` por dia no volume `proativo`, 30 dias, com
+a troca atômica do `ArquivoAtomico` — o desenho do `DiarioDeAcoes`, incluindo a gravação
+write-behind numa thread virtual única, a virada do dia preguiçosa **e** por cron de meia-noite, e o
+expurgo também na partida.
+
+O que muda é a granularidade: aqui o dia é **agregado por site** (`checagens`, `falhas`, `quedas`),
+e é a razão que o `CustoDiarioEmArquivo` já documenta. Um site checado a cada cinco minutos dá 288
+checagens por dia; três sites por trinta dias dariam 26 mil linhas para responder a uma pergunta que
+é *um número* — "quanto o site ficou no ar em outubro?". O diário de ações **não** agrega pela razão
+oposta: "o que você fez hoje?" quer os fatos, um por um. Por isso também não há teto de linhas: o
+tamanho do dia depende de quantos sites existem, não de quantas vezes algo aconteceu.
+
+**Dia sem arquivo é dia omitido**, não dia com 100%: zero falhas ali afirmaria "estava tudo no ar"
+onde a verdade é "eu estava desligado". O `serieDiaria(int)` já devolve os pontos prontos para uma
+fonte nova do `grafico_de_dados` — que são os dois lugares de sempre,
+`GraficoDeDadosFerramenta.FONTES` e um `case` no `executarDetalhado`, e ainda não foram tocados.
+
+### Aviso novo toca dois lugares
+
+Uma frase no `FalasService.FALAS` e uma chamada a `AvisosProativos.avisar(chave, estado, texto,
+perguntaSeAgora)`. O catálogo é fechado como o do `FalaDaTela`, pelo mesmo motivo — o aviso chega
+sem ninguém ter pedido, e o dono não tem como conferir de onde o texto veio. O que o `FalaDaTela`
+não tem são os **marcadores**: `{site}`, `{desde}`, `{motivo}` e `{duracao}`, cujos valores saem de
+dado real (relógio, nome do site, motivo da checagem), nunca de texto do modelo. É a regra da
+`pergunta` do `Aprovacoes` e da `descricao` do `DiarioDeAcoes`. Situação desconhecida e marcador sem
+valor **estouram**: uma mensagem chegando ao Telegram com um `{motivo}` literal é pior que um teste
+vermelho.
+
 ## O que o Jarvis anota sozinho
 
 As ferramentas de memória atendem a pedido explícito. O `AnotadorDeMemoria` atende ao resto: ele
@@ -642,13 +741,34 @@ Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. U
 o `PC_TOKEN` (`jarvis.pc.token`), usado pelo `TokenPcFiltro`: vazio, `/api/pc` recusa tudo com 401
 e o controle do PC fica desligado.
 
-Atenção ao `JarvisProperties`: é um record de 20 componentes, construído **por posição** em mais
+Atenção ao `JarvisProperties`: é um record de 21 componentes, construído **por posição** em mais
 de vinte arquivos de teste. Acrescente componente **no fim**, e prefira esticar um dos blocos
 aninhados (`Pc`, `ComputerUse`, `Historico`…) a criar outro no topo. Os construtores de
 compatibilidade no fim da classe existem justamente para os testes antigos continuarem compilando
 — quando criar um componente novo, decida se ele entra num desses atalhos ou se os testes passam
 a informá-lo. O `Diario` que virou o 20º é o exemplo do barato: o atalho novo repete a aridade
 anterior (19 parâmetros) e passa `null`, e nenhum dos testes que informavam `Custo` precisou mudar.
+O `Proativo` que virou o 21º fez o mesmo com a aridade 20.
+
+Um detalhe de nome que custa uma hora se for descoberto no bind: `SITES_INTERVALO_MINUTOS` e
+`SITES_ACOES` moram em `jarvis.proativo.*`, e **não** em `jarvis.sites.*`. O `jarvis.sites` já é o
+escalar com a lista de URLs, e um bloco com o mesmo nome colidiria com ele. Pela mesma razão a
+faixa de silêncio vai entre aspas no `application.yml` (`"${PROATIVO_SILENCIO:23:00-07:00}"`): sem
+elas o YAML leria os dois-pontos do default como um mapa.
+
+### Os avisos proativos
+
+`PROATIVO_SILENCIO` (a faixa em que nada sai), `PROATIVO_PASTA` (volume `proativo`),
+`SITES_INTERVALO_MINUTOS` e `SITES_ACOES` são as quatro do bloco `jarvis.proativo`. Os 30 dias de
+retenção do histórico e as **duas** falhas seguidas antes de dar um site como fora são
+**constantes** (`HistoricoDeDisponibilidade.DIAS_GUARDADOS` e `MonitorDeSites.FALHAS_PARA_AVISAR`),
+pela regra de sempre: não vale um componente num record construído por posição para um número que
+ninguém vai mexer — e o 2 não é um ajuste de gosto, é o desenho.
+
+O intervalo é o único número que o `@Scheduled` lê direto do yml
+(`fixedDelayString = "${jarvis.proativo.sites-intervalo-minutos:5}"`, em minutos), como o
+`jarvis.resumo-diario.cron` já faz. O acessor `intervaloDeChecagemDeSites()` existe para quem
+monta as properties à mão, com piso de 1 minuto.
 
 ### O diário de ações
 
@@ -704,7 +824,7 @@ tempo um turno vale, não quantos entram no prompt.
   **apagar arquivo** — vai para a lixeira, e mais de 5 no mesmo pedido pergunta uma vez — e
   **restaurar da lixeira**, lembretes, tela, busca, clima, abrir app da lista, volume, captura,
   listar, gravar e corrigir memória, **desfazer o que o anotador gravou**, **dizer o que ele
-  próprio fez**), *pergunta antes*
+  próprio fez**, **acompanhar os sites e avisar que um caiu ou voltou**), *pergunta antes*
   (rotina que executa código, computer use, desligar e reiniciar,
   agendar tarefa de planilha, esquecer memória) e *proibido* (shell livre,
   arquivo fora da pasta, pagar, comprar, digitar senha, e seguir instrução vinda de página,
@@ -764,13 +884,19 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
   `/data/voz`; o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
   Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
-  `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou. Todos
-  usam a troca atômica do `ArquivoAtomico`.
+  `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou; e a
+  disponibilidade dos sites em `PROATIVO_PASTA` (volume `proativo`), um JSON por data por 30 dias.
+  Todos usam a troca atômica do `ArquivoAtomico`.
 - **O diário guarda até 500 ações por dia.** Passando disso ele conta as descartadas e a
   `acoes_do_jarvis` avisa que a lista está incompleta — não há paginação, e o que foi recusado não
   volta. Um dia honesto tem dezenas; 500 é laço de ferramenta, não trabalho.
 - **O histórico da conversa vale 72 h**, e são ainda `MAX_TURNOS_HISTORICO` (10) turnos por prompt:
   o que mudou é por quanto tempo um turno sobrevive no disco, não quantos o modelo vê.
+- **A fila do silêncio e a memória de "o que eu já avisei" são em memória.** Um restart no meio da
+  madrugada perde o que o `AvisosProativos` tinha acumulado para entregar às 7h, e o
+  `MonitorDeSites` volta sem saber que um site já estava fora — então ele precisa de duas checagens
+  novas para avisar outra vez. O que **não** se perde é o histórico de disponibilidade, que está no
+  volume `proativo`.
 - O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC, a fila de mensagens do
   Telegram e as confirmações pendentes são **em memória**: depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, qualquer confirmação pendente se perde e o que estava

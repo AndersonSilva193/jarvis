@@ -38,12 +38,29 @@ public record JarvisProperties(
         Lembretes lembretes,
         Historico historico,
         Custo custo,
-        Diario diario) {
+        Diario diario,
+        Proativo proativo) {
 
     private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public JarvisProperties { }
+
+    /**
+     * A aridade de antes dos avisos proativos.
+     *
+     * Mesmo motivo de todos os atalhos daqui: os testes que informam o bloco {@code Diario} montam
+     * este record <b>por posição</b>, e um componente novo no fim os quebraria todos de uma vez.
+     */
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            ComputerUse computerUse, Google google, Memoria memoria, Lembretes lembretes,
+            Historico historico, Custo custo, Diario diario) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, lembretes,
+                historico, custo, diario, null);
+    }
 
     /**
      * A aridade de antes do diário de ações.
@@ -249,6 +266,27 @@ public record JarvisProperties(
      */
     public record Diario(String pasta) { }
 
+    /**
+     * Os avisos que o Jarvis manda sem ter sido chamado.
+     *
+     * <p>{@code sitesIntervaloMinutos} e {@code sitesAcoes} moram aqui, e não num bloco
+     * {@code sites}, por um motivo bem concreto: {@code jarvis.sites} já é o <b>escalar</b> com a
+     * lista de URLs, e {@code jarvis.sites.algo} colidiria com ele no bind.
+     *
+     * @param silencio faixa de horas em que nada sai, no formato {@code "23:00-07:00"}. Quem a
+     *                 interpreta é a {@code JanelaDeSilencio}, uma vez só — aqui fica o texto cru,
+     *                 como nos preços do {@code Custo}.
+     * @param sitesAcoes {@code nome_do_site=nome_da_rotina}, separados por vírgula. A rotina só
+     *                   existe se o agente do PC a anunciar; site fora de SITES_MONITORADOS é
+     *                   ignorado com WARN.
+     */
+    public record Proativo(String silencio, String pasta, int sitesIntervaloMinutos,
+            String sitesAcoes) {
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Proativo { }
+        public Proativo(String silencio, String pasta) { this(silencio, pasta, 5, ""); }
+    }
+
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
     public boolean youtubeConfigurado() {
         return youtube != null && youtube.apiKey() != null && !youtube.apiKey().isBlank();
@@ -312,6 +350,66 @@ public record JarvisProperties(
     public Path pastaDoDiario() {
         String caminho = diario == null ? null : diario.pasta();
         return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/diario" : caminho);
+    }
+
+    /** Pasta do histórico de disponibilidade, no volume montado em /data/jarvis/proativo. */
+    public Path pastaDoProativo() {
+        String caminho = proativo == null ? null : proativo.pasta();
+        return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/proativo" : caminho);
+    }
+
+    /** A faixa de silêncio crua. Quem a interpreta é a {@code JanelaDeSilencio}, uma vez só. */
+    public String silencioProativo() {
+        String faixa = proativo == null ? null : proativo.silencio();
+        return faixa == null ? "" : faixa;
+    }
+
+    /**
+     * Rotina associada a cada site, para o aviso de queda poder oferecer uma saída.
+     *
+     * <p>Site que não está em {@link #sitesMonitorados()} é <b>recusado com WARN</b>, e não
+     * simplesmente guardado: uma rotina amarrada a um nome com typo nunca dispararia, e o dono
+     * descobriria isso justamente no dia em que precisasse dela.
+     */
+    public Map<String, String> acoesDeSites() {
+        Map<String, String> mapa = new LinkedHashMap<>();
+        String config = proativo == null ? null : proativo.sitesAcoes();
+        if (config == null || config.isBlank()) {
+            return mapa;
+        }
+        Map<String, String> conhecidos = sitesMonitorados();
+        for (String par : config.split(",")) {
+            String entrada = par.trim();
+            if (entrada.isEmpty()) {
+                continue;
+            }
+            String[] partes = entrada.split("=", 2);
+            if (partes.length < 2 || partes[0].isBlank() || partes[1].isBlank()) {
+                log.warn("SITES_ACOES: entrada mal formada ignorada: {}", entrada);
+                continue;
+            }
+            String site = partes[0].trim();
+            String rotina = partes[1].trim();
+            if (!conhecidos.containsKey(site)) {
+                log.warn("SITES_ACOES: site '{}' não está em SITES_MONITORADOS; entrada ignorada",
+                        site);
+                continue;
+            }
+            if (mapa.containsKey(site)) {
+                log.warn("SITES_ACOES: site '{}' repetido; mantida a primeira rotina e ignorada "
+                        + "a rotina '{}'", site, rotina);
+                continue;
+            }
+            mapa.put(site, rotina);
+        }
+        return mapa;
+    }
+
+    /** Minutos entre duas checagens do monitor de sites, com 5 de padrão e piso de 1. */
+    public int intervaloDeChecagemDeSites() {
+        int minutos = proativo == null || proativo.sitesIntervaloMinutos() <= 0
+                ? 5 : proativo.sitesIntervaloMinutos();
+        return Math.max(1, minutos);
     }
 
     /** A tabela de preços crua. Quem a interpreta é a {@code TabelaDePrecos}, uma vez só. */
