@@ -182,6 +182,48 @@ class HistoricoPersistenteTest {
         desligado.fechar();
     }
 
+    /**
+     * Histórico gravado por uma versão que guardava o turno inteiro: ao carregar, ele é compactado.
+     *
+     * <p>São dois turnos de propósito, porque na carga vale a mesma regra de sempre — o último
+     * volta completo e os anteriores não. Com um turno só nada seria compactado, e o teste passaria
+     * sem provar nada.
+     */
+    @Test void historicoAntigoEmDiscoEhCompactadoAoCarregar() throws Exception {
+        String id = "3f9c1a20-4b7e-4c11-9d02-7a1e55c8b3df";
+        String listagem = "{\"arquivos\":[{\"id\":\"" + id + "\",\"nome\":\"notas.md\"}]}";
+        ObjectNode chamou = JSON.createObjectNode().put("role", "assistant");
+        chamou.putArray("content").addObject().put("type", "tool_use").put("id", "tu_1")
+                .put("name", "listar_arquivos").set("input", JSON.createObjectNode());
+        ObjectNode devolveu = JSON.createObjectNode().put("role", "user");
+        devolveu.putArray("content").addObject().put("type", "tool_result")
+                .put("tool_use_id", "tu_1").put("content", listagem);
+        ObjectNode respondeu = JSON.createObjectNode().put("role", "assistant");
+        respondeu.putArray("content").addObject().put("type", "text").put("text", "Você tem notas.md.");
+        List<ObjectNode> antigo = List.of(mensagem("user", "lista meus arquivos"), chamou, devolveu,
+                respondeu);
+        List<ObjectNode> recente = List.of(mensagem("user", "obrigado"), mensagem("assistant", "De nada."));
+
+        HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
+        arquivo.gravarAgora(42, 42, List.of(antigo, recente), List.of());
+
+        HistoricoEmArquivo depois = store(Duration.ofHours(24));
+        Assistente depoisDoRestart = assistente(depois, new RegistroConversas(evento -> { }));
+        depoisDoRestart.restaurarHistorico();
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(resposta("Pois não, senhor."));
+        depoisDoRestart.responder(42, "e agora?", Canal.TELEGRAM);
+
+        String enviado = ultimasMensagens().toString();
+        assertFalse(enviado.contains("tool_use"), "o turno antigo não reenvia a chamada de ferramenta");
+        assertFalse(enviado.contains("tool_result"), "nem o resultado dela");
+        assertTrue(enviado.contains("[ferramentas: listar_arquivos → notas.md (id " + id + ")]"),
+                "o que sobra é a nota, com o identificador inteiro");
+        assertTrue(enviado.contains("Você tem notas.md."), "a resposta antiga continua lá");
+        assertTrue(enviado.contains("De nada."), "e o turno mais recente volta inteiro");
+    }
+
     private HistoricoEmArquivo store(Duration validade) {
         HistoricoEmArquivo criado = new HistoricoEmArquivo(pasta, validade, JSON);
         abertos.add(criado);

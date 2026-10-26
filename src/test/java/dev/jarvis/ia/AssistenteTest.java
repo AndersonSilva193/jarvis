@@ -680,4 +680,251 @@ class AssistenteTest {
                 any(ArrayNode.class), any(ArrayNode.class));
         assertEquals("Vou desligar o PC em 60 segundos. Posso?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow());
     }
+
+    // ---- O histórico compacto: turno antigo não reenvia resultado de ferramenta nem busca ----
+
+    /** Um UUID de verdade: é o que o catálogo devolve, e é inteiro que ele tem de voltar na nota. */
+    private static final String ID_NOTAS = "3f9c1a20-4b7e-4c11-9d02-7a1e55c8b3df";
+    private static final String ID_IDEIAS = "a7d2e418-91bc-4f03-8e55-2c6b0d94af17";
+    private static final String LISTAGEM = "{\"arquivos\":["
+            + "{\"id\":\"" + ID_NOTAS + "\",\"nome\":\"notas.md\"},"
+            + "{\"id\":\"" + ID_IDEIAS + "\",\"nome\":\"ideias.md\"}]}";
+
+    private Assistente assistenteCom(int turnosCompletos, Ferramenta... lista) {
+        return new Assistente(claude, new Ferramentas(List.of(lista), JSON),
+                new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
+                        JSON, props()),
+                JSON, new RegistroConversas(evento -> { }), new dev.jarvis.conversa.AnexosService(),
+                BuscaWebServidor.desligada(), new Aprovacoes(),
+                dev.jarvis.conversa.HistoricoEmArquivo.desligado(),
+                ClassificadorDeResposta.semModelo(), null,
+                new dev.jarvis.memoria.EsquecimentosDeMemoria(),
+                new CompactadorDeHistorico(JSON, turnosCompletos, 1500));
+    }
+
+    /** Resposta que pede uma ferramenta e, de quebra, já traz os blocos de uma busca na web. */
+    private static JsonNode chamadaComBusca(String nome, ObjectNode entrada) {
+        var resposta = JSON.createObjectNode().put("stop_reason", "tool_use");
+        ArrayNode conteudo = resposta.putArray("content");
+        blocosDeBusca(conteudo);
+        conteudo.addObject().put("type", "tool_use").put("id", "tu_1").put("name", nome)
+                .set("input", entrada);
+        return resposta;
+    }
+
+    @Test
+    @DisplayName("turno antigo com busca e ferramenta é guardado compacto: nenhum dos quatro blocos volta")
+    void turnoComBuscaEFerramentasEhGuardadoCompacto() throws Exception {
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(chamadaComBusca("listar_arquivos", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
+                .thenReturn(respostaComPensamento("Pronto, senhor."));
+
+        Assistente agente = assistenteCom(0, ferramentaDeFluxo("listar_arquivos", LISTAGEM));
+        agente.responder(1L, "lista meus arquivos");
+        agente.responder(1L, "obrigado");
+
+        ArrayNode segundoPedido = mensagensEnviadas().getLast();
+        for (String tipo : List.of("tool_use", "tool_result", "server_tool_use", "web_search_tool_result")) {
+            assertTrue(blocosDe(segundoPedido, tipo).isEmpty(),
+                    "o turno antigo não pode reenviar blocos de " + tipo);
+        }
+        assertEquals(3, segundoPedido.size(),
+                "o turno antigo cabe em duas mensagens, mais o pedido novo");
+        assertFalse(segundoPedido.toString().contains("EqgfCioIARgBIiQ3"),
+                "o encrypted_content sai junto com o par inteiro da busca");
+    }
+
+    @Test
+    @DisplayName("a nota compacta traz a ferramenta, os identificadores inteiros e a consulta da busca")
+    void notaCompactaTrazOsIdentificadores() throws Exception {
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(chamadaComBusca("listar_arquivos", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
+                .thenReturn(respostaComPensamento("Pronto, senhor."));
+
+        Assistente agente = assistenteCom(0, ferramentaDeFluxo("listar_arquivos", LISTAGEM));
+        agente.responder(1L, "lista meus arquivos");
+        agente.responder(1L, "obrigado");
+
+        String segundoPedido = mensagensEnviadas().getLast().toString();
+        assertTrue(segundoPedido.contains("[ferramentas: listar_arquivos → notas.md (id " + ID_NOTAS + ")"),
+                "o nome da ferramenta e o identificador saem de dado real, montados em Java");
+        assertTrue(segundoPedido.contains("ideias.md (id " + ID_IDEIAS + ")"));
+        assertTrue(segundoPedido.contains("busca na web: 'prefeito de Curitiba'"),
+                "a consulta vem do input.query do server_tool_use");
+        assertTrue(segundoPedido.contains("Você tem notas.md e ideias.md."),
+                "a resposta final continua no histórico");
+    }
+
+    @Test
+    @DisplayName("com HISTORICO_TURNOS_COMPLETOS=1 o turno imediatamente anterior fica inteiro")
+    void turnoAnteriorFicaCompleto() throws Exception {
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(chamada("listar_arquivos", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
+                .thenReturn(respostaComPensamento("Certo, senhor."))
+                .thenReturn(respostaComPensamento("Pronto, senhor."));
+
+        Assistente agente = assistenteCom(1, ferramentaDeFluxo("listar_arquivos", LISTAGEM));
+        agente.responder(1L, "lista meus arquivos");
+        agente.responder(1L, "obrigado");
+        List<ArrayNode> ate2 = mensagensEnviadas();
+        assertFalse(blocosDe(ate2.getLast(), "tool_result").isEmpty(),
+                "logo depois da listagem o turno anterior ainda tem o resultado inteiro");
+
+        agente.responder(1L, "e agora?");
+        ArrayNode terceiroPedido = mensagensEnviadas().getLast();
+        assertTrue(blocosDe(terceiroPedido, "tool_result").isEmpty(),
+                "um turno depois, a listagem já saiu");
+        assertTrue(terceiroPedido.toString().contains("notas.md (id " + ID_NOTAS + ")"),
+                "o que sobra dela é a nota, com o identificador inteiro");
+    }
+
+    @Test
+    @DisplayName("o que é enviado continua válido para a Messages API depois da compactação")
+    void formatoAceitoPelaApi() throws Exception {
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(chamadaComBusca("listar_arquivos", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
+                .thenReturn(chamada("listar_arquivos", JSON.createObjectNode().put("nome", "ideias")))
+                .thenReturn(respostaComPensamento("Pronto, senhor."));
+
+        Assistente agente = assistenteCom(0, ferramentaDeFluxo("listar_arquivos", LISTAGEM));
+        agente.responder(1L, "lista meus arquivos");
+        agente.responder(1L, "e o ideias?");
+
+        for (ArrayNode enviadas : mensagensEnviadas()) {
+            conferirFormatoDaApi(enviadas);
+        }
+    }
+
+    /**
+     * O contrato que a Messages API cobra, conferido sem rede: papéis alternando, nada vazio e
+     * nenhum resultado órfão. É o que prova que tirar os dois blocos da busca <b>juntos</b> — e o
+     * par tool_use/tool_result junto — deixa a conversa válida.
+     */
+    private static void conferirFormatoDaApi(ArrayNode mensagens) {
+        String anterior = "";
+        for (int i = 0; i < mensagens.size(); i++) {
+            JsonNode mensagem = mensagens.get(i);
+            String papel = mensagem.path("role").stringValue();
+            assertTrue("user".equals(papel) || "assistant".equals(papel), "papel válido: " + papel);
+            assertFalse(papel.equals(anterior), "os papéis têm de alternar, e repetiram em " + i);
+            anterior = papel;
+            JsonNode conteudo = mensagem.path("content");
+            if (conteudo.isString()) {
+                assertFalse(conteudo.stringValue().isBlank(), "content vazio a API recusa");
+            } else {
+                assertFalse(conteudo.isEmpty(), "content vazio a API recusa");
+            }
+            // Todo tool_result referencia um tool_use da mensagem imediatamente anterior.
+            for (JsonNode bloco : conteudo.isArray() ? conteudo : JSON.createArrayNode()) {
+                String tipo = bloco.path("type").stringValue();
+                if (!"tool_result".equals(tipo) && !"web_search_tool_result".equals(tipo)) continue;
+                String id = bloco.path("tool_use_id").stringValue();
+                JsonNode origem = "tool_result".equals(tipo) ? mensagens.get(i - 1) : mensagem;
+                assertTrue(temChamada(origem, id), "tool_result órfão: " + id);
+            }
+            // E todo tool_use tem o resultado dele na mensagem seguinte.
+            for (JsonNode bloco : conteudo.isArray() ? conteudo : JSON.createArrayNode()) {
+                if (!"tool_use".equals(bloco.path("type").stringValue())) continue;
+                String id = bloco.path("id").stringValue();
+                assertTrue(i + 1 < mensagens.size() && temResultado(mensagens.get(i + 1), id),
+                        "tool_use sem resultado: " + id);
+            }
+        }
+    }
+
+    private static boolean temChamada(JsonNode mensagem, String id) {
+        for (JsonNode bloco : mensagem.path("content")) {
+            String tipo = bloco.path("type").stringValue();
+            if (("tool_use".equals(tipo) || "server_tool_use".equals(tipo))
+                    && id.equals(bloco.path("id").stringValue())) return true;
+        }
+        return false;
+    }
+
+    private static boolean temResultado(JsonNode mensagem, String id) {
+        for (JsonNode bloco : mensagem.path("content")) {
+            if ("tool_result".equals(bloco.path("type").stringValue())
+                    && id.equals(bloco.path("tool_use_id").stringValue())) return true;
+        }
+        return false;
+    }
+
+    @Test
+    @DisplayName("compactar o que já está compacto devolve a mesma coisa: a nota sobrevive")
+    void compactacaoEhIdempotente() throws Exception {
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(chamada("listar_arquivos", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
+                .thenReturn(respostaComPensamento("Certo, senhor."))
+                .thenReturn(respostaComPensamento("Pronto, senhor."));
+
+        Assistente agente = assistenteCom(0, ferramentaDeFluxo("listar_arquivos", LISTAGEM));
+        agente.responder(1L, "lista meus arquivos");
+        agente.responder(1L, "obrigado");
+        agente.responder(1L, "e agora?");
+
+        String terceiroPedido = mensagensEnviadas().getLast().toString();
+        assertTrue(terceiroPedido.contains("notas.md (id " + ID_NOTAS + ")"),
+                "a nota do primeiro turno continua inteira depois de duas passadas");
+        assertTrue(terceiroPedido.contains("Você tem notas.md e ideias.md."),
+                "e a resposta não encolheu de novo");
+    }
+
+    @Test
+    @DisplayName("logo depois de listar, 'apaga o segundo' ainda alcança o identificador")
+    void apagaOSegundoLogoDepoisDeListar() throws Exception {
+        List<String> apagados = new ArrayList<>();
+        Ferramenta apagar = new Ferramenta() {
+            public String nome() { return "apagar_arquivo"; }
+            public String descricao() { return "Apaga arquivo"; }
+            public ObjectNode esquemaEntrada() { return JSON.createObjectNode().put("type", "object"); }
+            public String executar(JsonNode entrada) {
+                apagados.add(entrada.path("id").stringValue());
+                return "Apaguei ideias.md. Fica na lixeira por 30 dias; se quiser, eu volto.";
+            }
+        };
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(chamada("listar_arquivos", JSON.createObjectNode()))
+                .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
+                .thenReturn(chamada("apagar_arquivo", JSON.createObjectNode().put("id", ID_IDEIAS)))
+                .thenReturn(respostaComPensamento("Apaguei ideias.md, senhor."));
+
+        Assistente agente = assistenteCom(1, ferramentaDeFluxo("listar_arquivos", LISTAGEM), apagar);
+        agente.responder(1L, "lista meus arquivos");
+        agente.responder(1L, "apaga o segundo");
+
+        assertTrue(mensagensEnviadas().get(2).toString().contains(ID_IDEIAS),
+                "a listagem inteira ainda está lá quando o modelo escolhe o alvo");
+        assertEquals(List.of(ID_IDEIAS), apagados);
+    }
+
+    @Test
+    @DisplayName("resposta longa é cortada no histórico, com reticências")
+    void respostaLongaEhCortadaNoHistorico() throws Exception {
+        String longa = "a".repeat(4_000);
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+                any(ArrayNode.class)))
+                .thenReturn(respostaComPensamento(longa))
+                .thenReturn(respostaComPensamento("Pronto, senhor."));
+
+        Assistente agente = assistenteCom(0);
+        agente.responder(1L, "me conta tudo");
+        agente.responder(1L, "obrigado");
+
+        JsonNode resposta = mensagensEnviadas().getLast().get(1);
+        String guardada = resposta.path("content").stringValue();
+        assertEquals("assistant", resposta.path("role").stringValue());
+        assertEquals(1500, guardada.length(), "o teto é HISTORICO_MAX_CARACTERES_RESPOSTA");
+        assertTrue(guardada.endsWith("[…]"));
+    }
 }

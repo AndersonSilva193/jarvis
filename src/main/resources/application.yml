@@ -100,6 +100,10 @@ jarvis:
     pasta: ${HISTORICO_PASTA:/data/jarvis/historico}
     # Três dias: com 24 h a conversa de sexta-feira não existia mais na segunda.
     validade-horas: ${HISTORICO_VALIDADE_HORAS:72}
+    # Quantos turnos do fim ficam inteiros, com os resultados de ferramenta. 0 compacta todos.
+    turnos-completos: ${HISTORICO_TURNOS_COMPLETOS:1}
+    # Teto da resposta guardada no turno compacto; o que passa disso sai com "[…]".
+    max-caracteres-resposta: ${HISTORICO_MAX_CARACTERES_RESPOSTA:1500}
   custo:
     # Um JSON por dia com o gasto, 90 dias guardados. Volume nomeado "custo".
     pasta: ${CUSTO_PASTA:/data/jarvis/custo}

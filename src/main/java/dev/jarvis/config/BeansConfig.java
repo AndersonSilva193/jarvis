@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import dev.jarvis.conversa.HistoricoEmArquivo;
+import dev.jarvis.ia.CompactadorDeHistorico;
 import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
@@ -28,6 +29,17 @@ public class BeansConfig {
     @Bean
     public HistoricoEmArquivo historicoEmArquivo(JarvisProperties config, JsonMapper json) {
         return new HistoricoEmArquivo(config.pastaDoHistorico(), config.validadeDoHistorico(), json);
+    }
+
+    /**
+     * Quem encolhe os turnos antigos do histórico. Fica aqui pelo mesmo motivo do de cima: os dois
+     * números vêm da configuração, e a classe não conhece o {@link JarvisProperties} — é o que
+     * deixa os testes construí-la com o valor que cada caso precisa.
+     */
+    @Bean
+    public CompactadorDeHistorico compactadorDeHistorico(JarvisProperties config, JsonMapper json) {
+        return new CompactadorDeHistorico(json, config.turnosCompletosNoHistorico(),
+                config.maxCaracteresDaRespostaNoHistorico());
     }
 
     /**

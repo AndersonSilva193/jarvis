@@ -232,11 +232,24 @@ public record JarvisProperties(
     /**
      * Pasta onde o histórico da conversa sobrevive ao restart: um arquivo JSON por chat.
      *
-     * @param validadeHoras idade máxima de um turno restaurado. Conversa de ontem não ajuda a
-     *                      responder a de hoje, e guardar o que o dono falou por tempo
-     *                      indeterminado não é o acordo.
+     * @param validadeHoras         idade máxima de um turno restaurado. Conversa de ontem não
+     *                              ajuda a responder a de hoje, e guardar o que o dono falou por
+     *                              tempo indeterminado não é o acordo.
+     * @param turnosCompletos       quantos turnos do fim ficam inteiros, com os resultados de
+     *                              ferramenta. É {@code Integer} de propósito: <b>zero é um valor
+     *                              legítimo</b> (compactar todos), então a regra
+     *                              "não positivo vira o padrão" dos outros acessores mentiria aqui.
+     * @param maxCaracteresResposta teto da resposta guardada no turno compacto. {@code int} porque
+     *                              zero caractere não quer dizer nada.
      */
-    public record Historico(String pasta, int validadeHoras) { }
+    public record Historico(String pasta, int validadeHoras,
+            Integer turnosCompletos, int maxCaracteresResposta) {
+
+        /** A aridade de antes do histórico compacto, pelo motivo de sempre: construção por posição. */
+        public Historico(String pasta, int validadeHoras) {
+            this(pasta, validadeHoras, null, 0);
+        }
+    }
 
     /**
      * O medidor de custo: onde o diário por dia é gravado, a tabela de preços e o teto que avisa.
@@ -335,6 +348,28 @@ public record JarvisProperties(
     public java.time.Duration validadeDoHistorico() {
         int horas = historico == null || historico.validadeHoras() <= 0 ? 72 : historico.validadeHoras();
         return java.time.Duration.ofHours(horas);
+    }
+
+    /**
+     * Quantos turnos do fim do histórico ficam inteiros, com as idas e vindas de ferramenta.
+     *
+     * <p>Um de padrão: é o que faz "apaga o segundo" e "abre esse" continuarem funcionando logo
+     * depois de uma listagem. Os anteriores viram pedido, resposta e uma nota do que foi usado.
+     * Aparado a dez, que é a própria janela do histórico — pedir mais não guarda mais nada.
+     */
+    public int turnosCompletosNoHistorico() {
+        Integer quantos = historico == null ? null : historico.turnosCompletos();
+        return quantos == null ? 1 : Math.clamp(quantos, 0, 10);
+    }
+
+    /**
+     * Teto da resposta guardada num turno compacto, com 1500 de padrão e piso de 200 — abaixo
+     * disso não sobra resposta, e um turno que só diz "[…]" é pior que nenhum.
+     */
+    public int maxCaracteresDaRespostaNoHistorico() {
+        int teto = historico == null || historico.maxCaracteresResposta() <= 0 ? 1500
+                : historico.maxCaracteresResposta();
+        return Math.max(200, teto);
     }
 
     /** Se o Jarvis anota sozinho. Null-safe: quem monta as properties à mão fica sem o recurso. */

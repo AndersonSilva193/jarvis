@@ -37,7 +37,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | Pacote | Responsabilidade |
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (leitura + filtro de usuário numa thread, fila e um trabalhador na outra) |
-| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
+| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `CompactadorDeHistorico` (encolhe o turno que saiu da janela de turnos completos), `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
@@ -847,6 +847,47 @@ lugares de sempre **e** no fallback de `JarvisProperties.validadeDoHistorico()`,
 para quem monta as properties à mão. O `MAX_TURNOS_HISTORICO` continua 10: o que mudou é por quanto
 tempo um turno vale, não quantos entram no prompt.
 
+### O turno antigo encolhe
+
+Guardar dez turnos **inteiros** por 72 h era o que mais pesava na entrada. O array `messages` é
+remontado do zero a cada passo do `executarLoop`, então um `listar_arquivos` que devolveu o JSON do
+agente, ou uma busca com `encrypted_content`, voltava em todos os pedidos seguintes por três dias.
+
+O `CompactadorDeHistorico` troca o turno velho por **duas** mensagens — o pedido e a resposta final,
+mais uma nota de até 400 caracteres: `[ferramentas: listar_arquivos → notas.md (id <uuid>); busca na
+web: 'preço SSD 1TB']`. Ele é chamado em exatamente dois lugares, os mesmos dois onde o `Deque` já
+era mexido: o fim do turno em `responder` (antes de `arquivo.agendar`, para o disco guardar o que o
+modelo vai receber) e o `restaurarHistorico`, que é como o arquivo gravado pela versão antiga é
+compactado ao carregar. **O turno em andamento não muda**: o laço de ferramentas continua vendo tudo
+do próprio turno.
+
+- **Tirar aos pares é o que a API aceita.** Mexer no `encrypted_content`, ou deixar o
+  `server_tool_use` sem o `web_search_tool_result`, é HTTP 400; levar os dois juntos não é, porque
+  não sobra nada referenciando nada — e vale igual para `tool_use`/`tool_result`. É o que o
+  `AssistenteTest.formatoAceitoPelaApi` confere, sem rede: papéis alternando, nada vazio, nenhum
+  resultado órfão. O javadoc do `semPensamentos` dizia o contrário e foi corrigido.
+- **O identificador vai inteiro.** Os IDs do catálogo são UUIDs de 36 caracteres
+  (`ApagarArquivoFerramenta` exige `[0-9a-fA-F-]{36}`), então abreviar convidaria o modelo a mandar
+  para `apagar_arquivo` um id que nenhuma ferramenta aceita. Cabe menos na nota; o que não couber é
+  contado (`e mais N`), como o teto do `DiaDoDiario`.
+- **A nota é montada em Java, de dado real** — nome do bloco `tool_use`, identificador do resultado,
+  consulta do `input.query`. É a regra da `pergunta` do `Aprovacoes`: deixar o modelo narrar o que
+  ele próprio fez seria deixá-lo escolher o que o Jarvis lembra.
+- **Compactar o que já está compacto tem de devolver a mesma coisa**, senão a nota se perde na
+  segunda passada e a resposta encolhe a cada restart. Quem resolve é o prefixo fixo
+  `[ferramentas: `: a nota é reconhecida na última linha e recolocada, e o corte de
+  `HISTORICO_MAX_CARACTERES_RESPOSTA` incide só sobre o texto, nunca sobre ela.
+- **`HISTORICO_TURNOS_COMPLETOS` (padrão 1)** é o que deixa "apaga o segundo" e "abre esse"
+  funcionando logo depois de uma listagem: o turno imediatamente anterior fica inteiro. Com 0, tudo
+  é compactado. Os dois entraram **esticando o bloco aninhado `Historico`**, com o construtor de
+  compatibilidade de dois argumentos dentro do próprio record — e `turnosCompletos` é `Integer`
+  porque **zero é um valor legítimo**, então o "não positivo vira o padrão" dos outros acessores
+  mentiria aqui.
+
+Por pedido sai uma linha `Histórico enviado: N turno(s), M caracteres`. O par dela é o
+`Claude: entrada=…` do `ClaudeClient`, que é em **tokens**: um diz o que foi montado, o outro o que
+a API cobrou, e é assim que se compara antes e depois junto do `MedidorDeCusto`.
+
 ## Segurança
 
 - **Não existe ferramenta de "executar comando qualquer" — e não crie uma.** Cada ferramenta
@@ -953,8 +994,11 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 - **O diário guarda até 500 ações por dia.** Passando disso ele conta as descartadas e a
   `acoes_do_jarvis` avisa que a lista está incompleta — não há paginação, e o que foi recusado não
   volta. Um dia honesto tem dezenas; 500 é laço de ferramenta, não trabalho.
-- **O histórico da conversa vale 72 h**, e são ainda `MAX_TURNOS_HISTORICO` (10) turnos por prompt:
-  o que mudou é por quanto tempo um turno sobrevive no disco, não quantos o modelo vê.
+- **O histórico da conversa vale 72 h**, e são ainda `MAX_TURNOS_HISTORICO` (10) turnos por prompt.
+  Do que o modelo vê, porém, só os últimos `HISTORICO_TURNOS_COMPLETOS` (1) vêm inteiros: dos
+  anteriores sobram o pedido, a resposta cortada em 1500 caracteres e a nota do que foi usado.
+  Resultado de ferramenta e busca de pedido antigo **não voltam** — quem quiser o detalhe de novo
+  tem de chamar a ferramenta outra vez, e é esse o preço combinado.
 - **A fila do silêncio e a memória de "o que eu já avisei" são em memória.** Um restart no meio da
   madrugada perde o que o `AvisosProativos` tinha acumulado para entregar às 7h, e o
   `MonitorDeSites` volta sem saber que um site já estava fora — então ele precisa de duas checagens

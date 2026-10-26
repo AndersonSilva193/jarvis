@@ -72,6 +72,8 @@ public class Assistente {
     private final Aprovacoes aprovacoes;
     private final ClassificadorDeResposta classificador;
     private final HistoricoEmArquivo arquivo;
+    /** Quem encolhe os turnos antigos: sem ele o histórico reenviaria toda ferramenta de novo. */
+    private final CompactadorDeHistorico compactador;
     /** Opcional: nulo nos construtores enxutos, como o resto das peças de borda desta classe. */
     private final AnotadorDeMemoria anotador;
     /** O recado de que o {@code esquecer_memoria} aprovado apagou algo fora deste turno. */
@@ -163,11 +165,27 @@ public class Assistente {
                 classificador, anotador, new EsquecimentosDeMemoria());
     }
 
-    @Autowired
+    /**
+     * A aridade de antes do histórico compacto: quem não informa o compactador recebe o padrão
+     * (um turno inteiro no fim, resposta cortada em 1500 caracteres). Mesmo idioma do
+     * {@code HistoricoEmArquivo.desligado()} logo acima, e pelo mesmo motivo — são dezenas de
+     * testes montando esta classe à mão.
+     */
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
             AnotadorDeMemoria anotador, EsquecimentosDeMemoria esquecimentos) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, anotador, esquecimentos, CompactadorDeHistorico.padrao(json));
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
+            AnotadorDeMemoria anotador, EsquecimentosDeMemoria esquecimentos,
+            CompactadorDeHistorico compactador) {
+        this.compactador = compactador;
         this.esquecimentos = esquecimentos;
         this.anotador = anotador;
         this.classificador = classificador;
@@ -198,6 +216,9 @@ public class Assistente {
             if (!salvo.turnos().isEmpty()) {
                 Deque<List<ObjectNode>> historico = new ArrayDeque<>(salvo.turnos());
                 while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
+                // Vale a mesma regra de sempre, e é isso que compacta o arquivo gravado por uma
+                // versão que guardava o turno inteiro: o último volta completo, os anteriores não.
+                compactador.aplicar(historico);
                 historicos.put(salvo.chatId(), historico);
             }
             if (salvo.usuario() > 0) usuarioPorChat.put(salvo.chatId(), salvo.usuario());
@@ -404,6 +425,9 @@ public class Assistente {
             } else {
                 historico.addLast(semPensamentos(turno));
                 while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
+                // Antes de ir ao disco, de propósito: o arquivo guarda o que o modelo vai receber,
+                // e não há motivo para gravar um resultado de ferramenta que nunca mais será lido.
+                compactador.aplicar(historico);
                 conversas.concluir(chatId, texto, publica);
                 // Turno concluído, e só agora: nada do que deu erro no meio chega ao disco. A
                 // gravação em si sai numa thread virtual, fora do caminho da resposta.
@@ -528,13 +552,22 @@ public class Assistente {
             // mais uma chamada paga ao modelo para um turno que não vai ser usado.
             if (parado.getAsBoolean()) throw new PedidoInterrompido();
             ArrayNode mensagens = json.createArrayNode();
+            int caracteresDoHistorico = 0;
             for (List<ObjectNode> turnoAnterior : historico) {
                 for (ObjectNode m : turnoAnterior) {
                     mensagens.add(m);
+                    if (passo == 0) caracteresDoHistorico += m.toString().length();
                 }
             }
             for (ObjectNode m : turno) {
                 mensagens.add(m);
+            }
+            // Uma vez por pedido, e só com histórico: é o número que se compara antes e depois da
+            // compactação. O par dele é o "Claude: entrada=..." do ClaudeClient, que é em tokens —
+            // um diz o que foi montado aqui, o outro o que a API cobrou.
+            if (passo == 0 && !historico.isEmpty()) {
+                log.info("Histórico enviado: {} turno(s), {} caracteres",
+                        historico.size(), caracteresDoHistorico);
             }
 
             JsonNode resposta = claude.criarMensagem(Origem.CONVERSA, system, mensagens, definicoes);
@@ -739,6 +772,12 @@ public class Assistente {
      * bloco com HTTP 400 ("block is bound to a different conversation"). Dentro do turno em curso eles
      * continuam intactos, que é o que o laço de ferramentas exige; o que sai é sempre tudo que é
      * anterior, nunca um pedaço do meio.
+     *
+     * <p>Os blocos de ferramenta e de busca ficam, e é o {@link CompactadorDeHistorico} que os tira
+     * quando o turno sai da janela de turnos completos. A diferença está em tirar <b>aos pares</b>:
+     * mexer no {@code encrypted_content} de um {@code web_search_tool_result}, ou deixar o
+     * {@code server_tool_use} sem ele, é HTTP 400; levar os dois juntos não é, porque não sobra
+     * nada referenciando nada.
      */
     private List<ObjectNode> semPensamentos(List<ObjectNode> turno) {
         List<ObjectNode> limpo = new ArrayList<>(turno.size());
