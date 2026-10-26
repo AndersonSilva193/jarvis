@@ -3,7 +3,11 @@ package dev.jarvis.voz;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -13,7 +17,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
-import dev.jarvis.telegram.TelegramClient;
+import dev.jarvis.proativo.AvisosProativos;
+import dev.jarvis.proativo.FalasService;
 
 /**
  * Decide, a cada fala, se o Jarvis usa a voz da ElevenLabs ou a do navegador.
@@ -22,12 +27,35 @@ import dev.jarvis.telegram.TelegramClient;
  * localmente o que gastou — senão um briefing inteiro caberia na janela e a cota estouraria sem
  * aviso. A reserva (VOZ_RESERVA_PCT) existe para a troca acontecer antes do fim do crédito, não
  * depois: quem fala por último é sempre o navegador, nunca o silêncio.
+ *
+ * <p><b>Todos os avisos daqui saem pelo {@link AvisosProativos}</b>, com as frases do
+ * {@link FalasService}. Eles chegam sem ninguém ter pedido, então valem as três regras de lá: nada
+ * sai no horário de silêncio (fica na fila e é entregue junto no fim), o mesmo estado não é
+ * anunciado duas vezes e o destino é só o dono. Antes este monitor falava direto com o
+ * {@code TelegramClient} e tocava o telefone às 3h da manhã.
+ *
+ * <p>São duas chaves de evento, e a separação importa:
+ *
+ * <ul>
+ *   <li>{@code voz:provedor} — de onde a voz sai agora ({@code navegador:reserva},
+ *       {@code navegador:chave}, {@code elevenlabs}). Uma chave para os três porque são estados do
+ *       mesmo fato, e é isso que faz a memória do {@code AvisosProativos} reconhecer a
+ *       repetição.</li>
+ *   <li>{@code voz:cota} — o aviso antecipado. Chave separada porque com a mesma chave ele e o
+ *       aviso de provedor apagariam a memória um do outro.</li>
+ * </ul>
  */
 @Component
 public class MonitorDeCotaVoz {
 
     private static final Logger log = LoggerFactory.getLogger(MonitorDeCotaVoz.class);
     private static final DateTimeFormatter DIA_E_MES = DateTimeFormatter.ofPattern("dd/MM");
+
+    static final String CHAVE_DO_PROVEDOR = "voz:provedor";
+    static final String CHAVE_DA_COTA = "voz:cota";
+
+    /** O período de um plano que não informa data de renovação: um só, para sempre. */
+    static final String PERIODO_SEM_RENOVACAO = "sem-renovacao";
 
     /** Por que a voz está no navegador. Null quando ela está na ElevenLabs. */
     public enum Motivo {
@@ -49,7 +77,8 @@ public class MonitorDeCotaVoz {
     }
 
     private final ElevenLabsVoz elevenLabs;
-    private final TelegramClient telegram;
+    private final AvisosProativos avisos;
+    private final FalasService falas;
     private final DiarioDeVoz diario;
     private final JarvisProperties props;
     private final Clock relogio;
@@ -59,16 +88,17 @@ public class MonitorDeCotaVoz {
     private final AtomicLong usadosDesdeAConsulta = new AtomicLong();
 
     @Autowired
-    public MonitorDeCotaVoz(ElevenLabsVoz elevenLabs, TelegramClient telegram, DiarioDeVoz diario,
-            JarvisProperties props) {
-        this(elevenLabs, telegram, diario, props, Clock.systemUTC());
+    public MonitorDeCotaVoz(ElevenLabsVoz elevenLabs, AvisosProativos avisos, FalasService falas,
+            DiarioDeVoz diario, JarvisProperties props) {
+        this(elevenLabs, avisos, falas, diario, props, Clock.systemUTC());
     }
 
     /** O relógio entra por aqui só nos testes, para a data da renovação ser previsível. */
-    MonitorDeCotaVoz(ElevenLabsVoz elevenLabs, TelegramClient telegram, DiarioDeVoz diario,
-            JarvisProperties props, Clock relogio) {
+    MonitorDeCotaVoz(ElevenLabsVoz elevenLabs, AvisosProativos avisos, FalasService falas,
+            DiarioDeVoz diario, JarvisProperties props, Clock relogio) {
         this.elevenLabs = elevenLabs;
-        this.telegram = telegram;
+        this.avisos = avisos;
+        this.falas = falas;
         this.diario = diario;
         this.props = props;
         this.relogio = relogio;
@@ -157,6 +187,7 @@ public class MonitorDeCotaVoz {
             log.info("Cota de voz: {} de {} caracteres usados ({}%)",
                     novo.usados(), novo.limite(), novo.percentualUsado());
             avaliar(novo);
+            avaliarAvisoAntecipado(novo);
         } catch (CotaDeVozException e) {
             registrarRecusa(e);
         } catch (IOException | RuntimeException e) {
@@ -186,6 +217,79 @@ public class MonitorDeCotaVoz {
         }
     }
 
+    // ---------------------------------------------------------------- aviso antecipado
+
+    /**
+     * O aviso que chega <b>antes</b> de a voz acabar, uma vez por período de cobrança.
+     *
+     * <p>Sem ele o primeiro sinal era o aviso da reserva, que é o instante em que a voz da
+     * ElevenLabs <i>já</i> foi desligada — notícia dada quando não há mais nada a fazer com ela.
+     *
+     * <p>Já estando no navegador o aviso <b>não sai, mas o período é marcado</b>: dizer "a cota está
+     * em 80%" depois do aviso da reserva é repetir o que a mensagem anterior já disse, e marcar
+     * evita reavaliar isso a cada dez minutos pelo resto do período.
+     */
+    private void avaliarAvisoAntecipado(SaldoDeVoz novo) {
+        int limiar = props.avisoDeVozPct();
+        if (limiar <= 0 || !novo.conhecido()) {
+            return;
+        }
+        String periodo = periodoDe(novo);
+        if (periodo.equals(diario.avisoDoPeriodo())) {
+            return;
+        }
+        if (motivo != null) {
+            diario.marcarAvisoDoPeriodo(periodo);
+            return;
+        }
+        if (novo.percentualUsado() < limiar) {
+            return;
+        }
+        // Marca antes de entregar, e marca mesmo que o aviso fique na fila do silêncio: um segundo
+        // aviso idêntico esperando as 7h ao lado do primeiro seria pior que nenhum.
+        diario.marcarAvisoDoPeriodo(periodo);
+        avisos.avisar(CHAVE_DA_COTA, "alta:" + periodo, falaDaCotaAlta(novo), null);
+    }
+
+    /**
+     * A frase do aviso antecipado, com a projeção quando há ritmo para projetar.
+     *
+     * <p>Três situações, nesta ordem: sem média, não dá para projetar; projeção que cai na renovação
+     * ou depois dela significa que a cota <b>não acaba</b>, e uma data posterior ao instante em que
+     * o contador zera não afirmaria nada; o resto é a data projetada.
+     */
+    private String falaDaCotaAlta(SaldoDeVoz novo) {
+        Map<String, String> percentual = Map.of("percentual",
+                String.valueOf(novo.percentualUsado()));
+        OptionalDouble media = diario.mediaDiaria();
+        if (media.isEmpty()) {
+            return falas.frase("voz_cota_alta_sem_projecao", percentual);
+        }
+        // Math.floor de propósito: arredondar para cima prometeria um dia que a cota pode não ter.
+        long dias = (long) Math.floor(novo.restante() / media.getAsDouble());
+        LocalDate acaba = LocalDate.ofInstant(relogio.instant(), props.zona()).plusDays(dias);
+        LocalDate renova = novo.renovaEm() == null ? null
+                : LocalDate.ofInstant(novo.renovaEm(), props.zona());
+        boolean chegaNaRenovacao = renova != null && !acaba.isBefore(renova);
+        return falas.frase(
+                chegaNaRenovacao ? "voz_cota_alta_ate_renovacao" : "voz_cota_alta",
+                Map.of("percentual", String.valueOf(novo.percentualUsado()),
+                        "data", DIA_E_MES.format(chegaNaRenovacao ? renova : acaba)));
+    }
+
+    /**
+     * O período de cobrança, identificado pela data de renovação.
+     *
+     * <p>É o único dado de período que existe — a ElevenLabs informa quando o contador zera, não
+     * quando ele começou. Plano sem essa data avisa uma vez e não volta a avisar, que é melhor que
+     * avisar todo dia.
+     */
+    private static String periodoDe(SaldoDeVoz saldo) {
+        return saldo.renovaEm() == null ? PERIODO_SEM_RENOVACAO : saldo.renovaEm().toString();
+    }
+
+    // ---------------------------------------------------------------- troca de provedor
+
     private void trocarParaNavegador(Motivo novo) {
         if (motivo != null) {
             return;
@@ -193,19 +297,20 @@ public class MonitorDeCotaVoz {
         motivo = novo;
         diario.trocouDeProvedor();
         log.info("Voz no navegador: {}", novo.explicacao());
-        avisar(novo == Motivo.RESERVA
-                ? "Senhor, a cota de voz chegou à reserva. Volto à voz do navegador até "
-                        + renovacao() + "."
+        String texto = novo == Motivo.RESERVA
+                ? falas.frase("voz_na_reserva", Map.of("renovacao", renovacao()))
                 // Chave recusada ou limite de chamadas não têm data para resolver sozinhos, e
                 // mandar "até 31/01" nesse caso seria mentira.
-                : "Senhor, " + novo.explicacao() + ". Volto à voz do navegador.");
+                : falas.frase("voz_indisponivel", Map.of("motivo", novo.explicacao()));
+        avisos.avisar(CHAVE_DO_PROVEDOR, "navegador:" + novo.name().toLowerCase(Locale.ROOT), texto,
+                null);
     }
 
     private void voltarParaElevenLabs() {
         motivo = null;
         diario.trocouDeProvedor();
         log.info("Voz de volta na ElevenLabs: {} caracteres disponíveis", saldo.restante());
-        avisar("Senhor, a cota de voz foi renovada. Volto à minha voz.");
+        avisos.avisar(CHAVE_DO_PROVEDOR, "elevenlabs", falas.frase("voz_renovada", Map.of()), null);
     }
 
     /** Data da renovação em dd/MM, ou "a renovação" quando a API não informa. */
@@ -215,17 +320,5 @@ public class MonitorDeCotaVoz {
             return "a renovação";
         }
         return DIA_E_MES.format(renovaEm.atZone(props.zona()));
-    }
-
-    /**
-     * Um aviso por troca, nunca um por ciclo de dez minutos: quem muda o estado é sempre
-     * trocarParaNavegador/voltarParaElevenLabs, e os dois só agem quando o modo mudou de verdade.
-     */
-    private void avisar(String texto) {
-        long chat = props.telegram() == null ? 0 : props.telegram().usuarioPermitido();
-        if (chat == 0) {
-            return;
-        }
-        telegram.enviarMensagem(chat, texto);
     }
 }

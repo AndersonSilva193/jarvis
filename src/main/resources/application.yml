@@ -56,6 +56,8 @@ jarvis:
     modelo: ${VOZ_MODELO:eleven_flash_v2_5}
     # Por cento da cota que o Jarvis se recusa a gastar. Chegando aí, volta à voz do navegador.
     reserva-pct: ${VOZ_RESERVA_PCT:5}
+    # Uso da cota que dispara o aviso antecipado, uma vez por período de cobrança. 0 desliga.
+    aviso-percentual: ${VOZ_AVISO_PERCENTUAL:80}
   youtube:
     # Chave da YouTube Data API v3. Vazia desliga a ferramenta tocar_youtube.
     api-key: ${YOUTUBE_API_KEY:}

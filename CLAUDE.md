@@ -52,7 +52,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
 | `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
 | `dev.jarvis.proativo` | O Jarvis falando primeiro: `AvisosProativos` (o único caminho do aviso não pedido), `MonitorDeSites`, `FalasService` (o catálogo das frases, com marcadores), `JanelaDeSilencio` e `HistoricoDeDisponibilidade`/`DisponibilidadeEmArquivo`/`DiaDeDisponibilidade` (o JSON por dia no volume `proativo`) |
-| `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva e volta ao navegador), `TextoParaVoz` e `VozService` |
+| `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva, aviso antecipado e volta ao navegador), `DiarioDeVoz` (o uso por dia, de onde sai a projeção), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
@@ -484,6 +484,56 @@ dado real (relógio, nome do site, motivo da checagem), nunca de texto do modelo
 valor **estouram**: uma mensagem chegando ao Telegram com um `{motivo}` literal é pior que um teste
 vermelho.
 
+### A cota de voz avisa antes
+
+O `MonitorDeCotaVoz` é o segundo morador do `AvisosProativos`, e **todos** os seus avisos passam por
+lá: o antecipado, a reserva, a chave recusada e a renovação. Antes ele chamava o `TelegramClient`
+direto — tocava o telefone às 3h da manhã e o primeiro aviso chegava no instante em que a voz da
+ElevenLabs *já* tinha sido desligada, que é notícia dada quando não há mais nada a fazer com ela.
+
+São **duas chaves de evento**, e a separação é o desenho:
+
+| Chave | Estados | Quem avisa |
+|---|---|---|
+| `voz:provedor` | `navegador:reserva`, `navegador:chave`, `elevenlabs` | `trocarParaNavegador` e `voltarParaElevenLabs` |
+| `voz:cota` | `alta:<período>` | o aviso antecipado |
+
+Uma chave para os três de provedor porque são estados do **mesmo fato** ("de onde a voz sai agora"),
+e é assim que a memória do `AvisosProativos` reconhece a repetição. Chave separada para o
+antecipado porque, na mesma, os dois apagariam a memória um do outro.
+
+O antecipado sai quando o uso passa de `VOZ_AVISO_PERCENTUAL` (padrão 80), **uma vez por período de
+cobrança**. O período é o `renovaEm` do `SaldoDeVoz` — é o único dado de período que existe, porque
+a ElevenLabs informa quando o contador zera, não quando ele começou; plano sem essa data avisa uma
+vez e não repete. O marcador fica no `DiarioDeVoz`, em disco, senão um restart reavisaria. Estando a
+voz **já no navegador**, o aviso não sai e o período é marcado: "a cota está em 80%" depois do aviso
+da reserva repete o que a mensagem anterior disse.
+
+**A projeção não é um número do modelo nem um chute.** O `DiarioDeVoz`, que era um contador em
+memória zerando à meia-noite, passou a guardar o uso **por dia** num JSON com a troca atômica do
+`ArquivoAtomico`. Daí sai `mediaDiaria()`, e três regras decidem o que a frase afirma:
+
+- **Hoje não entra na média** — é um dia pela metade, e meio dia de uso puxaria a projeção para
+  longe justamente na hora de avisar.
+- **Dia sem registro é dia omitido**, nunca dia com zero: é a regra do `HistoricoDeDisponibilidade` e
+  do `MedidorDeCusto.serieDiaria`, e aqui zero afirmaria "não falei nada" onde a verdade pode ser
+  "eu estava desligado". A soma é dividida pelos dias **com** registro.
+- **Menos de dois dias completos não é ritmo**: `mediaDiaria()` volta vazio e a frase sai sem
+  projeção.
+
+São **três falas** e não uma com marcador opcional, porque `FalasService.frase` estoura com marcador
+sem valor — `voz_cota_alta` ("dura até {data}"), `voz_cota_alta_ate_renovacao` (a projeção passa da
+renovação, então a cota não acaba e uma data posterior ao zeramento não afirmaria nada) e
+`voz_cota_alta_sem_projecao`. Os dias saem de `Math.floor`: arredondar para cima prometeria um dia
+que a cota pode não ter.
+
+**A armadilha da pasta.** O uso diário mora em `/data/voz/uso/`, numa **subpasta** do volume `voz`.
+`CacheDeVoz.descartarExcedente()` lista todo arquivo *regular* de `/data/voz` e apaga do menos usado
+para o mais usado até caber no teto — um `uso-diario.json` solto ali sairia junto com os MP3 no dia
+em que o cache estourasse, e o `.bak` com ele. `Files.list` não desce em subpasta. A pasta é
+constante na classe, como o `CacheDeVoz.PADRAO`: não vale configuração nova para uma pasta dentro de
+um volume que já está montado.
+
 ## O que o Jarvis anota sozinho
 
 As ferramentas de memória atendem a pedido explícito. O `AnotadorDeMemoria` atende ao resto: ele
@@ -770,6 +820,18 @@ O intervalo é o único número que o `@Scheduled` lê direto do yml
 `jarvis.resumo-diario.cron` já faz. O acessor `intervaloDeChecagemDeSites()` existe para quem
 monta as properties à mão, com piso de 1 minuto.
 
+### O aviso antecipado de voz
+
+`VOZ_AVISO_PERCENTUAL` (padrão 80, `0` desliga só este aviso) entrou **esticando o bloco aninhado
+`Voz`**, como sexto componente, com um construtor de compatibilidade de cinco argumentos dentro do
+próprio record. É o que o CLAUDE.md manda preferir a criar o 22º componente do `JarvisProperties`, e
+nenhuma das três linhas de teste que montam `Voz` por posição precisou mudar. O acessor
+`avisoDeVozPct()` apara para 0-100, como o `reservaDeVozPct()`: um número torto no `.env` não pode
+nem calar o aviso para sempre nem fazê-lo sair a cada consulta.
+
+Os 35 dias de uso guardados, a janela de 7 dias da média e os 2 dias mínimos são **constantes** do
+`DiarioDeVoz` (`DIAS_GUARDADOS`, `JANELA_DA_MEDIA`, `MINIMO_DE_DIAS`), pela regra de sempre.
+
 ### O diário de ações
 
 `DIARIO_PASTA` (`jarvis.diario.pasta`, volume `diario`) é a única configuração do diário. Os 30 dias
@@ -882,7 +944,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   histórico da conversa em `HISTORICO_PASTA` (volume `historico`), um `chat-<id>.json` por chat,
   descartando turno mais velho que `HISTORICO_VALIDADE_HORAS`; memória pessoal em `MEMORIA_PASTA` e
   `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
-  `/data/voz`; o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
+  `/data/voz` e o uso de voz por dia em `/data/voz/uso` (35 dias, mais o marcador do período já
+  avisado); o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
   Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
   `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou; e a
   disponibilidade dos sites em `PROATIVO_PASTA` (volume `proativo`), um JSON por data por 30 dias.
@@ -896,7 +959,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   madrugada perde o que o `AvisosProativos` tinha acumulado para entregar às 7h, e o
   `MonitorDeSites` volta sem saber que um site já estava fora — então ele precisa de duas checagens
   novas para avisar outra vez. O que **não** se perde é o histórico de disponibilidade, que está no
-  volume `proativo`.
+  volume `proativo`, nem o uso de voz e o período já avisado, que estão em `/data/voz/uso` — o aviso
+  de cota é o único que não repete depois de um restart, porque o marcador dele é de disco.
 - O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC, a fila de mensagens do
   Telegram e as confirmações pendentes são **em memória**: depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, qualquer confirmação pendente se perde e o que estava

@@ -156,10 +156,22 @@ public record JarvisProperties(
     /**
      * Voz da HUD.
      *
-     * @param provedor   "elevenlabs" ou "navegador". Em "navegador" nada é enviado à ElevenLabs.
-     * @param reservaPct fatia da cota que o Jarvis se recusa a gastar, em por cento do limite.
+     * @param provedor       "elevenlabs" ou "navegador". Em "navegador" nada é enviado à ElevenLabs.
+     * @param reservaPct     fatia da cota que o Jarvis se recusa a gastar, em por cento do limite.
+     * @param avisoPercentual uso da cota que dispara o aviso antecipado, uma vez por período de
+     *                        cobrança. Zero desliga o aviso.
      */
-    public record Voz(String provedor, String apiKey, String vozId, String modelo, int reservaPct) {
+    public record Voz(String provedor, String apiKey, String vozId, String modelo, int reservaPct,
+            int avisoPercentual) {
+
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Voz {
+        }
+
+        /** A aridade de antes do aviso antecipado, para os testes que montam este bloco. */
+        public Voz(String provedor, String apiKey, String vozId, String modelo, int reservaPct) {
+            this(provedor, apiKey, vozId, modelo, reservaPct, 80);
+        }
     }
 
     /** Arquivo markdown com a personalidade do Jarvis, lido em tempo de execução (sem rebuild). */
@@ -506,6 +518,16 @@ public record JarvisProperties(
     /** Fatia intocável da cota. Limitada a 0-100 para um valor errado no .env não travar a voz. */
     public int reservaDeVozPct() {
         return Math.clamp(voz == null ? 5 : voz.reservaPct(), 0, 100);
+    }
+
+    /**
+     * Uso da cota que dispara o aviso antecipado de voz. Zero desliga; fora de 0-100 é aparado.
+     *
+     * <p>Aparado como a reserva, e pelo mesmo motivo: um número torto no {@code .env} não pode nem
+     * calar o aviso para sempre nem fazê-lo sair a cada consulta.
+     */
+    public int avisoDeVozPct() {
+        return Math.clamp(voz == null ? 80 : voz.avisoPercentual(), 0, 100);
     }
 
     /**

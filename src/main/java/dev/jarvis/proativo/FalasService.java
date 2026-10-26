@@ -33,6 +33,19 @@ public class FalasService {
         Map<String, String> falas = new LinkedHashMap<>();
         falas.put("site_fora", "O site da {site} está fora do ar desde {desde} ({motivo}).");
         falas.put("site_voltou", "O site da {site} voltou. Ficou fora por {duracao}.");
+        // A cota de voz. As três primeiras são a mesma notícia com projeções diferentes, e são
+        // três frases — e não uma com marcador opcional — porque marcador sem valor estoura: a
+        // forma de dizer menos é ter uma frase que pede menos.
+        falas.put("voz_cota_alta",
+                "A cota de voz está em {percentual}%. No ritmo atual, dura até {data}.");
+        falas.put("voz_cota_alta_ate_renovacao", "A cota de voz está em {percentual}%. No ritmo "
+                + "atual, chega à renovação de {data} sem acabar.");
+        falas.put("voz_cota_alta_sem_projecao", "A cota de voz está em {percentual}%.");
+        falas.put("voz_na_reserva",
+                "A cota de voz chegou à reserva. Volto à voz do navegador até {renovacao}.");
+        falas.put("voz_indisponivel",
+                "A voz da ElevenLabs saiu do ar: {motivo}. Volto à voz do navegador.");
+        falas.put("voz_renovada", "A cota de voz foi renovada. Volto à minha voz.");
         return Map.copyOf(falas);
     }
 

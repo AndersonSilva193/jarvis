@@ -931,8 +931,39 @@ por modelo (512 tokens no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5).
 Fora o modelo, há três contas que podem aparecer: a **busca na web** da Anthropic (configure o
 preço por mil buscas, além dos tokens dos resultados), a **ElevenLabs** quando
 `VOZ_PROVEDOR=elevenlabs` (com
-`VOZ_RESERVA_PCT` guardando uma fatia da cota para a voz nunca acabar no meio de um briefing) e a
+`VOZ_RESERVA_PCT` guardando uma fatia da cota para a voz nunca acabar no meio de um briefing, e
+`VOZ_AVISO_PERCENTUAL` avisando antes disso — veja [Proatividade](#proatividade)) e a
 **YouTube Data API**, cuja cota diária de 10.000 unidades dá umas 100 buscas por dia.
+
+## Proatividade
+
+Quase tudo que o Jarvis diz é resposta a um pedido. O que ele diz **sem** ser chamado sai por um
+caminho só, e esse caminho tem três regras:
+
+1. **Horário de silêncio.** Dentro de `PROATIVO_SILENCIO` (padrão `23:00-07:00`, no seu fuso) nada
+   sai. O aviso não é descartado: entra numa fila e é entregue junto, numa mensagem só, logo depois
+   do fim da janela, sob "Enquanto o senhor dormia:". Um site que caiu às 2h ainda importa às 7h; o
+   que não importa é o telefone apitando às 2h.
+2. **Sem repetir.** "O site caiu" é notícia; "o site continua caído" você já sabe. O mesmo estado
+   não é anunciado duas vezes.
+3. **Um destino só**, o `TELEGRAM_USUARIO_PERMITIDO`.
+
+Hoje dois assuntos falam primeiro:
+
+**Os sites.** O Jarvis acompanha os `SITES_MONITORADOS` a cada `SITES_INTERVALO_MINUTOS` e avisa
+quando um cai e quando volta. Um site só é dado como fora depois de **duas** checagens seguidas com
+falha — uma requisição sozinha erra por um deploy de trinta segundos ou um DNS lento, e avisar na
+primeira treinaria você a ignorar o aviso. A volta é anunciada na primeira checagem boa. Com uma
+rotina associada em `SITES_ACOES`, o aviso termina num *"Posso rodar a rotina X para tentar
+resolver?"*. Quanto cada site ficou no ar fica guardado por 30 dias em `PROATIVO_PASTA`.
+
+**A cota de voz da ElevenLabs.** Passando de `VOZ_AVISO_PERCENTUAL` (padrão 80) do uso do período,
+ele avisa **antes** de a voz acabar: *"A cota de voz está em 80%. No ritmo atual, dura até 04/11."*
+A projeção vem do uso médio dos últimos dias, que o Jarvis guarda em disco; sem dois dias completos
+de uso ele avisa sem projetar, em vez de chutar uma data, e quando no ritmo atual a cota chega à
+renovação sem acabar, ele diz isso. É uma mensagem por período de cobrança. Os avisos que já
+existiam — cota na reserva, chave recusada, cota renovada — passaram para o mesmo caminho, então
+nenhum deles toca o telefone de madrugada. `VOZ_AVISO_PERCENTUAL=0` desliga só o aviso antecipado.
 
 ## Backup e restauração
 
@@ -997,10 +1028,15 @@ inclusive `arquivos` e `imagens`: é o que deduplica comando reentregue e susten
 
 ## Limitações atuais
 
-- Lembretes, histórico da conversa, memória pessoal, diário do PC, diário de ações e cache de voz
+- Lembretes, histórico da conversa, memória pessoal, diário do PC, diário de ações, disponibilidade
+  dos sites, cache de voz e uso diário de voz
   têm volume próprio e sobrevivem ao restart. O que **não** sobrevive: o retrato da tela, o cache de buscas no YouTube,
   a fila de comandos do PC e qualquer confirmação pendente. Depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, e uma confirmação em curso precisa ser pedida de novo.
+- Um restart na madrugada perde a fila do silêncio: o que estava acumulado para ser entregue às 7h
+  vai embora, e o monitor volta sem saber que um site já estava fora (precisa de duas checagens
+  novas para avisar outra vez). O aviso de cota de voz é a exceção — o marcador de "já avisei neste
+  período" está em disco, então ele não se repete.
 - O diário de ações guarda até 500 ações por dia. Passando disso, ele conta quantas ficaram de fora e
   a resposta avisa que a lista está incompleta; o que foi recusado não volta.
 - No Telegram, recebe somente texto (nada de áudio ou foto). Na HUD, o navegador converte voz em
