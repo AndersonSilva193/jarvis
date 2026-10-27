@@ -78,6 +78,8 @@ public class Assistente {
     private final AnotadorDeMemoria anotador;
     /** O recado de que o {@code esquecer_memoria} aprovado apagou algo fora deste turno. */
     private final EsquecimentosDeMemoria esquecimentos;
+    /** O que terminou fora de um turno (a tarefa no PC) e precisa entrar no histórico. */
+    private final ResultadosTardios tardios;
     private final ReentrantLock execucao = new ReentrantLock(true);
     /**
      * O pedido que está sendo atendido agora, ou nulo. Serve a duas perguntas de quem está na borda
@@ -179,12 +181,22 @@ public class Assistente {
                 classificador, anotador, esquecimentos, CompactadorDeHistorico.padrao(json));
     }
 
-    @Autowired
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
             AnotadorDeMemoria anotador, EsquecimentosDeMemoria esquecimentos,
             CompactadorDeHistorico compactador) {
+        this(claude, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, anotador, esquecimentos, compactador, new ResultadosTardios());
+    }
+
+    @Autowired
+    public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
+            RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
+            Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
+            AnotadorDeMemoria anotador, EsquecimentosDeMemoria esquecimentos,
+            CompactadorDeHistorico compactador, ResultadosTardios tardios) {
+        this.tardios = tardios != null ? tardios : new ResultadosTardios();
         this.compactador = compactador;
         this.esquecimentos = esquecimentos;
         this.anotador = anotador;
@@ -286,6 +298,11 @@ public class Assistente {
             String ultimoAnexo = progresso.usuarioAutenticado() > 0
                     ? ultimoAnexoDeArquivo(conversas.historico(chatId), canal, Instant.now()) : "";
             Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
+            // O que terminou enquanto ninguém conversava — a tarefa no PC manda o aviso direto ao
+            // Telegram — entra aqui, antes do pedido novo, que é a ordem em que aconteceu. Sem
+            // isso o dono lia o resultado e o modelo não, e "qual o telefone da segunda?" ficava
+            // sem resposta. O corte e a gravação em disco são os do fim do turno, como sempre.
+            for (ResultadosTardios.Item item : tardios.drenar(chatId)) historico.addLast(turnoTardio(item));
             List<ObjectNode> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(texto));
 
@@ -440,6 +457,20 @@ public class Assistente {
             }
             return publica;
         } finally { emAndamento.compareAndSet(marca, null); execucao.unlock(); }
+    }
+
+    /**
+     * Um turno {@code user}/{@code assistant} com o resultado tardio. A fala do usuário é uma nota
+     * do servidor, montada em Java, para o modelo não tomá-la por pedido; a do assistente é
+     * exatamente o que o dono recebeu, porque foi o Jarvis quem disse aquilo.
+     */
+    private List<ObjectNode> turnoTardio(ResultadosTardios.Item item) {
+        String origem = item.origem().isBlank() ? "uma tarefa em segundo plano" : item.origem();
+        List<ObjectNode> turno = new ArrayList<>();
+        turno.add(mensagemDoUsuario("(nota do servidor, não é um pedido novo: " + origem
+                + " terminou fora da conversa e o usuário recebeu a mensagem a seguir.)"));
+        turno.add(json.createObjectNode().put("role", "assistant").put("content", item.texto()));
+        return turno;
     }
 
     static String ultimoAnexoDeArquivo(RegistroConversas.Historico historico, Canal canal, Instant agora) {
