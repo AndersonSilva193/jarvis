@@ -22,6 +22,8 @@ public class StatusOperacaoPcFerramenta implements Ferramenta {
         this.operacoes = operacoes; this.arquivos = arquivos; this.json = json;
     }
     @Override public String nome() { return "status_operacao_pc"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Consulta pelo ID o estado real de um comando ou rotina do PC."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");

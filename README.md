@@ -36,13 +36,30 @@ Toda chamada ao Claude leva o `system` em **dois blocos**, nesta ordem:
 
 | Bloco | Conteúdo | Cache |
 |---|---|---|
-| fixo | o texto de `config/personalidade.md`, byte a byte | `cache_control: ephemeral` |
+| fixo | o texto de `config/personalidade.md` e um parágrafo constante com as categorias de ferramentas | `cache_control: ephemeral` |
 | dinâmico | data e hora com fuso, canal do pedido, retrato da tela, regras técnicas e de formato | nunca |
 
 A ordem importa: o cache de prompt da Anthropic casa **prefixo exato**, então qualquer coisa que muda
 a cada pedido (a começar pelo relógio) tem de ficar *depois* do bloco cacheado. O marcador de cache
-só é enviado quando a personalidade passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` — abaixo disso a API o
+só é enviado quando o bloco fixo passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` — abaixo disso a API o
 ignoraria calada.
+
+### Economia de tokens nas ferramentas
+
+O Jarvis envia à API todas as definições permitidas para o canal. A busca BM25 do Claude carrega
+no contexto só as ferramentas necessárias. `FERRAMENTAS_SEMPRE_CARREGADAS` define as seis
+disponíveis de imediato:
+`clima,criar_lembrete,listar_lembretes,controlar_pc,controlar_tela,tocar_youtube` por padrão.
+`tarefa_no_pc` também fica visível; `ouvir_resposta` fica visível na HUD. A busca web e o
+computer use continuam disponíveis. As demais ferramentas são encontradas pela busca quando o
+pedido exigir. Alterar a lista fixa muda o prefixo do cache de prompt.
+
+`RESULTADO_MAX_CARACTERES` limita a 6.000 caracteres, por padrão, cada resultado textual que
+volta ao modelo. O texto cortado avisa `[cortado; peça a próxima parte]`; JSON longo continua
+válido e conserva identificadores e indicação de continuação. `ler_arquivo` usa esse limite para
+as páginas de texto e aceita o deslocamento retornado para ler a próxima parte. O registro diário
+de custo passa a contar ferramentas executadas, e `custo_do_jarvis` mostra as dez mais usadas no
+período consultado. A contagem começa com esta versão; dias antigos não têm esse dado.
 
 O **canal** diz ao Jarvis como escrever: `telegram` aceita negrito, listas e blocos de código; `hud`
 e `briefing` viram áudio, então são frases curtas sem markdown; `tarefa` começa pelo resultado, com

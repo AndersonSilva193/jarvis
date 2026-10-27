@@ -39,12 +39,24 @@ public record JarvisProperties(
         Historico historico,
         Custo custo,
         Diario diario,
-        Proativo proativo) {
+        Proativo proativo,
+        EconomiaFerramentas ferramentas) {
 
     private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public JarvisProperties { }
+
+    /** Compatibilidade com testes que ainda montam os 21 componentes por posição. */
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            ComputerUse computerUse, Google google, Memoria memoria, Lembretes lembretes,
+            Historico historico, Custo custo, Diario diario, Proativo proativo) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, lembretes,
+                historico, custo, diario, proativo, null);
+    }
 
     /**
      * A aridade de antes dos avisos proativos.
@@ -59,7 +71,7 @@ public record JarvisProperties(
             Historico historico, Custo custo, Diario diario) {
         this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
                 personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, lembretes,
-                historico, custo, diario, null);
+                historico, custo, diario, null, null);
     }
 
     /**
@@ -114,6 +126,21 @@ public record JarvisProperties(
     public record ComputerUse(boolean ativo, String provedor, String modeloAnthropic,
             String modeloOpenai, String openaiApiKey, int maxCiclos, int maxAcoes,
             int duracaoSegundos) { }
+
+    public record EconomiaFerramentas(String sempreCarregadas, int resultadoMaxCaracteres) { }
+
+    public List<String> ferramentasSempreCarregadas() {
+        String nomes = ferramentas == null || ferramentas.sempreCarregadas() == null
+                ? "clima,criar_lembrete,listar_lembretes,controlar_pc,controlar_tela,tocar_youtube"
+                : ferramentas.sempreCarregadas();
+        return Arrays.stream(nomes.split(","))
+                .map(String::trim).filter(nome -> !nome.isEmpty()).distinct().toList();
+    }
+
+    public int resultadoMaxCaracteres() {
+        int valor = ferramentas == null ? 0 : ferramentas.resultadoMaxCaracteres();
+        return valor < 256 ? 6_000 : valor;
+    }
 
     public record Telegram(String token, long usuarioPermitido) {
     }

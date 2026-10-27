@@ -51,6 +51,20 @@ import tools.jackson.databind.node.ObjectNode;
  */
 class AssistenteTest {
 
+    @Test void buscaBm25EntraNoPedidoAoClaude() throws Exception {
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(respostaComPensamento("Certo."));
+        assistente.responder(1L, "oi");
+        ArgumentCaptor<ArrayNode> definicoes = ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class), definicoes.capture());
+        JsonNode busca = definicoes.getValue().get(definicoes.getValue().size() - 1);
+        assertEquals("tool_search_tool_bm25_20251119", busca.path("type").stringValue());
+        assertEquals("tool_search_tool_bm25", busca.path("name").stringValue());
+        assertTrue(busca.path("defer_loading").isMissingNode());
+    }
+
     @Test void referenciaSomenteAnexoUnicoDaRespostaAnteriorDoMesmoCanal() {
         Instant agora = Instant.parse("2026-10-18T21:00:00Z");
         Anexo arquivo = new Anexo("a", "arquivo", "nota.md", "application/octet-stream", "", "");

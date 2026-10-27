@@ -28,6 +28,8 @@ public class ListarLembretesFerramenta implements Ferramenta {
     public String nome() {
         return "listar_lembretes";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.LEMBRETES; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

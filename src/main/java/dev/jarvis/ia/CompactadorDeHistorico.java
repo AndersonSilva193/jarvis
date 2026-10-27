@@ -22,9 +22,10 @@ import tools.jackson.databind.node.ObjectNode;
  * JSON do agente, ou uma busca na web com {@code encrypted_content}, voltava inteiro em todos os
  * pedidos seguintes até sair da janela de dez turnos — e com validade de 72 h isso dura três dias.
  *
- * <p><b>O que a API aceita.</b> Tirar um {@code web_search_tool_result} deixando o
- * {@code server_tool_use}, ou mexer no {@code encrypted_content}, é HTTP 400. Tirar <b>o par
- * inteiro</b> não é: não sobra nada referenciando nada. Vale igual para
+ * <p><b>O que a API aceita.</b> Busca web e busca de ferramentas têm blocos
+ * {@code server_tool_use} e resultado, e a busca de ferramentas ainda pode deixar referências
+ * às definições encontradas. Dentro da janela de turnos completos, todos ficam intactos. Ao
+ * compactar, o turno inteiro vira texto, sem referências pendentes. Vale igual para
  * {@code tool_use}/{@code tool_result}, cuja regra é que todo resultado siga a chamada de mesmo id
  * na mensagem imediatamente anterior — removendo os dois juntos ela é satisfeita trivialmente. Os
  * blocos de pensamento já não chegam aqui: quem os tira é o {@code Assistente.semPensamentos}.
@@ -143,7 +144,8 @@ public final class CompactadorDeHistorico {
                     String nome = Json.texto(bloco.path("name"));
                     String achados = identificadores(resultados.get(Json.texto(bloco.path("id"))));
                     segmentos.add(achados.isEmpty() ? nome : nome + " → " + achados);
-                } else if ("server_tool_use".equals(tipo)) {
+                } else if ("server_tool_use".equals(tipo)
+                        && "web_search".equals(Json.texto(bloco.path("name")))) {
                     String consulta = Json.texto(bloco.path("input").path("query"));
                     if (!consulta.isBlank() && !consultas.contains(consulta)) {
                         consultas.add(consulta);

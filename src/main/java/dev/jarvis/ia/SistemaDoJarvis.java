@@ -83,7 +83,8 @@ public class SistemaDoJarvis {
      */
     public ArrayNode blocos(Canal canal, long usuario, String mensagem) {
         String texto = personalidade.texto();
-        boolean cachear = PersonalidadeService.estimarTokens(texto) >= props.anthropic().cacheMinimoTokens();
+        boolean cachear = PersonalidadeService.estimarTokens(PromptDeSistema.textoFixo(texto))
+                >= props.anthropic().cacheMinimoTokens();
         List<String> naTela = hud.conectada() ? tela.linhas() : List.of();
         boolean podeLembrar = memoria != null && usuario > 0
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD);

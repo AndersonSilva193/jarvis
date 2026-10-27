@@ -17,6 +17,8 @@ public class RevogarTarefaPlanilhaFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.json = json;
     }
     @Override public String nome() { return "revogar_tarefa_planilha"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Revoga pelo ID uma tarefa de planilha do usuário autenticado."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");

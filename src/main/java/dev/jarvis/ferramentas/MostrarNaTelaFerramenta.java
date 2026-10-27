@@ -35,31 +35,17 @@ public class MostrarNaTelaFerramenta extends FerramentaDeTela {
     public String nome() {
         return "mostrar_na_tela";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.TELA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
-        return """
-                Abre na tela do Jarvis um card visual com o resultado de uma pesquisa.
-
-                Use SÓ quando o resultado tem estrutura que vale olhar: comparação, ranking, \
-                números, ficha de dados ou sequência de datas. E use sempre DEPOIS de pesquisar \
-                na web, com os dados que a busca trouxe — nunca de memória. Resposta simples, de \
-                uma ou duas frases, é só falada: não abra card para ela.
-
-                O 'titulo' é a CONCLUSÃO, não o assunto: "Flamengo lidera com 12 pontos de \
-                vantagem", não "Tabela do Brasileirão". O 'resumo' é exatamente o texto que você \
-                vai falar em voz alta, para a tela e a voz não divergirem.
-
-                O layout 'grafico' é para números que mudam ao longo de um eixo — dias, meses, \
-                rodadas — ou que compõem um todo. O 'tipo' escolhe o desenho: linha e barras \
-                comparam, barras_empilhadas mostra de que cada período é feito e rosca mostra de \
-                que o todo é feito agora. Use SÓ com números que vieram de uma pesquisa feita \
-                NESTE pedido, e aí o titulo também é a conclusão: "A temperatura cai 8 °C até \
-                quinta", não "Previsão da semana". Para dados do próprio Jarvis ou de planilhas, \
-                use grafico_de_dados, não esta ferramenta.
-
-                Se o contexto não traz a linha "Na tela agora", nenhuma HUD está aberta e esta \
-                ferramenta não vai abrir nada — responda apenas falando.""";
+        return "Abre card na HUD com comparação, ranking, ficha, datas ou números de pesquisa "
+                + "feita na web neste pedido. Nunca invente dados nem use memória como fonte. "
+                + "Resposta simples deve ser só falada. Título traz a conclusão; resumo repete "
+                + "exatamente a fala. Layout grafico usa números pesquisados agora, em linha, "
+                + "barras, barras_empilhadas ou rosca. Para números internos ou planilhas, use "
+                + "grafico_de_dados. Sem 'Na tela agora' no contexto, a HUD não está aberta.";
     }
 
     @Override

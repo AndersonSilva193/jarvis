@@ -33,6 +33,8 @@ public class AbrirPaginaFerramenta extends FerramentaDeTela {
     public String nome() {
         return "abrir_pagina";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.TELA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

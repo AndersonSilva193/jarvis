@@ -69,8 +69,9 @@ class PromptDeSistemaTest {
 
         assertEquals(2, system.size());
         assertEquals("text", system.get(0).path("type").stringValue());
-        assertEquals(PERSONALIDADE, texto(system.get(0)),
-                "o bloco fixo tem que ser a personalidade, byte a byte, ou o cache nunca casa");
+        assertEquals(PromptDeSistema.textoFixo(PERSONALIDADE), texto(system.get(0)));
+        assertTrue(texto(system.get(0)).contains("arquivos (criar, listar"));
+        assertTrue(texto(system.get(0)).contains("lembretes, memória, planilhas e custo"));
         assertTrue(texto(system.get(1)).contains("Agora são"), texto(system.get(1)));
     }
 
@@ -185,8 +186,7 @@ class PromptDeSistemaTest {
                 "[c7k2] vídeo 'Lo-fi para estudar' (tocando)",
                 "[cf09] pesquisa 'Eleição 2026' (fixada)"));
 
-        assertEquals(PERSONALIDADE, texto(system.get(0)),
-                "o bloco fixo é o cacheado: um caractere a mais aqui e o cache de prompt se perde");
+        assertEquals(PromptDeSistema.textoFixo(PERSONALIDADE), texto(system.get(0)));
         assertFalse(texto(system.get(0)).contains("Na tela agora"), texto(system.get(0)));
 
         String dinamico = texto(system.get(1));
@@ -221,8 +221,7 @@ class PromptDeSistemaTest {
         ArrayNode system = montar(Canal.TELEGRAM, true, false, List.of(),
                 "- cidade: Curitiba\n- bebida: café\n");
 
-        assertEquals(PERSONALIDADE, texto(system.get(0)),
-                "o resumo muda a cada pedido: no bloco fixo levaria o cache de prompt embora");
+        assertEquals(PromptDeSistema.textoFixo(PERSONALIDADE), texto(system.get(0)));
         assertFalse(texto(system.get(0)).contains("O que você sabe sobre Anderson:"));
         String dinamico = texto(system.get(1));
         assertTrue(dinamico.contains("O que você sabe sobre Anderson:"), dinamico);

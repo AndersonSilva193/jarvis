@@ -1027,6 +1027,35 @@ Por pedido sai uma linha `Histórico enviado: N turno(s), M caracteres`. O par d
 `Claude: entrada=…` do `ClaudeClient`, que é em **tokens**: um diz o que foi montado, o outro o que
 a API cobrou, e é assim que se compara antes e depois junto do `MedidorDeCusto`.
 
+## Economia de tokens
+
+- O `CompactadorDeHistorico` mantém inteiro só o último turno (configurável por
+  `HISTORICO_TURNOS_COMPLETOS`); dos anteriores guarda pedido, resposta curta e nota. Pares de
+  `tool_use`/`tool_result`, busca web e busca de ferramentas saem juntos. A nota registra consulta
+  web somente quando o `server_tool_use.name` é `web_search`.
+- O bloco fixo do `system` contém personalidade e um parágrafo constante com as categorias de
+  ferramentas. O bloco dinâmico mantém relógio, canal e estado da HUD. Cache explícito no fixo e
+  automático na conversa usam o mesmo `ANTHROPIC_CACHE_TTL`. O esforço é fixo por origem, não muda
+  entre passos do mesmo pedido.
+- O `Assistente` envia a busca BM25 `tool_search_tool_bm25_20251119` mais **todas** as definições
+  a cada chamada. `Ferramentas` marca `defer_loading: true` fora de
+  `FERRAMENTAS_SEMPRE_CARREGADAS` (padrão: `clima,criar_lembrete,listar_lembretes,controlar_pc,`
+  `controlar_tela,tocar_youtube`). `tarefa_no_pc` fica sempre visível; `ouvir_resposta` também na
+  HUD. Busca web e o provedor separado de computer use continuam carregados. Ferramenta adiada
+  não leva `cache_control`; os blocos `server_tool_use` e `tool_search_tool_result` voltam
+  intactos no histórico. A ordem das definições Java continua alfabética.
+- Cada `Ferramenta` informa `grupo` e `simples` somente no Java, para o futuro roteador local.
+  A execução conhecida é contada uma vez ao começar, mesmo se falhar, e `MedidorDeCusto` agrega
+  por dia no volume `custo`. `custo_do_jarvis` mostra até dez nomes mais usados no período.
+- `RESULTADO_MAX_CARACTERES` (padrão 6.000) limita só `tool_result.content`. O resultado integral
+  continua disponível para anexos, eventos e código Java. Texto cortado termina com
+  `[cortado; peça a próxima parte]`; JSON longo vira JSON válido resumido com esse aviso,
+  identificadores e dados de continuação. `ler_arquivo` limita `maximoCaracteres` a esse tamanho
+  e mantém os deslocamentos de paginação do agente do PC. Não corte o `JsonNode` de origem.
+
+As duas configurações novas entram nos três lugares de sempre: `JarvisProperties`,
+`application.yml` e `.env.example`.
+
 ## Segurança
 
 - **Não existe ferramenta de "executar comando qualquer" — e não crie uma.** Cada ferramenta

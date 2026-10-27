@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -18,6 +19,8 @@ import dev.jarvis.tela.ComandoTela;
 import dev.jarvis.tela.TelaEvento;
 import dev.jarvis.util.Json;
 import dev.jarvis.ia.Canal;
+import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.custo.MedidorDeCusto;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -41,6 +44,9 @@ public class Ferramentas {
     private final Map<String, Ferramenta> porNome = new TreeMap<>();
     private final JsonMapper json;
     private final ApplicationEventPublisher eventos;
+    private final MedidorDeCusto medidor;
+    private final Set<String> sempreCarregadas;
+    private final int resultadoMaxCaracteres;
 
     /**
      * A última impressão digital das definições, por canal — nome da ferramenta para o JSON dela em
@@ -60,13 +66,27 @@ public class Ferramentas {
         this(ferramentas, json, evento -> { });
     }
 
-    @Autowired
     public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json,
             ApplicationEventPublisher eventos) {
+        this(ferramentas, json, eventos, null, null);
+    }
+
+    @Autowired
+    public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json,
+            ApplicationEventPublisher eventos, JarvisProperties props, MedidorDeCusto medidor) {
         this.json = json;
         this.eventos = eventos;
+        this.medidor = medidor;
+        this.sempreCarregadas = Set.copyOf(props == null
+                ? List.of("clima", "criar_lembrete", "listar_lembretes", "controlar_pc",
+                        "controlar_tela", "tocar_youtube") : props.ferramentasSempreCarregadas());
+        this.resultadoMaxCaracteres = props == null ? 6_000 : props.resultadoMaxCaracteres();
         for (Ferramenta f : ferramentas) {
             porNome.put(f.nome(), f);
+        }
+        if (props != null) {
+            sempreCarregadas.stream().filter(nome -> !porNome.containsKey(nome)).sorted()
+                    .forEach(nome -> log.warn("Ferramenta sempre carregada desconhecida: {}", nome));
         }
         log.info("Ferramentas disponíveis: {}", porNome.keySet());
     }
@@ -92,6 +112,10 @@ public class Ferramentas {
             def.put("name", f.nome());
             def.put("description", f.descricao());
             def.set("input_schema", f.esquemaEntrada());
+            if (!sempreCarregadas.contains(f.nome()) && !"tarefa_no_pc".equals(f.nome())
+                    && !((canal == null || canal == Canal.HUD) && "ouvir_resposta".equals(f.nome()))) {
+                def.put("defer_loading", true);
+            }
             digitais.put(f.nome(), Json.canonico(def));
         }
         conferirEstabilidade(canal, tarefaPlanilha, digitais);
@@ -159,12 +183,14 @@ public class Ferramentas {
 
         Ferramenta ferramenta = porNome.get(nome);
         if (ferramenta == null) {
-            resultado.put("content", "Ferramenta desconhecida: " + nome);
+            resultado.put("content", LimiteDeResultado.paraModelo(
+                    "Ferramenta desconhecida: " + nome, resultadoMaxCaracteres, json));
             resultado.put("is_error", true);
             return resultado;
         }
 
         log.info("Executando ferramenta {}", nome);
+        if (medidor != null) medidor.registrarFerramenta(nome);
         String descricao = ferramenta.progresso();
         if (descricao != null && !descricao.isBlank()) {
             dev.jarvis.conversa.OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, null, null));
@@ -201,10 +227,13 @@ public class Ferramentas {
             publicarNaTela(detalhado);
             receber.accept(detalhado);
             String saida = detalhado.texto();
-            resultado.put("content", saida == null || saida.isBlank() ? "(sem resultado)" : saida);
+            resultado.put("content", LimiteDeResultado.paraModelo(
+                    saida == null || saida.isBlank() ? "(sem resultado)" : saida,
+                    resultadoMaxCaracteres, json));
         } catch (Exception e) {
             log.warn("Ferramenta {} falhou: {}", nome, e.getMessage());
-            resultado.put("content", "Erro ao executar " + nome + ": " + e.getMessage());
+            resultado.put("content", LimiteDeResultado.paraModelo(
+                    "Erro ao executar " + nome + ": " + e.getMessage(), resultadoMaxCaracteres, json));
             resultado.put("is_error", true);
         }
         return resultado;

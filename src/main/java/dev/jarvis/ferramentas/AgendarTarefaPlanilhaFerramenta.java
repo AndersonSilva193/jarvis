@@ -22,6 +22,8 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "agendar_tarefa_planilha"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Agenda edição recorrente de um XLSX inteiro por ID "
             + "de listar_arquivos. Exige pedido com nome exato do arquivo; devolve uma pergunta de "
             + "aprovação e só agenda depois que o usuário responder que sim. "

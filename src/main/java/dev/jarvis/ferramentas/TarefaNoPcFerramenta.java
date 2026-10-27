@@ -32,6 +32,8 @@ public class TarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "tarefa_no_pc"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return false; }
     /**
      * Olha o {@code configurado()}, e não o {@code disponivel()}, de propósito: este texto vai para
      * o array {@code tools}, e o {@code disponivel()} embute uma janela de 90 segundos de contato
@@ -41,18 +43,13 @@ public class TarefaNoPcFerramenta implements Ferramenta {
     @Override public String descricao() {
         if (!tarefas.configurado()) return "Computer use desativado na configuração do Jarvis. "
                 + "Não prometa executar tarefa visual.";
-        return "Último recurso para executar tarefa pela interface visual do monitor principal do PC. "
-                + "Se o usuário pediu uma ação que pode ser feita no PC e resposta direta, busca, "
-                + "criar_arquivo, rotina cadastrada ou ação fixa não resolverem, use esta ferramenta "
-                + "para pedir confirmação. Não diga que falta ferramenta antes de tentar este caminho. "
-                + "A lista de apps de controlar_pc/abrir_app não limita o uso visual do menu Iniciar. "
-                + "Descreva objetivo e mudanças permitidas em escopo curto. "
-                + "A ferramenta devolve uma pergunta de aprovação e a tarefa só inicia depois que o "
-                + "usuário responder que sim; não peça palavra, código nem frase exata. "
-                + "Novo pedido autenticado substitui uma confirmação anterior ainda pendente; "
-                + "se o usuário pedir cancelamento explícito, use cancelar_tarefa_no_pc sem ID antes. "
-                + "Nunca use para efetuar pagamentos, compras, inserir credenciais ou abrir shell. "
-                + "Um app ter loja não proíbe apenas abri-lo.";
+        return "Último recurso: computer use executa tarefa visual no monitor principal do PC "
+                + "quando ferramenta direta, busca, arquivo ou rotina não resolvem. Não diga que falta ferramenta. "
+                + "Descreva objetivo e mudanças em escopo curto. A ferramenta só faz a pergunta para "
+                + "pedir confirmação; a ação começa após resposta positiva do usuário; não peça palavra, "
+                + "código nem frase exata. A lista de apps não limita o menu Iniciar. "
+                + "Para cancelar, use cancelar_tarefa_no_pc. Nunca pague, compre, insira credenciais "
+                + "ou abra shell. Abrir um app que tenha loja é permitido.";
     }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");

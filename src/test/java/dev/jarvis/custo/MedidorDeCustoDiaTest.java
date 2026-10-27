@@ -46,6 +46,33 @@ class MedidorDeCustoDiaTest {
     }
 
     @Test
+    void ferramentasSaoContadasPorDiaEPersistemSemCustoDeModelo() {
+        var relogio = new RelogioFalso("2026-10-22T15:00:00Z");
+        var antes = subir(relogio);
+        antes.registrarFerramenta("clima");
+        antes.registrarFerramenta("clima");
+        antes.registrarFerramenta("criar_lembrete");
+        antes.aguardar();
+
+        var depois = subir(relogio);
+        assertEquals(java.util.Map.of("clima", 2L, "criar_lembrete", 1L),
+                depois.hoje().ferramentasMaisUsadas());
+        relogio.avancar(Duration.ofDays(1));
+        depois.registrarFerramenta("noticias");
+        assertEquals(java.util.Map.of("noticias", 1L), depois.hoje().ferramentasMaisUsadas());
+        assertEquals(2L, depois.periodo(2).ferramentasMaisUsadas().get("clima"));
+    }
+
+    @Test
+    void relatorioMostraApenasDezFerramentasEDesempataPeloNome() {
+        var medidor = subir(new RelogioFalso("2026-10-22T15:00:00Z"));
+        for (int i = 11; i >= 0; i--) medidor.registrarFerramenta("f" + i);
+        assertEquals(java.util.List.of("f0", "f1", "f10", "f11", "f2", "f3", "f4",
+                "f5", "f6", "f7"),
+                java.util.List.copyOf(medidor.hoje().ferramentasMaisUsadas().keySet()));
+    }
+
+    @Test
     @DisplayName("o dia é o do fuso configurado, não o do UTC")
     void oDiaEhODoFuso() {
         // 02:30 UTC de 22/10 ainda é 23:30 de 21/10 em São Paulo (UTC-3).

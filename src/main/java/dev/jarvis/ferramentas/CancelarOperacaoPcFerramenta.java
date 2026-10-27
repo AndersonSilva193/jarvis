@@ -15,6 +15,8 @@ public class CancelarOperacaoPcFerramenta implements Ferramenta {
         this.operacoes = operacoes; this.json = json;
     }
     @Override public String nome() { return "cancelar_operacao_pc"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() {
         return "Solicita cancelamento pelo ID. Antes do início impede execução; durante a execução depende do agente receber e encerrar a árvore de processos.";
     }

@@ -45,6 +45,8 @@ public class CriarArquivoFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "criar_arquivo"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
+    @Override public boolean simples() { return true; }
     @Override public String descricao() { return """
             Cria um arquivo novo na pasta Documentos/Jarvis do PC, e entrega anexo no Telegram e na HUD.
             Aceita md, txt, docx e pdf com conteúdo Markdown; xlsx e csv com abas, colunas e linhas

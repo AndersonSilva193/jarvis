@@ -31,6 +31,8 @@ public class AtualizarMemoriaFerramenta extends FerramentaMemoria {
     }
 
     @Override public String nome() { return "atualizar_memoria"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() {
         return """
                 Corrige um registro quando o usuário diz que algo mudou ou que você guardou errado \

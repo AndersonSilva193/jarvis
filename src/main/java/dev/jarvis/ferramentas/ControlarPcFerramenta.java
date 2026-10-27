@@ -81,42 +81,25 @@ public class ControlarPcFerramenta implements Ferramenta {
     public String nome() {
         return "controlar_pc";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
         List<String> apps = pc.appsConhecidos();
-        String liberados = apps.isEmpty() ? "nenhum (o agente não reportou nenhum)" : String.join(", ", apps);
-        return """
-                Controla o PC Windows do usuário pelo agente que roda nele. Use quando o pedido for \
-                sobre "o PC", "o computador", "a máquina" — fechar o aplicativo HUD usa modo_repouso; mexer nos cards da tela \
-                usa controlar_tela.
-
-                As ações: abrir_app abre um programa (ponha o nome em 'argumento'; os liberados são \
-                %s, e essa lista mora no PC — só ele decide o que aceita). Essa lista restringe \
-                apenas abrir_app; tarefa_no_pc pode usar visualmente o menu Iniciar após confirmação. \
-                abrir_url abre um \
-                endereço no navegador do PC e só aceita https (URL completa em 'argumento'). \
-                abrir_hud abre a tela do Jarvis no PC, em tela cheia. bloquear_tela tranca a \
-                sessão. volume pede 'argumento' igual a subir, baixar ou mudo (mudo alterna). \
-                captura_tela tira um print, que chega no Telegram e na tela. status_pc diz como o \
-                PC está: processador, memória, disco e bateria. cancelar_desligamento aborta um \
-                desligamento já agendado.
-
-                Duas ações são do despertar por palmas, e só valem com o agente escutando: \
-                modo_repouso faz o PC voltar a ouvir o gatilho (use em "fechar HUD", "modo repouso", "pode \
-                descansar"), e falso_positivo registra que o último despertar foi engano (use em \
-                "foi engano", "não te chamei") — esta devolve quantos alarmes falsos já houve, \
-                número que ajuda o usuário a ajustar a sensibilidade.
-
-                desligar e reiniciar devolvem uma pergunta de aprovação: repita a pergunta e espere \
-                a resposta do usuário, sem pedir palavra, código nem frase exata. Chame uma vez: \
-                o servidor guarda a ação e consome a aprovação diretamente, sem passar por você. \
-                Não chame a ferramenta de novo para confirmar — não há como. \
-                O PC avisa e espera 60 segundos antes de desligar de verdade, então ainda \
-                dá para desistir com cancelar_desligamento.
-
-                As respostas são curtas de propósito: confirme em uma frase, sem repetir detalhe.\
-                """.formatted(liberados);
+        String liberados = apps.isEmpty() ? "nenhum" : String.join(", ", apps);
+        if (liberados.length() > 50) {
+            int corte = liberados.lastIndexOf(", ", 47);
+            liberados = corte > 0 ? liberados.substring(0, corte) + ", …"
+                    : "veja o enum de abrir_app";
+        }
+        return "Controla o PC Windows: abrir_app (liberados: " + liberados + "), abrir_url HTTPS, "
+                + "abrir_hud, bloquear_tela, captura_tela, status_pc e volume (subir, baixar, mudo). "
+                + "modo_repouso fecha a HUD e volta a ouvir o gatilho; falso_positivo registra engano. "
+                + "Desligar ou reiniciar devolve pergunta de aprovação: chame uma vez, repita a pergunta "
+                + "e espere a resposta, sem pedir palavra, código nem frase exata. Não repita a ação "
+                + "para confirmar. cancelar_desligamento aborta. Apps fora da lista: tarefa_no_pc "
+                + "após aprovação. Cards: controlar_tela. Nunca abra shell livre.";
     }
 
     @Override

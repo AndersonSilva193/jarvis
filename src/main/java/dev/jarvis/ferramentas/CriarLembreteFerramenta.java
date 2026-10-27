@@ -44,10 +44,13 @@ public class CriarLembreteFerramenta implements Ferramenta {
     public String nome() {
         return "criar_lembrete";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.LEMBRETES; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
-        return "Agenda um lembrete que será enviado no Telegram na data e hora indicadas. "
+        return "Agenda lembrete, aviso ou alarme para pedidos como 'me lembra amanhã'. "
+                + "Envia no Telegram na data e hora indicadas. "
                 + "Calcule a data e hora exatas a partir do horário atual informado no contexto. "
                 + "Para lembrete que se repete, use recorrencia: 'diario' (todos os dias), "
                 + "'dias_uteis' (segunda a sexta), 'semanal' (exige dias_da_semana) ou 'mensal' "

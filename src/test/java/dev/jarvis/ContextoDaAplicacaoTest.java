@@ -14,6 +14,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import dev.jarvis.agenda.ResumoDiario;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ferramentas.Ferramentas;
+import dev.jarvis.ferramentas.Ferramenta;
 import dev.jarvis.ia.Assistente;
 import dev.jarvis.ia.BuscaWebServidor;
 import dev.jarvis.ia.PersonalidadeService;
@@ -54,9 +55,27 @@ class ContextoDaAplicacaoTest {
     @Autowired
     Ferramentas ferramentas;
     @Autowired
+    java.util.List<Ferramenta> ferramentasRegistradas;
+    @Autowired
     JarvisProperties props;
     @Autowired
     BuscaWebServidor buscaWeb;
+
+    @Test
+    void metadadosEDescricoesDasFerramentas() throws Exception {
+        assertEquals(42, ferramentasRegistradas.size());
+        java.util.List<String> longas = new java.util.ArrayList<>();
+        for (Ferramenta ferramenta : ferramentasRegistradas) {
+            assertNotNull(ferramenta.grupo(), ferramenta.nome());
+            assertFalse(ferramenta.getClass().getMethod("grupo").getDeclaringClass()
+                    .equals(Ferramenta.class), ferramenta.nome());
+            assertFalse(ferramenta.getClass().getMethod("simples").getDeclaringClass()
+                    .equals(Ferramenta.class), ferramenta.nome());
+            if (ferramenta.descricao().length() > 600)
+                longas.add(ferramenta.nome() + "=" + ferramenta.descricao().length());
+        }
+        assertTrue(longas.isEmpty(), "Descrições acima de 600: " + longas);
+    }
 
     @Test
     @DisplayName("o contexto sobe com todos os beans ligados")

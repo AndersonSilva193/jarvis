@@ -530,6 +530,8 @@ public class Assistente {
         // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
         // do cache de prompt. A da busca na web é server-side — quem executa é a Anthropic.
         ArrayNode definicoes = ferramentas.definicoes(canal, !progresso.idTarefaPlanilha().isBlank());
+        definicoes.addObject().put("type", "tool_search_tool_bm25_20251119")
+                .put("name", "tool_search_tool_bm25");
         if (buscaWeb.ativa()) {
             definicoes.add(buscaWeb.definicao());
         }
@@ -694,26 +696,30 @@ public class Assistente {
                     if (parado.getAsBoolean()) throw new PedidoInterrompido();
                     int anteriores = detalhados.size();
                     ObjectNode resultado = ferramentas.executar(bloco, seguro, detalhados::add);
+                    // A Ferramentas limita apenas o texto que volta ao modelo. As decisões deste
+                    // laço continuam usando o resultado integral recebido pelo callback.
+                    String textoIntegral = detalhados.size() > anteriores
+                            ? detalhados.getLast().texto() : Json.texto(resultado.path("content"));
                     if ("editar_arquivo".equals(nomeFerramenta)) {
                         boolean preparada = detalhados.size() > anteriores
                                 && (detalhados.getLast().confirmacao() != null
                                         || !detalhados.getLast().artefatos().isEmpty());
-                        falhaEdicao = preparada ? "" : Json.texto(resultado.path("content"));
+                        falhaEdicao = preparada ? "" : textoIntegral;
                     }
                     if (List.of("verificar_site", "status_servidor", "clima").contains(Json.texto(bloco.path("name")))
                             && !resultado.path("is_error").asBoolean(false))
-                        evidencias.put(Json.texto(resultado.path("content")), nomeFerramenta);
+                        evidencias.put(textoIntegral, nomeFerramenta);
                     resultados.add(resultado);
                     // O que vai na frase de desistência, se o modelo insistir na repetição.
                     // "Útil" aqui é "executou e não estourou": falha de negócio volta sem
                     // is_error, que a Ferramentas só marca em exceção ou ferramenta desconhecida.
                     if (!resultado.path("is_error").asBoolean(false)) {
-                        String util = Json.texto(resultado.path("content"));
+                        String util = textoIntegral;
                         if (!util.isBlank()) ultimoResultadoUtil = util;
                     }
                     if ("criar_arquivo".equals(nomeFerramenta)
                             || "criar_planilha_google".equals(nomeFerramenta)) {
-                        String textoResultado = Json.texto(resultado.path("content"));
+                        String textoResultado = textoIntegral;
                         ultimoErroDeArquivo = textoResultado.startsWith("Arquivo criado:")
                                 || textoResultado.startsWith("Planilha criada:") ? ""
                                 : textoResultado.substring(0, Math.min(240, textoResultado.length()));
@@ -727,8 +733,8 @@ public class Assistente {
                     }
                 }
             }
-            // Os blocos server_tool_use e web_search_tool_result já vêm resolvidos pelo servidor da
-            // Anthropic e não passam pelo registro de ferramentas. Se o turno só tinha desses, não
+            // Busca de ferramentas e busca web já vêm resolvidas pelo servidor da Anthropic e não
+            // passam pelo registro de ferramentas. Se o turno só tinha desses blocos, não
             // há resultado para devolver — e mensagem de content vazio a API recusa.
             if (resultados.isEmpty()) {
                 registrarBuscas(buscas);
@@ -788,8 +794,8 @@ public class Assistente {
      * <p>Os blocos de ferramenta e de busca ficam, e é o {@link CompactadorDeHistorico} que os tira
      * quando o turno sai da janela de turnos completos. A diferença está em tirar <b>aos pares</b>:
      * mexer no {@code encrypted_content} de um {@code web_search_tool_result}, ou deixar o
-     * {@code server_tool_use} sem ele, é HTTP 400; levar os dois juntos não é, porque não sobra
-     * nada referenciando nada.
+     * {@code server_tool_use} sem resultado é HTTP 400. A busca de ferramentas também preserva
+     * seu resultado e as referências às definições encontradas até o turno ser compactado.
      */
     private List<ObjectNode> semPensamentos(List<ObjectNode> turno) {
         List<ObjectNode> limpo = new ArrayList<>(turno.size());
@@ -803,9 +809,8 @@ public class Assistente {
             for (int i = 0; i < conteudo.size(); i++) {
                 JsonNode bloco = conteudo.get(i);
                 String tipo = Json.texto(bloco.path("type"));
-                // Só o pensamento sai. Os blocos de busca (server_tool_use, web_search_tool_result)
-                // ficam: o encrypted_content deles é o que a API decifra nos turnos seguintes, e
-                // mexer nele — ou deixá-lo de fora — é HTTP 400.
+                // Só o pensamento sai. Busca web e busca de ferramentas, inclusive resultados e
+                // referências, ficam intactas enquanto este turno estiver completo.
                 if (!"thinking".equals(tipo) && !"redacted_thinking".equals(tipo)) {
                     mantidos.add(bloco);
                 }

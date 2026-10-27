@@ -46,21 +46,16 @@ public class EsquecerMemoriaFerramenta extends FerramentaMemoria {
     }
 
     @Override public String nome() { return "esquecer_memoria"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
+    @Override public boolean simples() { return false; }
 
     @Override public String descricao() {
-        return """
-                Apaga para sempre um registro da memória, pelo id que buscar_memoria devolve. Use \
-                em "esquece que eu uso Angular no projeto X", "apaga isso da sua memória".
-
-                Devolve uma pergunta de aprovação: repita a pergunta com o seu tom e espere a \
-                resposta do usuário, sem pedir palavra, código nem frase exata. Chame uma vez só — \
-                o servidor guarda a ação e consome a aprovação sem passar por você, então chamar de \
-                novo não confirma nada. Não diga que esqueceu antes de o usuário responder.
-
-                Se foi você que anotou aquilo agora há pouco, use desfazer_anotacao, que não \
-                incomoda o usuário com uma pergunta. Se não tiver o id, use buscar_memoria; com \
-                registros parecidos, pergunte qual antes, nunca escolha sozinho.\
-                """;
+        return "Esquece ou apaga para sempre um registro da memória pelo ID de "
+                + "buscar_memoria. Registros parecidos exigem escolha do usuário. A ferramenta "
+                + "só faz a pergunta de aprovação: chame uma vez e espere a resposta em "
+                + "linguagem natural, sem pedir palavra, código nem frase exata. Não diga que apagou antes. "
+                + "O servidor executa a aprovação sem outra chamada da ferramenta. Para desfazer "
+                + "uma anotação sua feita agora há pouco, use desfazer_anotacao.";
     }
 
     @Override public ObjectNode esquemaEntrada() {

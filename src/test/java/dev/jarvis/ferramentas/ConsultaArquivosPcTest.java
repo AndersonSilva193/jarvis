@@ -7,9 +7,32 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import dev.jarvis.pc.PcService;
+import dev.jarvis.pc.ComandoPc;
+import dev.jarvis.pc.ResultadoPc;
 import tools.jackson.databind.json.JsonMapper;
 
 class ConsultaArquivosPcTest {
+    @Test void lerArquivoUsaPaginasDeAteSeisMilCaracteres() throws Exception {
+        PcService pc = mock(PcService.class);
+        var json = JsonMapper.builder().build();
+        var enviado = new java.util.concurrent.atomic.AtomicReference<ComandoPc>();
+        when(pc.online()).thenReturn(true);
+        when(pc.enfileirar(any(), any(), anyLong())).thenAnswer(chamada -> {
+            ComandoPc comando = chamada.getArgument(0);
+            enviado.set(comando);
+            return CompletableFuture.completedFuture(new ResultadoPc(comando.id(), true, "ok",
+                    null, null, false, json.createObjectNode().put("conteudo", "página")));
+        });
+        var ler = new LerArquivoFerramenta(pc, json);
+        assertEquals(6000, ler.esquemaEntrada().path("properties")
+                .path("maximoCaracteres").path("maximum").intValue());
+        ler.executar(json.createObjectNode().put("id", "doc-1").put("maximoCaracteres", 12000));
+        assertEquals(6000, enviado.get().dados().path("maximoCaracteres").intValue());
+        ler.executar(json.createObjectNode().put("id", "doc-1").put("inicio", 6000));
+        assertEquals(6000, enviado.get().dados().path("maximoCaracteres").intValue());
+        assertEquals(6000, enviado.get().dados().path("inicio").intValue());
+    }
+
     @Test void pcOfflineExplicaIndisponibilidadeDosOriginais() throws Exception {
         PcService pc = new PcService();
         var json = JsonMapper.builder().build();

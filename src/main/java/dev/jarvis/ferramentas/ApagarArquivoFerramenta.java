@@ -92,6 +92,8 @@ public class ApagarArquivoFerramenta implements Ferramenta {
     public String nome() {
         return "apagar_arquivo";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
+    @Override public boolean simples() { return false; }
 
     @Override
     public String descricao() {

@@ -19,6 +19,8 @@ public class RodarRotinaFerramenta implements Ferramenta {
         this.e2 = e2; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "rodar_rotina"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() {
         if (e2.rotinas().isEmpty()) return "Nenhuma rotina cadastrada no agente do PC.";
         StringBuilder texto = new StringBuilder("Executa apenas rotina cadastrada no PC. O agente decide se aceita. Rotinas: ");

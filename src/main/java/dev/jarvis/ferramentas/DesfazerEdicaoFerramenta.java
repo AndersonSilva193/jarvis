@@ -18,6 +18,8 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
         this.fluxo = fluxo; this.json = json;
     }
     @Override public String nome() { return "desfazer_edicao"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Restaura o backup de uma edição original "
             + "pelo editId; omita-o para desfazer a última edição original concluída neste servidor. "
             + "Exige pedido explícito do usuário. "

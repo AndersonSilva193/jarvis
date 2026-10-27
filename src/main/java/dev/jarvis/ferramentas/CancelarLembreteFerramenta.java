@@ -23,6 +23,8 @@ public class CancelarLembreteFerramenta implements Ferramenta {
     public String nome() {
         return "cancelar_lembrete";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.LEMBRETES; }
+    @Override public boolean simples() { return false; }
 
     @Override
     public String descricao() {

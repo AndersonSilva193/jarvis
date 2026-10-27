@@ -22,6 +22,8 @@ public class ListarMemoriasFerramenta extends FerramentaMemoria {
     public ListarMemoriasFerramenta(MemoriaService memoria, JsonMapper json) { super(memoria, json); }
 
     @Override public String nome() { return "listar_memorias"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
+    @Override public boolean simples() { return true; }
 
     @Override public String descricao() {
         return """

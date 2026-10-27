@@ -19,6 +19,8 @@ public class CancelarTarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "cancelar_tarefa_no_pc"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() {
         return "Cancela uma confirmacao pendente de tarefa visual ou pede parada da ultima tarefa "
                 + "iniciada no PC. Sem ID, prioriza a confirmacao pendente; ID opcional para tarefa "

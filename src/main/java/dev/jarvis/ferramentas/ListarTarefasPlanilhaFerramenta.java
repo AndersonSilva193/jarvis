@@ -16,6 +16,8 @@ public class ListarTarefasPlanilhaFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.json = json;
     }
     @Override public String nome() { return "listar_tarefas_planilha"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Lista as tarefas de planilha autorizadas pelo usuário, "
             + "com ID, arquivo, agenda e próxima execução para permitir revogação."; }
     @Override public ObjectNode esquemaEntrada() { return json.createObjectNode().put("type", "object"); }

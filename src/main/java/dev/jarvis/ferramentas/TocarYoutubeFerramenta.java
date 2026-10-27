@@ -38,6 +38,8 @@ public class TocarYoutubeFerramenta extends FerramentaDeTela {
     public String nome() {
         return "tocar_youtube";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.TELA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

@@ -140,6 +140,16 @@ public class MedidorDeCusto {
         naFila(false, this::gravarPendentes);
     }
 
+    /** Conta a tentativa iniciada de uma ferramenta conhecida, mesmo se a execução falhar. */
+    public void registrarFerramenta(String nome) {
+        synchronized (trava) {
+            virarSePrecisar(hojeLocal());
+            dia.registrarFerramenta(nome);
+            pendentes.put(dia.dia(), dia.copia());
+        }
+        naFila(false, this::gravarPendentes);
+    }
+
     /**
      * Troca o acumulador quando a data local mudou. O retrato anterior continua na fila, mesmo
      * se uma gravação falhar e o relógio já estiver no dia seguinte.
@@ -225,6 +235,7 @@ public class MedidorDeCusto {
 
         Map<Origem, Double> porOrigem = new LinkedHashMap<>();
         Map<String, Double> porModelo = new LinkedHashMap<>();
+        Map<String, Long> porFerramenta = new LinkedHashMap<>();
         List<String> semPreco = new ArrayList<>();
         double total = 0;
         long buscas = 0;
@@ -236,6 +247,8 @@ public class MedidorDeCusto {
                     porOrigem.merge(origem, uso.custoUsd, Double::sum));
             estado.porModelo().forEach((modelo, uso) ->
                     porModelo.merge(modelo, uso.custoUsd, Double::sum));
+            estado.porFerramenta().forEach((nome, chamadas) ->
+                    porFerramenta.merge(nome, chamadas, Long::sum));
             for (String modelo : estado.semPreco()) {
                 if (!semPreco.contains(modelo)) {
                     semPreco.add(modelo);
@@ -254,7 +267,18 @@ public class MedidorDeCusto {
         double teto = props.tetoDiarioDeCusto();
         return new Relatorio(inicio, hoje, total, buscas, ordenar(porOrigem), ordenar(porModelo),
                 List.copyOf(semPreco), teto, quantos == 1 ? percentual(total, teto) : 0,
-                entrada, cacheEscrito, cacheLido);
+                entrada, cacheEscrito, cacheLido, dezMaisUsadas(porFerramenta));
+    }
+
+    private static Map<String, Long> dezMaisUsadas(Map<String, Long> bruto) {
+        Map<String, Long> ordenado = new LinkedHashMap<>();
+        bruto.entrySet().stream()
+                .sorted((a, b) -> {
+                    int porQuantidade = Long.compare(b.getValue(), a.getValue());
+                    return porQuantidade == 0 ? a.getKey().compareTo(b.getKey()) : porQuantidade;
+                })
+                .limit(10).forEach(e -> ordenado.put(e.getKey(), e.getValue()));
+        return ordenado;
     }
 
     /**
@@ -540,14 +564,23 @@ public class MedidorDeCusto {
     public record Relatorio(LocalDate de, LocalDate ate, double totalUsd, long buscasWeb,
             Map<Origem, Double> porOrigem, Map<String, Double> porModelo,
             List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto,
-            long tokensEntrada, long cacheEscrito, long cacheLido) {
+            long tokensEntrada, long cacheEscrito, long cacheLido,
+            Map<String, Long> ferramentasMaisUsadas) {
+
+        public Relatorio(LocalDate de, LocalDate ate, double totalUsd, long buscasWeb,
+                Map<Origem, Double> porOrigem, Map<String, Double> porModelo,
+                List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto,
+                long tokensEntrada, long cacheEscrito, long cacheLido) {
+            this(de, ate, totalUsd, buscasWeb, porOrigem, porModelo, modelosSemPreco,
+                    tetoUsd, percentualDoTeto, tokensEntrada, cacheEscrito, cacheLido, Map.of());
+        }
 
         /** A aridade de antes da taxa de acerto do cache, para quem monta este retrato à mão. */
         public Relatorio(LocalDate de, LocalDate ate, double totalUsd, long buscasWeb,
                 Map<Origem, Double> porOrigem, Map<String, Double> porModelo,
                 List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto) {
             this(de, ate, totalUsd, buscasWeb, porOrigem, porModelo, modelosSemPreco, tetoUsd,
-                    percentualDoTeto, 0, 0, 0);
+                    percentualDoTeto, 0, 0, 0, Map.of());
         }
 
         public boolean vazio() {

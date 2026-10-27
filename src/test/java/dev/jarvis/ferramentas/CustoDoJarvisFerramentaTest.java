@@ -66,6 +66,16 @@ class CustoDoJarvisFerramentaTest {
     }
 
     @Test
+    void mostraRankingMesmoQuandoNaoHouveCustoDeModelo() {
+        when(medidor.periodo(1)).thenReturn(new MedidorDeCusto.Relatorio(HOJE, HOJE,
+                0, 0, Map.of(), Map.of(), List.of(), 0, 0, 0, 0, 0,
+                Map.of("clima", 3L, "criar_lembrete", 2L)));
+        String texto = executar("hoje");
+        assertTrue(texto.contains("clima 3"), texto);
+        assertTrue(texto.contains("criar_lembrete 2"), texto);
+    }
+
+    @Test
     @DisplayName("diz quanto da entrada foi lido do cache")
     void dizATaxaDeAcertoDoCache() {
         when(medidor.periodo(1)).thenReturn(comCache(100_000, 100_000, 800_000));

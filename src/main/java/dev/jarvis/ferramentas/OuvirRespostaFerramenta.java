@@ -21,6 +21,8 @@ public class OuvirRespostaFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "ouvir_resposta"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.TELA; }
+    @Override public boolean simples() { return false; }
 
     @Override public String descricao() {
         return "Use quando a sua resposta terminar com uma pergunta ao usuário e você precisar da resposta dele para continuar. "

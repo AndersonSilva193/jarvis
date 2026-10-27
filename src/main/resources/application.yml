@@ -36,6 +36,9 @@ jarvis:
       inicializacao: ${ESFORCO_INICIALIZACAO:low}
       apoio: ${ESFORCO_APOIO:low}
       tarefa: ${ESFORCO_TAREFA:medium}
+  ferramentas:
+    sempre-carregadas: ${FERRAMENTAS_SEMPRE_CARREGADAS:clima,criar_lembrete,listar_lembretes,controlar_pc,controlar_tela,tocar_youtube}
+    resultado-max-caracteres: ${RESULTADO_MAX_CARACTERES:6000}
   busca-web:
     # Busca na web pela ferramenta server-side do Claude: quem executa é o servidor da Anthropic.
     ativa: ${BUSCA_WEB_ATIVA:true}

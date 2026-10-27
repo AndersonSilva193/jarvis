@@ -37,6 +37,8 @@ public class NoticiasFerramenta implements Ferramenta {
     public String nome() {
         return "noticias";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.INFORMACAO; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

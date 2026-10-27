@@ -117,6 +117,11 @@ class CustoDiarioEmArquivo {
             }
             estado.porModelo().put(entrada.getKey(), lerUso(entrada.getValue()));
         }
+        for (Map.Entry<String, JsonNode> entrada : raiz.path("porFerramenta").properties()) {
+            long chamadas = Json.numero(entrada.getValue());
+            if (!entrada.getKey().isBlank() && chamadas > 0)
+                estado.porFerramenta().put(entrada.getKey(), chamadas);
+        }
 
         JsonNode avisos = raiz.path("avisos");
         estado.avisou80 = Json.booleano(avisos.path("oitenta"));
@@ -155,6 +160,8 @@ class CustoDiarioEmArquivo {
         estado.porOrigem().forEach((origem, uso) -> escrever(porOrigem.putObject(origem.chave()), uso, false));
         ObjectNode porModelo = raiz.putObject("porModelo");
         estado.porModelo().forEach((modelo, uso) -> escrever(porModelo.putObject(modelo), uso, true));
+        ObjectNode porFerramenta = raiz.putObject("porFerramenta");
+        estado.porFerramenta().forEach(porFerramenta::put);
 
         ArquivoAtomico.gravar(arquivoDe(estado.dia()), json.writeValueAsString(raiz));
     }

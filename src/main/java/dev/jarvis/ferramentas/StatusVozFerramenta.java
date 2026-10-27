@@ -23,6 +23,8 @@ public class StatusVozFerramenta implements Ferramenta {
     public String nome() {
         return "status_voz";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.VOZ; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

@@ -41,23 +41,18 @@ public class ControlarTelaFerramenta extends FerramentaDeTela {
     public String nome() {
         return "controlar_tela";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.TELA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
-        return """
-                Comanda a tela do Jarvis e as janelas que já estão abertas nela. Os ids das janelas \
-                aparecem no contexto, na linha "Na tela agora"; use só esses ids, nunca um inventado.
-
-                As ações: fechar, minimizar, maximizar, restaurar, focar, fixar, desafixar, pausar, \
-                continuar, volume_mais, volume_menos, avancar e voltar precisam de 'alvo' com o id \
-                de uma janela. fechar_tudo fecha todos os cards; limpar fecha os cards não fixados e devolve \
-                a tela ao repouso (fecha o histórico e encerra o briefing, preservando cards fixados). abrir_historico e \
-                fechar_historico mostram e escondem o histórico da conversa. mostrar_briefing e \
-                repetir_briefing trabalham com o briefing que já está na HUD — se nenhum foi gerado \
-                hoje, chame briefing_do_dia primeiro. abrir_noticia põe na tela uma manchete do \
-                último briefing: ponha em 'valor' o título ou o tema procurado.
-
-                Em avancar e voltar, 'valor' são os segundos (ex.: "30").""";
+        return "Comanda janelas e cards da HUD. Use somente IDs da linha 'Na tela agora'; "
+                + "nunca invente alvo. Fechar, minimizar, maximizar, restaurar, focar, fixar, "
+                + "desafixar, pausar, continuar, volume_mais, volume_menos, avancar e voltar "
+                + "exigem alvo. fechar_tudo fecha todos; limpar preserva os fixados. Também abre "
+                + "ou fecha histórico, mostra ou repete briefing e abre notícia por título/tema "
+                + "em valor. Sem briefing de hoje, chame briefing_do_dia primeiro. Em avancar e "
+                + "voltar, valor é o número de segundos.";
     }
 
     @Override

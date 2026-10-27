@@ -14,6 +14,12 @@ public interface Ferramenta {
     /** Nome que o modelo usa para chamar (letras minúsculas, números e _). */
     String nome();
 
+    /** Área de atuação, apenas no Java. */
+    default GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
+
+    /** Se há um caminho comum que conclui o pedido com esta chamada. */
+    default boolean simples() { return false; }
+
     /** Explica ao modelo o que a ferramenta faz e quando usar. Quanto mais claro, melhor ele escolhe. */
     String descricao();
 

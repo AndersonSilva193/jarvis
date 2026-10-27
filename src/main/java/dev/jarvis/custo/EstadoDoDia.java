@@ -21,6 +21,7 @@ class EstadoDoDia {
     private final LocalDate dia;
     private final Map<Origem, Uso> porOrigem = new EnumMap<>(Origem.class);
     private final Map<String, Uso> porModelo = new LinkedHashMap<>();
+    private final Map<String, Long> porFerramenta = new LinkedHashMap<>();
 
     boolean avisou80;
     boolean avisou100;
@@ -43,6 +44,14 @@ class EstadoDoDia {
         return porModelo;
     }
 
+    Map<String, Long> porFerramenta() {
+        return porFerramenta;
+    }
+
+    void registrarFerramenta(String nome) {
+        porFerramenta.merge(nome, 1L, Long::sum);
+    }
+
     void somar(Origem origem, String modelo, long entrada, long saida, long cacheEscrito,
             long cacheLido, long buscasWeb, double custoUsd, boolean semPreco) {
         // Uma soma é uma resposta do modelo: o 1 é a contagem de chamadas dos dois baldes.
@@ -61,7 +70,7 @@ class EstadoDoDia {
     }
 
     boolean vazio() {
-        return porModelo.isEmpty();
+        return porModelo.isEmpty() && porFerramenta.isEmpty();
     }
 
     /**
@@ -87,6 +96,7 @@ class EstadoDoDia {
         EstadoDoDia copia = new EstadoDoDia(dia);
         porOrigem.forEach((origem, uso) -> copia.porOrigem.put(origem, uso.copia()));
         porModelo.forEach((modelo, uso) -> copia.porModelo.put(modelo, uso.copia()));
+        copia.porFerramenta.putAll(porFerramenta);
         copia.avisou80 = avisou80;
         copia.avisou100 = avisou100;
         copia.tetoGravado = tetoGravado;

@@ -16,6 +16,8 @@ public class StatusTarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.json = json;
     }
     @Override public String nome() { return "status_tarefa_no_pc"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
+    @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Consulta o estado da ultima tarefa visual do usuario no PC; ID opcional para tarefa especifica."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");

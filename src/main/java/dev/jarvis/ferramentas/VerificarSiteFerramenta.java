@@ -30,6 +30,8 @@ public class VerificarSiteFerramenta implements Ferramenta {
     public String nome() {
         return "verificar_site";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.INFORMACAO; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

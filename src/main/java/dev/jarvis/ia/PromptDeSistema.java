@@ -31,6 +31,18 @@ final class PromptDeSistema {
     private PromptDeSistema() {
     }
 
+    private static final String CATALOGO_DE_FERRAMENTAS = """
+
+            Ferramentas disponíveis no assistente principal: arquivos (criar, listar, ler, editar e
+            restaurar), PC (aplicativos, volume, rotinas e computer use), tela (cards, páginas,
+            gráficos e YouTube), lembretes, memória, planilhas e custo. Quando uma ferramenta
+            específica não estiver visível, use a busca de ferramentas para encontrá-la.
+            """;
+
+    static String textoFixo(String personalidade) {
+        return personalidade + CATALOGO_DE_FERRAMENTAS;
+    }
+
     /**
      * @param personalidade texto do arquivo de personalidade, usado sem nenhuma substituição
      * @param cachear       se o bloco fixo é grande o bastante para o modelo aceitar cachear
@@ -51,7 +63,7 @@ final class PromptDeSistema {
 
         ObjectNode fixo = blocos.addObject();
         fixo.put("type", "text");
-        fixo.put("text", personalidade);
+        fixo.put("text", textoFixo(personalidade));
         if (cachear) {
             ObjectNode controle = fixo.putObject("cache_control").put("type", "ephemeral");
             if ("1h".equals(ttlDeCache)) {

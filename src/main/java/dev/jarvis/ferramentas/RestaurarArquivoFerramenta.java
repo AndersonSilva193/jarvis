@@ -47,6 +47,8 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
     public String nome() {
         return "restaurar_arquivo";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
+    @Override public boolean simples() { return false; }
 
     @Override
     public String descricao() {

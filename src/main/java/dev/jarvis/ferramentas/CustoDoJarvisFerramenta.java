@@ -33,12 +33,15 @@ public class CustoDoJarvisFerramenta implements Ferramenta {
     public String nome() {
         return "custo_do_jarvis";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.CUSTO; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
         return "Diz quanto o Jarvis gastou em dólares com os modelos de IA — hoje, na semana ou no "
                 + "mês —, com a divisão por origem (conversa, briefing, inicialização, anotador, "
-                + "classificador, computer use) e por modelo. Use em pedidos como 'quanto você "
+                + "classificador, computer use) e por modelo. Mostra as 10 ferramentas mais usadas. "
+                + "Use em pedidos como 'quanto você "
                 + "gastou hoje', 'e na semana?', 'quanto custou esse mês', 'quanto estou gastando "
                 + "com você'. Não serve para a cota de voz da ElevenLabs: essa é a status_voz.";
     }
@@ -78,8 +81,8 @@ public class CustoDoJarvisFerramenta implements Ferramenta {
             default -> "Hoje";
         };
         if (relatorio.vazio()) {
-            return dias == 1 ? "Hoje ainda não gastei nada com modelo."
-                    : titulo + ": não gastei nada com modelo.";
+            return comFerramentas(dias == 1 ? "Hoje ainda não gastei nada com modelo."
+                    : titulo + ": não gastei nada com modelo.", relatorio);
         }
 
         StringBuilder texto = new StringBuilder(titulo + ": " + Dinheiro.usd(relatorio.totalUsd()));
@@ -117,7 +120,15 @@ public class CustoDoJarvisFerramenta implements Ferramenta {
                     .append(String.join(", ", relatorio.modelosSemPreco()))
                     .append(": os tokens desse(s) modelo(s) ficaram fora da conta.");
         }
-        return texto.toString();
+        return comFerramentas(texto.toString(), relatorio);
+    }
+
+    private static String comFerramentas(String texto, MedidorDeCusto.Relatorio relatorio) {
+        if (relatorio.ferramentasMaisUsadas().isEmpty()) return texto;
+        StringJoiner usos = new StringJoiner("; ");
+        relatorio.ferramentasMaisUsadas().forEach((nome, chamadas) ->
+                usos.add(nome + " " + chamadas));
+        return texto + " Ferramentas mais usadas (desde a contagem): " + usos + ".";
     }
 
     /** Balde que não custou nada fica de fora: ele só gastaria token para dizer "zero". */

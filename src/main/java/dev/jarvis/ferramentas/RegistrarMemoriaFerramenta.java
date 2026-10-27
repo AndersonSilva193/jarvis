@@ -11,6 +11,8 @@ import tools.jackson.databind.node.ObjectNode;
 public class RegistrarMemoriaFerramenta extends FerramentaMemoria {
     public RegistrarMemoriaFerramenta(MemoriaService memoria, JsonMapper json) { super(memoria, json); }
     @Override public String nome() { return "registrar_memoria"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
+    @Override public boolean simples() { return true; }
     @Override public String descricao() {
         return """
                 Guarda um fato durável que o usuário contou sobre ele, seus projetos, preferências \

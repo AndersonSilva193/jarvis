@@ -40,6 +40,8 @@ public class DesfazerAnotacaoFerramenta extends FerramentaMemoria {
     }
 
     @Override public String nome() { return "desfazer_anotacao"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
+    @Override public boolean simples() { return true; }
 
     @Override public String descricao() {
         return """

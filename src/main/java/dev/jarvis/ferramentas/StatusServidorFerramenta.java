@@ -23,6 +23,8 @@ public class StatusServidorFerramenta implements Ferramenta {
     public String nome() {
         return "status_servidor";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {

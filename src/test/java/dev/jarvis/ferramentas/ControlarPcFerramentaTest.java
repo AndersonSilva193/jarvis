@@ -409,6 +409,12 @@ class ControlarPcFerramentaTest {
                 "campo que o modelo não pode preencher não entra no schema");
     }
 
+    @Test void descricaoComMuitosAppsContinuaCurta() {
+        pcOnline("chrome,spotify," + "aplicativo".repeat(20));
+        assertTrue(ferramenta.descricao().length() <= 600);
+        assertTrue(ferramenta.descricao().contains("chrome, spotify"));
+    }
+
     @Test
     @DisplayName("as ações do despertar chegam ao agente sem confirmação e sem argumento")
     void acoesDoDespertar() {

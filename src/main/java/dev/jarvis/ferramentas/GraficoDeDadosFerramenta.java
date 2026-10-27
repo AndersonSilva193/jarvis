@@ -99,21 +99,16 @@ public class GraficoDeDadosFerramenta extends FerramentaDeTela {
     public String nome() {
         return "grafico_de_dados";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.TELA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
-        return "Abre na tela um gráfico cujos números vêm do próprio Jarvis, não de você. "
-                + "Você escolhe a fonte e escreve a conclusão no título; eixo, valores e unidade "
-                + "são preenchidos pelo servidor, e o card fica marcado como dado da casa. "
-                + "Fontes: clima_7_dias (máxima, mínima e chance de chuva da semana à frente, "
-                + "dois cards), planilha (colunas de um XLSX ou CSV da pasta do Jarvis, pelo id de "
-                + "listar_arquivos) e custo_30_dias (o que o Jarvis gastou no mês, em barras "
-                + "empilhadas por origem). Use para 'mostra a previsão da semana num gráfico', "
-                + "'faz um gráfico da coluna de vendas daquela planilha' ou 'mostra num gráfico "
-                + "o meu gasto do mês'. "
-                + "Para números que você pesquisou na web, a ferramenta é mostrar_na_tela com "
-                + "layout grafico — esta não aceita valor nenhum escrito por você. "
-                + "Se o contexto não traz a linha 'Na tela agora', nenhuma HUD está aberta.";
+        return "Mostra gráfico na HUD com números preenchidos pelo servidor. Fontes: clima_7_dias "
+                + "(previsão semanal), planilha (XLSX/CSV pelo ID de listar_arquivos) e "
+                + "custo_30_dias (gasto mensal). Escolha fonte e título com a conclusão; não escreva "
+                + "eixos nem valores. Para números pesquisados na web, use mostrar_na_tela com "
+                + "layout grafico. Sem 'Na tela agora' no contexto, não há HUD aberta.";
     }
 
     @Override

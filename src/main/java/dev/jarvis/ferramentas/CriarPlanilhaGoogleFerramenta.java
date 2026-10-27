@@ -16,6 +16,8 @@ public class CriarPlanilhaGoogleFerramenta implements Ferramenta {
         this.google = google; this.json = json;
     }
     @Override public String nome() { return "criar_planilha_google"; }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
+    @Override public boolean simples() { return true; }
     /**
      * Olha o {@code configurado()}, e não o {@code autorizado()}, de propósito: este texto e o
      * schema abaixo vão para o array {@code tools}, e o {@code autorizado()} faz um

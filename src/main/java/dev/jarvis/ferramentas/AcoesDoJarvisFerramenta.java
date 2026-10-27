@@ -39,18 +39,16 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
     public String nome() {
         return "acoes_do_jarvis";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
-        return "Diz o que VOCÊ (o Jarvis) fez — hoje, ontem ou nos últimos 7 dias —, tanto o que "
-                + "fez por conta própria (editar, desfazer, restaurar da lixeira, criar arquivo, "
-                + "anotar e corrigir memória) quanto o que fez depois da aprovação do usuário "
-                + "(rotina, tarefa no monitor, apagar arquivo, desligar o PC). Use em pedidos como "
-                + "'o que você fez hoje?', 'o que mudou nos meus arquivos ontem?', 'você mexeu em "
-                + "alguma coisa?', 'o que você anotou essa semana'. Com 'assunto' dá para pedir só "
-                + "uma parte. Não serve para o gasto em dólares (é a custo_do_jarvis), para o que "
-                + "ainda vai acontecer (é a listar_lembretes) nem para o que você sabe sobre o "
-                + "usuário (é a listar_memorias).";
+        return "Consulta o diário do que o Jarvis fez hoje, ontem ou na semana: arquivos, "
+                + "memória, rotinas, tarefas visuais e ações aprovadas. Use para 'o que você fez hoje?', "
+                + "'mexeu nos meus arquivos?' ou 'o que anotou?'. O campo assunto filtra a lista. "
+                + "Gasto em dólares é custo_do_jarvis; lembretes futuros são listar_lembretes; "
+                + "lembranças guardadas são listar_memorias.";
     }
 
     /**

@@ -23,6 +23,8 @@ public class BriefingFerramenta implements Ferramenta {
     public String nome() {
         return "briefing_do_dia";
     }
+    @Override public GrupoFerramenta grupo() { return GrupoFerramenta.INFORMACAO; }
+    @Override public boolean simples() { return true; }
 
     @Override
     public String descricao() {
