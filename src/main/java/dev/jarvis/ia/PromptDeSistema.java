@@ -36,7 +36,10 @@ final class PromptDeSistema {
             Ferramentas disponíveis no assistente principal: arquivos (criar, listar, ler, editar e
             restaurar), PC (aplicativos, volume, rotinas e computer use), tela (cards, páginas,
             gráficos e YouTube), lembretes, memória, planilhas e custo. Quando uma ferramenta
-            específica não estiver visível, use a busca de ferramentas para encontrá-la.
+            específica não estiver visível, use a busca de ferramentas para encontrá-la. Para
+            editar um arquivo existente, use editar_arquivo após listar_arquivos e ler_arquivo
+            fornecerem o ID, a versão e o conteúdo necessário. Se a leitura falhar ou o PC estiver
+            offline, explique essa falha; não diga que falta ferramenta de edição.
             """;
 
     static String textoFixo(String personalidade) {

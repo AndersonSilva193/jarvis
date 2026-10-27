@@ -72,6 +72,8 @@ class PromptDeSistemaTest {
         assertEquals(PromptDeSistema.textoFixo(PERSONALIDADE), texto(system.get(0)));
         assertTrue(texto(system.get(0)).contains("arquivos (criar, listar"));
         assertTrue(texto(system.get(0)).contains("lembretes, memória, planilhas e custo"));
+        assertTrue(texto(system.get(0)).contains("use editar_arquivo"));
+        assertTrue(texto(system.get(0)).contains("não diga que falta ferramenta de edição"));
         assertTrue(texto(system.get(1)).contains("Agora são"), texto(system.get(1)));
     }
 

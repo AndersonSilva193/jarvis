@@ -50,16 +50,18 @@ O Jarvis envia à API todas as definições permitidas para o canal. A busca BM2
 no contexto só as ferramentas necessárias. `FERRAMENTAS_SEMPRE_CARREGADAS` define as seis
 disponíveis de imediato:
 `clima,criar_lembrete,listar_lembretes,controlar_pc,controlar_tela,tocar_youtube` por padrão.
-`tarefa_no_pc` também fica visível; `ouvir_resposta` fica visível na HUD. A busca web e o
-computer use continuam disponíveis. As demais ferramentas são encontradas pela busca quando o
+`editar_arquivo` e `tarefa_no_pc` também ficam visíveis; `ouvir_resposta` fica visível na HUD.
+A busca web e o computer use continuam disponíveis. As demais ferramentas são encontradas pela busca quando o
 pedido exigir. Alterar a lista fixa muda o prefixo do cache de prompt.
 
 `RESULTADO_MAX_CARACTERES` limita a 6.000 caracteres, por padrão, cada resultado textual que
 volta ao modelo. O texto cortado avisa `[cortado; peça a próxima parte]`; JSON longo continua
 válido e conserva identificadores e indicação de continuação. `ler_arquivo` usa esse limite para
-as páginas de texto e aceita o deslocamento retornado para ler a próxima parte. O registro diário
-de custo passa a contar ferramentas executadas, e `custo_do_jarvis` mostra as dez mais usadas no
-período consultado. A contagem começa com esta versão; dias antigos não têm esse dado.
+as páginas de texto e aceita o deslocamento retornado para ler a próxima parte. Em PDF, CSV, JSON e
+XLSX, resultados cortados preservam páginas, linhas e células inteiras ou orientam uma releitura menor,
+sem apresentar dados parciais como completos. O registro diário de custo passa a contar ferramentas
+executadas, e `custo_do_jarvis` mostra as dez mais usadas no período consultado. A contagem começa
+com esta versão; dias antigos não têm esse dado.
 
 O **canal** diz ao Jarvis como escrever: `telegram` aceita negrito, listas e blocos de código; `hud`
 e `briefing` viram áudio, então são frases curtas sem markdown; `tarefa` começa pelo resultado, com
@@ -438,7 +440,7 @@ estou aqui, senhor.". Nesse endpoint o agente manda a **chave** de uma frase do 
 | "quais arquivos eu tenho?" | `listar_arquivos` |
 | "lê a tabela de exemplo" | `ler_arquivo` |
 | "muda o valor da célula C4" / "troca todas as ocorrências de X" | `editar_arquivo` |
-| "desfaz a última edição" | `desfazer_edicao` (com confirmação) |
+| "desfaz a última edição" | `desfazer_edicao` (no mesmo pedido) |
 | "apaga o relatório antigo" | `apagar_arquivo` (com confirmação) |
 | "restaura o que eu apaguei" / "o que tem na lixeira?" | `restaurar_arquivo` |
 | "toda sexta atualiza essa planilha" | `agendar_tarefa_planilha` / `listar_tarefas_planilha` / `revogar_tarefa_planilha` |
@@ -457,13 +459,15 @@ O agente cadastra arquivos criados e também arquivos suportados que já estavam
 formato, tamanho e segurança do caminho. O catálogo `.jarvis-catalogo.properties` persiste no PC;
 seu ID estável é diferente do ID temporário do upload. Cada item informa nome, formato, tamanho,
 modificação e estado (`disponivel`, `alterado` ou `removido`). Resultados com nomes parecidos são
-apresentados para escolha.
+apresentados para escolha. Se o resultado ultrapassar o limite enviado ao modelo, a página e seu
+tamanho são recalculados para que a consulta seguinte não salte arquivos.
 
 `ler_arquivo` recebe exclusivamente um ID do catálogo. TXT/MD e DOCX usam `inicio` e
 `maximoCaracteres`; PDF usa `paginaInicial`, `quantidadePaginas` e `inicio` dentro da página;
 XLSX usa `aba` e intervalo de linhas/colunas; CSV usa `delimitador`, `linhaInicial` e
-`quantidadeLinhas`. A resposta traz indicador de truncamento e ponto de continuação. Uma linha
-CSV ou célula XLSX grande usa `inicioLinha` ou `inicioCelula` com o próximo deslocamento retornado;
+`quantidadeLinhas`. A resposta traz indicador de truncamento e ponto de continuação. Um trecho
+TXT/MD/DOCX cortado para caber no resultado ajusta `proximoInicio` ao fim do texto realmente mostrado.
+Uma linha CSV ou célula XLSX grande usa `inicioLinha` ou `inicioCelula` com o próximo deslocamento retornado;
 `fragmentoLinha` e `fragmentoCelula` transportam partes do JSON do item. A leitura limita o arquivo
 a 8 MiB, o tempo a 12 segundos e o JSON de resultado a 28.000 bytes. Fórmulas
 XLSX são devolvidas como dados com valores em cache possivelmente desatualizados; nada é executado.
@@ -477,10 +481,11 @@ Use o ID e `versaoEsperada` (SHA-256) de `listar_arquivos`/`ler_arquivo` e leia 
 arquivo antes de propor operações. São aceitas `substituir_trecho` (uma ocorrência
 exata), `substituir_todas_ocorrencias` (busca literal, com opção de ignorar maiúsculas),
 `acrescentar_ao_final` e `substituir_conteudo` (somente após leitura integral
-e pedido explícito de reescrita). O agente devolve prévia limitada e `editId`;
-sobrescrever `original` exige nova mensagem autenticada. `copia` cria arquivo novo
-sem sobrescrever. `desfazer_edicao` recebe somente `editId`, confere backup e hash
-atual, e também exige nova mensagem autenticada. Os backups ficam fora da listagem
+e pedido explícito de reescrita). O agente devolve prévia limitada e `editId`; o servidor também
+confere que todos os trechos necessários chegaram ao modelo antes da reescrita total.
+Sobrescrever `original` é aplicado no mesmo pedido autenticado após o agente confirmar o resultado.
+`copia` cria arquivo novo sem sobrescrever. `desfazer_edicao` confere backup e hash
+atual e também é aplicado no mesmo pedido. Os backups ficam fora da listagem
 comum no agente Windows. Se o arquivo foi salvo mas o upload falhou, o resultado
 informa “salvo, entrega falhou” e o Jarvis não repete a edição.
 O pedido “desfaça a última edição” usa o registro da última edição original concluída
@@ -750,7 +755,7 @@ têm preview; os demais arquivos são entregues como download.
 É por esse caminho que `criar_arquivo`, `captura_tela` e `ler_arquivo` entregam arquivo e imagem à
 HUD e ao Telegram. Os botões de confirmação da HUD aparecem com os metadados explícitos e enviam
 `confirmo <código>` ou `cancelo <código>`; para as ações protegidas do PC (desligar, reiniciar,
-rotina, tarefa visual, sobrescrever arquivo, desfazer edição) basta uma **nova mensagem
+rotina, tarefa visual) basta uma **nova mensagem
 autenticada**, consumida pelo servidor sem voltar ao modelo.
 
 ### O JSON do briefing

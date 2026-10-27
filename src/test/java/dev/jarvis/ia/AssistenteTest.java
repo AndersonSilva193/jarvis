@@ -65,6 +65,38 @@ class AssistenteTest {
         assertTrue(busca.path("defer_loading").isMissingNode());
     }
 
+    @Test void edicaoFicaVisivelEReferenciaDeBuscaPermaneceNoTurno() throws Exception {
+        ObjectNode descoberta = JSON.createObjectNode().put("stop_reason", "tool_use");
+        ArrayNode conteudo = descoberta.putArray("content");
+        conteudo.addObject().put("type", "server_tool_use").put("id", "srvtoolu_edicao")
+                .put("name", "tool_search_tool_bm25").putObject("input")
+                .put("query", "editar planilha existente");
+        conteudo.addObject().put("type", "tool_search_tool_result")
+                .put("tool_use_id", "srvtoolu_edicao").putObject("content")
+                .put("type", "tool_search_tool_search_result").putArray("tool_references")
+                .addObject().put("type", "tool_reference").put("tool_name", "editar_arquivo");
+        conteudo.addObject().put("type", "tool_use").put("id", "tu_edicao")
+                .put("name", "editar_arquivo").set("input", JSON.createObjectNode());
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(descoberta).thenReturn(respostaComPensamento("Edição preparada."));
+
+        comFerramentas(ferramentaDeFluxo("editar_arquivo", "Edição preparada."))
+                .responder(1L, "edite minha planilha", Canal.HUD, null);
+
+        ArgumentCaptor<ArrayNode> ferramentas = ArgumentCaptor.forClass(ArrayNode.class);
+        ArgumentCaptor<ArrayNode> mensagens = ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), mensagens.capture(), ferramentas.capture());
+        JsonNode editar = ferramentas.getAllValues().getFirst().get(0);
+        assertEquals("editar_arquivo", editar.path("name").stringValue());
+        assertTrue(editar.path("defer_loading").isMissingNode());
+        ArrayNode segunda = mensagens.getAllValues().getLast();
+        assertTrue(segunda.toString().contains("\"tool_search_tool_result\""));
+        assertTrue(segunda.toString().contains("\"tool_name\":\"editar_arquivo\""));
+        assertTrue(segunda.toString().contains("\"tool_use_id\":\"tu_edicao\""));
+    }
+
     @Test void referenciaSomenteAnexoUnicoDaRespostaAnteriorDoMesmoCanal() {
         Instant agora = Instant.parse("2026-10-18T21:00:00Z");
         Anexo arquivo = new Anexo("a", "arquivo", "nota.md", "application/octet-stream", "", "");

@@ -31,6 +31,9 @@ import tools.jackson.databind.node.ObjectNode;
 public class Ferramentas {
 
     private static final Logger log = LoggerFactory.getLogger(Ferramentas.class);
+    /** Edição deve estar visível mesmo quando a configuração ainda contém a lista inicial de seis. */
+    private static final Set<String> EXTRAS_SEMPRE_CARREGADAS = Set.of(
+            "editar_arquivo", "tarefa_no_pc");
 
     /**
      * Por nome, em <b>ordem alfabética</b> — e é a ordem que importa, não só a busca.
@@ -45,6 +48,7 @@ public class Ferramentas {
     private final JsonMapper json;
     private final ApplicationEventPublisher eventos;
     private final MedidorDeCusto medidor;
+    private final LeiturasVisiveis leiturasVisiveis;
     private final Set<String> sempreCarregadas;
     private final int resultadoMaxCaracteres;
 
@@ -68,15 +72,22 @@ public class Ferramentas {
 
     public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json,
             ApplicationEventPublisher eventos) {
-        this(ferramentas, json, eventos, null, null);
+        this(ferramentas, json, eventos, null, null, null);
+    }
+
+    public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json,
+            ApplicationEventPublisher eventos, JarvisProperties props, MedidorDeCusto medidor) {
+        this(ferramentas, json, eventos, props, medidor, null);
     }
 
     @Autowired
     public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json,
-            ApplicationEventPublisher eventos, JarvisProperties props, MedidorDeCusto medidor) {
+            ApplicationEventPublisher eventos, JarvisProperties props, MedidorDeCusto medidor,
+            LeiturasVisiveis leiturasVisiveis) {
         this.json = json;
         this.eventos = eventos;
         this.medidor = medidor;
+        this.leiturasVisiveis = leiturasVisiveis;
         this.sempreCarregadas = Set.copyOf(props == null
                 ? List.of("clima", "criar_lembrete", "listar_lembretes", "controlar_pc",
                         "controlar_tela", "tocar_youtube") : props.ferramentasSempreCarregadas());
@@ -112,7 +123,7 @@ public class Ferramentas {
             def.put("name", f.nome());
             def.put("description", f.descricao());
             def.set("input_schema", f.esquemaEntrada());
-            if (!sempreCarregadas.contains(f.nome()) && !"tarefa_no_pc".equals(f.nome())
+            if (!sempreCarregadas.contains(f.nome()) && !EXTRAS_SEMPRE_CARREGADAS.contains(f.nome())
                     && !((canal == null || canal == Canal.HUD) && "ouvir_resposta".equals(f.nome()))) {
                 def.put("defer_loading", true);
             }
@@ -227,9 +238,12 @@ public class Ferramentas {
             publicarNaTela(detalhado);
             receber.accept(detalhado);
             String saida = detalhado.texto();
-            resultado.put("content", LimiteDeResultado.paraModelo(
+            String textoParaModelo = LimiteDeResultado.paraModelo(
                     saida == null || saida.isBlank() ? "(sem resultado)" : saida,
-                    resultadoMaxCaracteres, json));
+                    resultadoMaxCaracteres, json);
+            resultado.put("content", textoParaModelo);
+            if (leiturasVisiveis != null && "ler_arquivo".equals(nome))
+                leiturasVisiveis.registrar(progresso.usuarioAutenticado(), textoParaModelo, json);
         } catch (Exception e) {
             log.warn("Ferramenta {} falhou: {}", nome, e.getMessage());
             resultado.put("content", LimiteDeResultado.paraModelo(

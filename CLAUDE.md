@@ -276,7 +276,7 @@ declara em que unidade está, então o modelo copia o símbolo do cabeçalho. É
 
 ## O PC Windows pelo Telegram
 
-Edição de arquivos comuns: `editar_arquivo` aceita apenas IDs catalogados de TXT/MD,
+Edição de arquivos comuns: `editar_arquivo` aceita apenas IDs catalogados de TXT/MD/JSON/XLSX,
 `versaoEsperada` SHA-256 e operações fechadas. A proposta é preparada no agente,
 com prévia e `editId`. Dentro da `pastaArquivos`, sobrescrita do original, cópia e
 `desfazer_edicao` são aplicadas **no mesmo pedido, sem `Aprovacoes`**: o agente guarda backup
@@ -298,7 +298,9 @@ quem garante que ele aponta para um arquivo só é o `apelidoUnico` que o agente
 catálogo **inteiro**, de modo que `relatorio.md` ao lado de `relatorio.xlsx` torna o apelido
 ambíguo e a edição é recusada. Se a edição falhar, o mesmo turno não
 cria outro documento. Leituras paginadas da mesma versão podem comprovar leitura
-integral para reescrita; registros de leitura expiram em dez minutos.
+integral para reescrita; registros de leitura expiram em dez minutos. A VPS confere também os
+intervalos efetivamente entregues ao modelo, pois o agente pode ter marcado como lido um trecho
+que o limite de resultado encurtou.
 `desfazer_edicao` pode omitir `editId` para a última edição original concluída
 enquanto a instância do servidor permanecer ativa.
 
@@ -1040,8 +1042,9 @@ a API cobrou, e é assim que se compara antes e depois junto do `MedidorDeCusto`
 - O `Assistente` envia a busca BM25 `tool_search_tool_bm25_20251119` mais **todas** as definições
   a cada chamada. `Ferramentas` marca `defer_loading: true` fora de
   `FERRAMENTAS_SEMPRE_CARREGADAS` (padrão: `clima,criar_lembrete,listar_lembretes,controlar_pc,`
-  `controlar_tela,tocar_youtube`). `tarefa_no_pc` fica sempre visível; `ouvir_resposta` também na
-  HUD. Busca web e o provedor separado de computer use continuam carregados. Ferramenta adiada
+  `controlar_tela,tocar_youtube`). `editar_arquivo` e `tarefa_no_pc` ficam sempre visíveis;
+  `ouvir_resposta` também na HUD. Busca web e o provedor separado de computer use continuam
+  carregados. Ferramenta adiada
   não leva `cache_control`; os blocos `server_tool_use` e `tool_search_tool_result` voltam
   intactos no histórico. A ordem das definições Java continua alfabética.
 - Cada `Ferramenta` informa `grupo` e `simples` somente no Java, para o futuro roteador local.
@@ -1050,8 +1053,12 @@ a API cobrou, e é assim que se compara antes e depois junto do `MedidorDeCusto`
 - `RESULTADO_MAX_CARACTERES` (padrão 6.000) limita só `tool_result.content`. O resultado integral
   continua disponível para anexos, eventos e código Java. Texto cortado termina com
   `[cortado; peça a próxima parte]`; JSON longo vira JSON válido resumido com esse aviso,
-  identificadores e dados de continuação. `ler_arquivo` limita `maximoCaracteres` a esse tamanho
-  e mantém os deslocamentos de paginação do agente do PC. Não corte o `JsonNode` de origem.
+  identificadores e dados de continuação. Quando um trecho TXT/MD/DOCX é cortado, `proximoInicio`
+  avança só até o último caractere visível; em `listar_arquivos`, `pagina` e `tamanhoPagina` são
+  recalculados para não saltar itens. `ler_arquivo` limita `maximoCaracteres` ao teto configurado.
+  Em PDF, CSV, JSON e XLSX, o resumo não inventa valores nem preserva um cursor que saltaria dados:
+  recalcula o deslocamento quando há texto paginado e pede uma releitura menor quando omite itens.
+  Não corte o `JsonNode` de origem.
 
 As duas configurações novas entram nos três lugares de sempre: `JarvisProperties`,
 `application.yml` e `.env.example`.

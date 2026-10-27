@@ -273,4 +273,30 @@ class EditarArquivoFerramentaTest {
                 resultado.texto());
         verify(fluxo).aplicar(eq("aplicar_edicao"), eq(EDIT), any(), any(), eq(false));
     }
+
+    @Test void reescritaTotalNaoUsaTrechoQueSoOAgenteViu() throws Exception {
+        FluxoEdicaoPc fluxo = mock(FluxoEdicaoPc.class);
+        LeiturasVisiveis leituras = new LeiturasVisiveis();
+        var ferramenta = new EditarArquivoFerramenta(fluxo, json, null, leituras);
+        var pedido = json.createObjectNode().put("id", ID).put("versaoEsperada", HASH)
+                .put("destino", "original");
+        pedido.putArray("operacoes").addObject().put("tipo", "substituir_conteudo")
+                .put("conteudo", "novo texto");
+        OuvinteProgresso contexto = contexto("pedido-1", "reescreva todo o conteúdo de nota.md");
+
+        var primeiraPagina = json.createObjectNode().put("id", ID).put("versaoEsperada", HASH)
+                .put("formato", "md").put("inicio", 0).put("totalCaracteres", 100)
+                .put("conteudo", "x".repeat(50));
+        leituras.registrar(42, primeiraPagina.toString(), json);
+        assertTrue(ferramenta.executarDetalhado(pedido, contexto).texto()
+                .contains("ler todo o texto"));
+        verifyNoInteractions(fluxo);
+
+        leituras.registrar(42, primeiraPagina.put("inicio", 50)
+                .put("conteudo", "x".repeat(50)).toString(), json);
+        when(fluxo.preparar(eq("preparar_edicao"), any(), any())).thenReturn(
+                new ResultadoPc(ID, false, "versão mudou", null, null, false, null));
+        assertTrue(ferramenta.executarDetalhado(pedido, contexto).texto().contains("versão mudou"));
+        verify(fluxo).preparar(eq("preparar_edicao"), any(), eq(contexto));
+    }
 }

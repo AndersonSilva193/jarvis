@@ -103,6 +103,14 @@ class ContextoDaAplicacaoTest {
     void ferramentasRegistradas() {
         // Ferramenta nova é só uma classe @Component: registro vazio significa injeção quebrada.
         assertFalse(ferramentas.definicoes().isEmpty(), "o registro de ferramentas subiu vazio");
+        for (dev.jarvis.ia.Canal canal : new dev.jarvis.ia.Canal[] {
+                dev.jarvis.ia.Canal.HUD, dev.jarvis.ia.Canal.TELEGRAM }) {
+            var editar = java.util.stream.StreamSupport
+                    .stream(ferramentas.definicoes(canal).spliterator(), false)
+                    .filter(def -> "editar_arquivo".equals(def.path("name").asText()))
+                    .findFirst().orElseThrow();
+            assertTrue(editar.path("defer_loading").isMissingNode(), canal.nome());
+        }
     }
 
     @Test
