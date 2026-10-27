@@ -9,20 +9,12 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Flow;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.custo.MedidorDeCusto;
@@ -65,28 +57,7 @@ class ClaudeClientCacheTest {
 
     /** O corpo que o cliente realmente mandou, lido de volta do BodyPublisher. */
     private JsonNode corpoEnviado() throws Exception {
-        ArgumentCaptor<HttpRequest> pedido = ArgumentCaptor.forClass(HttpRequest.class);
-        org.mockito.Mockito.verify(http).send(pedido.capture(), any(HttpResponse.BodyHandler.class));
-        return json.readTree(lerCorpo(pedido.getValue()));
-    }
-
-    private static String lerCorpo(HttpRequest pedido) throws Exception {
-        HttpRequest.BodyPublisher publisher = pedido.bodyPublisher().orElseThrow();
-        List<ByteBuffer> partes = new ArrayList<>();
-        CountDownLatch pronto = new CountDownLatch(1);
-        publisher.subscribe(new Flow.Subscriber<ByteBuffer>() {
-            @Override public void onSubscribe(Flow.Subscription assinatura) {
-                assinatura.request(Long.MAX_VALUE);
-            }
-            @Override public void onNext(ByteBuffer parte) { partes.add(parte); }
-            @Override public void onError(Throwable erro) { pronto.countDown(); }
-            @Override public void onComplete() { pronto.countDown(); }
-        });
-        assertTrue(pronto.await(5, TimeUnit.SECONDS), "o BodyPublisher não terminou");
-        int total = partes.stream().mapToInt(ByteBuffer::remaining).sum();
-        ByteBuffer inteiro = ByteBuffer.allocate(total);
-        partes.forEach(inteiro::put);
-        return new String(inteiro.array(), StandardCharsets.UTF_8);
+        return CorpoDoPedido.unico(http, json);
     }
 
     private void respondendo() throws IOException, InterruptedException {
@@ -169,7 +140,9 @@ class ClaudeClientCacheTest {
         assertTrue(corpo.path("cache_control").isMissingNode());
         assertEquals("ephemeral",
                 corpo.path("system").get(0).path("cache_control").path("type").stringValue(),
-                "o bloco fixo continua cacheado: é o prefixo que ela compartilha com a conversa");
+                "o bloco fixo continua cacheado — a personalidade é escrita uma vez e lida nas "
+                        + "chamadas seguintes do mesmo esforço (briefing, introdução e apoio são "
+                        + "low); com a conversa, em medium, a API pode manter entradas separadas");
     }
 
     @Test

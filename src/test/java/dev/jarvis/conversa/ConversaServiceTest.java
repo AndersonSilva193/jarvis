@@ -62,7 +62,8 @@ class ConversaServiceTest {
     @Test void aceitaSemEsperarModeloUsaVirtualThreadERejeitaDuplicado() throws Exception {
         CountDownLatch entrou = new CountDownLatch(1), liberar = new CountDownLatch(1);
         AtomicBoolean virtual = new AtomicBoolean();
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class))).thenAnswer(chamada -> {
             virtual.set(Thread.currentThread().isVirtual()); entrou.countDown();
             assertTrue(liberar.await(5, TimeUnit.SECONDS)); return resposta("Pronto.");
@@ -87,10 +88,11 @@ class ConversaServiceTest {
 
     @Test void telegramEHudUsamMesmoHistoricoEALimpezaRemoveUltima() throws Exception {
         List<ArrayNode> mensagens = new CopyOnWriteArrayList<>();
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class))).thenAnswer(chamada -> {
-            // A Origem é o argumento 0, então as mensagens são o 2.
-            mensagens.add(((ArrayNode) chamada.getArgument(2)).deepCopy()); return resposta("Entendido.");
+            // Origem 0, perfil de esforço 1, system 2 — então as mensagens são o argumento 3.
+            mensagens.add(((ArrayNode) chamada.getArgument(3)).deepCopy()); return resposta("Entendido.");
         });
         assistente.responder(42, "me chame de chefe");
         assertNull(registro.historico(42).ultima());
@@ -107,7 +109,8 @@ class ConversaServiceTest {
     }
 
     @Test void erroTerminalPodeSerRecuperadoSemExporDetalhes() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class))).thenThrow(new IllegalStateException("segredo-do-provedor"));
         servico.enviar("oi");
         assertTrue(concluido.await(3, TimeUnit.SECONDS));
@@ -118,7 +121,8 @@ class ConversaServiceTest {
     }
 
     @Test void limitaDezTrocasENaoPublicaTarefas() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class))).thenReturn(resposta("ok"));
         for (int i = 0; i < 12; i++) assistente.responder(42, "mensagem " + i);
         assertEquals(10, servico.historico().trocas().size());
@@ -136,7 +140,8 @@ class ConversaServiceTest {
     }
 
     @Test void falhaDoObservadorNaoQuebraResposta() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class))).thenReturn(resposta("ok"));
         assertEquals("ok", assistente.responder(42, "oi", Canal.HUD, new OuvinteProgresso() {
             @Override public void iniciado() { throw new IllegalStateException("tela caiu"); }
@@ -144,7 +149,8 @@ class ConversaServiceTest {
     }
 
     @Test void fluxoHttpAteRecuperacaoComAssistenteRealEModeloSimulado() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("Resposta integrada"));
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
@@ -164,14 +170,15 @@ class ConversaServiceTest {
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                 .get("/api/conversa/historico").header("Authorization", "Bearer teste"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.trocas[0].pedido").value("Mensagem da HUD"));
-        verify(claude, times(1)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(1)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
     }
 
     @Test void hudEsperaTelegramSemBloquearConsultaOuMisturarExecucoes() throws Exception {
         CountDownLatch entrou = new CountDownLatch(1), liberar = new CountDownLatch(1);
         var chamadas = new java.util.concurrent.atomic.AtomicInteger();
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenAnswer(chamada -> {
                     if (chamadas.incrementAndGet() == 1) { entrou.countDown(); assertTrue(liberar.await(5, TimeUnit.SECONDS)); }
@@ -211,7 +218,8 @@ class ConversaServiceTest {
         var executar = json.createObjectNode().put("stop_reason", "tool_use");
         executar.putArray("content").addObject().put("type", "tool_use").put("id", "t1")
                 .put("name", "noticias").putObject("input");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(executar, resposta("Pronto"));
         var agente = new Assistente(claude, new Ferramentas(List.of(ferramenta), json),
@@ -231,7 +239,7 @@ class ConversaServiceTest {
         assertEquals("1234", resultado.confirmacao().codigo());
         assertFalse(json.writeValueAsString(registro.historico(42)).contains("resultado interno"));
         var sistemas = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(2)).criarMensagem(any(Origem.class), sistemas.capture(),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), sistemas.capture(),
                 any(ArrayNode.class), any(ArrayNode.class));
         assertSame(sistemas.getAllValues().get(0), sistemas.getAllValues().get(1));
     }

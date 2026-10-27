@@ -45,10 +45,11 @@ class EstadoDoDia {
 
     void somar(Origem origem, String modelo, long entrada, long saida, long cacheEscrito,
             long cacheLido, long buscasWeb, double custoUsd, boolean semPreco) {
+        // Uma soma é uma resposta do modelo: o 1 é a contagem de chamadas dos dois baldes.
         porOrigem.computeIfAbsent(origem, o -> new Uso())
-                .somar(entrada, saida, cacheEscrito, cacheLido, buscasWeb, custoUsd, semPreco);
+                .somar(1, entrada, saida, cacheEscrito, cacheLido, buscasWeb, custoUsd, semPreco);
         porModelo.computeIfAbsent(modelo, m -> new Uso())
-                .somar(entrada, saida, cacheEscrito, cacheLido, buscasWeb, custoUsd, semPreco);
+                .somar(1, entrada, saida, cacheEscrito, cacheLido, buscasWeb, custoUsd, semPreco);
     }
 
     double totalUsd() {

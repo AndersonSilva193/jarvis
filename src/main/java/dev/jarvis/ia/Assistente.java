@@ -533,6 +533,12 @@ public class Assistente {
         if (buscaWeb.ativa()) {
             definicoes.add(buscaWeb.definicao());
         }
+        // O esforço, pelo mesmo motivo do system e das definições: decidido uma vez, antes do laço.
+        // Um nível que mudasse entre passos invalidaria o prefixo que o cache automático da
+        // conversa acabou de escrever. A tarefa agendada gasta na mesma Origem.CONVERSA e pensa com
+        // o ESFORCO_TAREFA — é o canal que separa as duas, e só aqui ele é conhecido.
+        PerfilDeEsforco esforco = canal == Canal.TAREFA
+                ? PerfilDeEsforco.TAREFA : PerfilDeEsforco.CONVERSA;
         int buscas = 0;
         java.util.concurrent.atomic.AtomicInteger restante = new java.util.concurrent.atomic.AtomicInteger(4_000);
         java.util.concurrent.atomic.AtomicBoolean esqueceu = new java.util.concurrent.atomic.AtomicBoolean();
@@ -575,7 +581,8 @@ public class Assistente {
             // em diante tudo que já foi enviado volta como leitura de cache em vez de entrada
             // cheia. São até oito passos por pedido, e MAX_PASSOS tem de caber na janela de
             // lookback de 20 posições da API (cada passo acrescenta duas: tool_use e tool_result).
-            JsonNode resposta = claude.criarMensagem(Origem.CONVERSA, system, mensagens, definicoes);
+            JsonNode resposta = claude.criarMensagem(Origem.CONVERSA, esforco, system, mensagens,
+                    definicoes);
             buscas += (int) Json.numero(resposta.path("usage").path("server_tool_use")
                     .path("web_search_requests"));
             JsonNode conteudo = resposta.path("content");

@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -353,6 +354,7 @@ public class MedidorDeCusto {
             log.info("Custo em {}: {} no total, {} busca(s) na web{}", saindo.dia(),
                     Dinheiro.usd(saindo.totalUsd()), saindo.buscasWeb(),
                     saindo.semPreco().isEmpty() ? "" : " (sem preço para " + saindo.semPreco() + ")");
+            logarSaidaMedia(saindo);
         }
         expurgar();
     }
@@ -453,9 +455,52 @@ public class MedidorDeCusto {
         naFila(true, this::gravarPendentes);
     }
 
-    /** Grava o que falta antes de o processo sair, para o último consumo não se perder. */
+    /**
+     * A saída média por chamada de cada origem, no formato {@code "conversa 380, briefing 210"}.
+     *
+     * <p>É o número que compara o antes e o depois de uma troca de {@code ESFORCO_*}: tokens de
+     * saída sozinhos sobem junto com o uso e não dizem nada. A média é por origem porque é por
+     * origem que o esforço é escolhido.
+     *
+     * <p>Origem sem chamada contada <b>fica de fora</b>, nunca entra como zero — é a regra do
+     * {@link Relatorio#percentualLidoDoCache()}. Um dia lido de um arquivo gravado antes de o
+     * contador existir volta com {@code chamadas = 0}, e "0 token por chamada" afirmaria algo que
+     * o arquivo não sabe.
+     */
+    private static String saidaMediaPorOrigem(EstadoDoDia estado) {
+        StringJoiner linha = new StringJoiner(", ");
+        estado.porOrigem().forEach((origem, uso) -> {
+            if (uso.chamadas > 0) {
+                linha.add(origem.chave() + " " + uso.saida / uso.chamadas);
+            }
+        });
+        return linha.toString();
+    }
+
+    /** Uma linha, e só quando há o que dizer: log que ninguém lê não mede nada. */
+    private void logarSaidaMedia(EstadoDoDia estado) {
+        String media = saidaMediaPorOrigem(estado);
+        if (!media.isBlank()) {
+            log.info("Saída média por chamada em {}: {}", estado.dia(), media);
+        }
+    }
+
+    /**
+     * Grava o que falta antes de o processo sair, para o último consumo não se perder.
+     *
+     * <p>E imprime a saída média do dia até aqui. Este é o método que roda num
+     * {@code docker compose up -d --build}, então todo deploy deixa no log o retrato de antes —
+     * que é como se compara o efeito de uma troca de esforço sem esperar a meia-noite.
+     */
     @PreDestroy
     public void fechar() {
+        EstadoDoDia ultimo;
+        synchronized (trava) {
+            ultimo = dia == null ? null : dia.copia();
+        }
+        if (ultimo != null) {
+            logarSaidaMedia(ultimo);
+        }
         naFila(false, this::gravarPendentes);
         gravacoes.shutdown();
         try {

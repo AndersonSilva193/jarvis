@@ -31,7 +31,8 @@ class IntegracaoMemoriaTest {
         memoria.registrar(42, "projeto", "jarvis", "servidor", "Roda na VPS", "declaracao_usuario", "telegram", "t1");
         memoria.registrar(42, "projeto", "outro", "servidor", "Roda no notebook", "declaracao_usuario", "telegram", "t2");
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("buscar_memoria", json.createObjectNode().put("consulta", "servidor").put("projeto", "jarvis")))
                 .thenReturn(resposta("Na VPS."));
@@ -44,7 +45,8 @@ class IntegracaoMemoriaTest {
                 new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"), json, props), json);
         assertEquals("Na VPS.", assistente.responderTelegram(42, 42, 88, "onde roda o projeto Jarvis?"));
         var captor = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 captor.capture(), any(ArrayNode.class));
         String contexto = json.writeValueAsString(captor.getAllValues().get(1));
         assertTrue(contexto.contains("Roda na VPS"));
@@ -69,7 +71,8 @@ class IntegracaoMemoriaTest {
         when(acao.executarDetalhado(any(), any()))
                 .thenReturn(dev.jarvis.ferramentas.ResultadoFerramenta.texto("Lembrete criado."));
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("buscar_memoria", json.createObjectNode().put("consulta", "preferência")))
                 .thenReturn(chamada("criar_lembrete", json.createObjectNode().put("texto", "acordar")))
@@ -92,7 +95,8 @@ class IntegracaoMemoriaTest {
         memoria.registrar(42, "projeto", "jarvis", "servidor", "Roda na VPS", "declaracao_usuario", "telegram", "t2");
         memoria.registrar(42, "projeto", "outro", "banco", "Roda no notebook", "declaracao_usuario", "telegram", "t3");
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("Em Curitiba, senhor."));
         var assistente = new Assistente(claude, new Ferramentas(List.of(), json),
@@ -102,7 +106,8 @@ class IntegracaoMemoriaTest {
         assistente.responderTelegram(42, 42, 101, "onde fica o servidor do Jarvis?");
 
         var captor = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude).criarMensagem(any(Origem.class), captor.capture(), any(ArrayNode.class),
+        verify(claude).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                captor.capture(), any(ArrayNode.class),
                 any(ArrayNode.class));
         String fixo = captor.getValue().get(0).path("text").stringValue();
         String dinamico = captor.getValue().get(1).path("text").stringValue();
@@ -118,7 +123,8 @@ class IntegracaoMemoriaTest {
                 Clock.systemUTC(), ZoneId.of("America/Sao_Paulo"));
         memoria.registrar(42, "perfil", "", "cidade", "Curitiba", "declaracao_usuario", "telegram", "t1");
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("Aqui não, senhor."));
         var assistente = new Assistente(claude, new Ferramentas(List.of(), json),
@@ -129,7 +135,8 @@ class IntegracaoMemoriaTest {
         assistente.responderTelegram(-100, 42, 102, "qual minha cidade?");
 
         var captor = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude).criarMensagem(any(Origem.class), captor.capture(), any(ArrayNode.class),
+        verify(claude).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                captor.capture(), any(ArrayNode.class),
                 any(ArrayNode.class));
         assertFalse(captor.getValue().toString().contains("Curitiba"), captor.getValue().toString());
         assertFalse(captor.getValue().toString().contains("O que você sabe sobre Anderson:"),
@@ -147,7 +154,8 @@ class IntegracaoMemoriaTest {
                 Clock.systemUTC(), ZoneId.of("America/Sao_Paulo"));
         memoria.registrar(42, "perfil", "", "cidade", "Curitiba", "declaracao_usuario", "telegram", "t1");
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("buscar_memoria", json.createObjectNode().put("consulta", "cidade")))
                 .thenReturn(resposta("Sem acesso."));
@@ -159,7 +167,8 @@ class IntegracaoMemoriaTest {
                 new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"), json, props), json);
         assistente.responderTelegram(-100, 42, 100, "qual minha cidade?");
         var captor = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 captor.capture(), any(ArrayNode.class));
         String contexto = json.writeValueAsString(captor.getAllValues().get(1));
         assertFalse(contexto.contains("Curitiba"));
@@ -189,7 +198,8 @@ class IntegracaoMemoriaTest {
         assertTrue(anotador.aguardar(java.time.Duration.ofSeconds(5)), "a análise terminou");
 
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("Pronto, senhor."));
         var registro = new dev.jarvis.conversa.RegistroConversas(evento -> { });
@@ -230,7 +240,8 @@ class IntegracaoMemoriaTest {
         var conversas = new dev.jarvis.conversa.RegistroConversas(evento -> { });
 
         ClaudeClient claude = mock(ClaudeClient.class);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("esquecer_memoria",
                         json.createObjectNode().put("id", registro.id())))
@@ -260,7 +271,8 @@ class IntegracaoMemoriaTest {
                 "esquecer a memória continua levando o histórico da conversa junto");
         // Duas chamadas, as duas do primeiro turno (pedido e fala da pergunta). O turno do "pode"
         // não fala com o modelo: ele nunca vê a decisão, só o resultado dela.
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class),
                 any(ArrayNode.class));
     }

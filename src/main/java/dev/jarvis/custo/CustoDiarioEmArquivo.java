@@ -127,7 +127,10 @@ class CustoDiarioEmArquivo {
 
     private Uso lerUso(JsonNode no) {
         Uso uso = new Uso();
-        uso.somar(Json.numero(no.path("entrada")), Json.numero(no.path("saida")),
+        // Dia gravado antes de o contador existir volta com chamadas = 0, e aí a saída média dele
+        // não é afirmada — é a regra do percentualLidoDoCache(). Não há migração de arquivo.
+        uso.somar(Json.numero(no.path("chamadas")),
+                Json.numero(no.path("entrada")), Json.numero(no.path("saida")),
                 Json.numero(no.path("cacheEscrito")), Json.numero(no.path("cacheLido")),
                 Json.numero(no.path("buscasWeb")), Json.decimal(no.path("custoUsd")),
                 Json.booleano(no.path("semPreco")));
@@ -158,6 +161,7 @@ class CustoDiarioEmArquivo {
 
     /** {@code semPreco} só sai em porModelo: é do modelo que a falta de preço é propriedade. */
     private void escrever(ObjectNode no, Uso uso, boolean comSemPreco) {
+        no.put("chamadas", uso.chamadas);
         no.put("entrada", uso.entrada);
         no.put("saida", uso.saida);
         no.put("cacheEscrito", uso.cacheEscrito);

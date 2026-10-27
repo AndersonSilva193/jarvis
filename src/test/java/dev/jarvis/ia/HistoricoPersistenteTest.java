@@ -59,7 +59,8 @@ class HistoricoPersistenteTest {
 
     @Test void restartDevolveOContextoAoModeloEAsTrocasAHud() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("O servidor está de pé."));
         assistente(arquivo, new RegistroConversas(evento -> { }))
@@ -71,7 +72,8 @@ class HistoricoPersistenteTest {
         Assistente depoisDoRestart = assistente(depois, conversasNovas);
         depoisDoRestart.restaurarHistorico();
 
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("Continua de pé."));
         depoisDoRestart.responder(42, "e agora?", Canal.TELEGRAM);
@@ -89,7 +91,8 @@ class HistoricoPersistenteTest {
 
     @Test void turnoQueFalhouNaoChegaAoDisco() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenThrow(new IOException("a API caiu no meio"));
         assertThrows(IOException.class, () -> assistente(arquivo, new RegistroConversas(evento -> { }))
@@ -101,7 +104,8 @@ class HistoricoPersistenteTest {
     @Test void esquecerAMemoriaApagaOsArquivosDeTodosOsChatsDoUsuario() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
         var conversas = new RegistroConversas(evento -> { });
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("anotado"));
         Assistente assistente = assistente(arquivo, conversas, esquecedor());
@@ -111,7 +115,8 @@ class HistoricoPersistenteTest {
         assertTrue(Files.exists(pasta.resolve("chat-42.json")));
         assertTrue(Files.exists(pasta.resolve("chat-99.json")));
 
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("esquecer_tudo"));
         assistente.responder(42, "esqueça o que eu te contei", Canal.TELEGRAM,
@@ -124,7 +129,8 @@ class HistoricoPersistenteTest {
 
     @Test void limparApagaOArquivoDaquelaConversa() throws Exception {
         HistoricoEmArquivo arquivo = store(Duration.ofHours(24));
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("certo"));
         Assistente assistente = assistente(arquivo, new RegistroConversas(evento -> { }));
@@ -210,7 +216,8 @@ class HistoricoPersistenteTest {
         HistoricoEmArquivo depois = store(Duration.ofHours(24));
         Assistente depoisDoRestart = assistente(depois, new RegistroConversas(evento -> { }));
         depoisDoRestart.restaurarHistorico();
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(resposta("Pois não, senhor."));
         depoisDoRestart.responder(42, "e agora?", Canal.TELEGRAM);
@@ -283,7 +290,8 @@ class HistoricoPersistenteTest {
 
     private ArrayNode ultimasMensagens() throws Exception {
         ArgumentCaptor<ArrayNode> captor = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, atLeastOnce()).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, atLeastOnce()).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 captor.capture(),
                 any(ArrayNode.class));
         return captor.getAllValues().getLast();

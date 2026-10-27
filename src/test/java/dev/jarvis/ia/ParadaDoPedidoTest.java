@@ -50,7 +50,8 @@ class ParadaDoPedidoTest {
                 () -> alvo[0].interromperPedidoAtual(USUARIO));
         alvo[0] = comFerramentas(clima);
         // Um thenReturn só se repete para sempre: sem a parada, este turno iria até o teto de passos.
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("clima", JSON.createObjectNode().put("cidade", "Recife")));
 
@@ -58,7 +59,8 @@ class ParadaDoPedidoTest {
 
         assertEquals("Parei, senhor.", resposta.texto());
         assertEquals(1, execucoes.get(), "a ferramenta do passo em curso roda; nenhuma depois dela");
-        verify(claude, times(1)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(1)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
     }
 
@@ -72,7 +74,8 @@ class ParadaDoPedidoTest {
                 () -> alvo[0].interromperPedidoAtual(USUARIO));
         Ferramenta sites = ferramenta("verificar_site", "No ar.", segunda, () -> { });
         alvo[0] = comFerramentas(clima, sites);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(duasChamadas());
 
@@ -92,7 +95,8 @@ class ParadaDoPedidoTest {
         Ferramenta clima = ferramenta("clima", "Sol, 28 graus.", execucoes,
                 () -> alvo[0].interromperPedidoAtual(USUARIO));
         alvo[0] = comFerramentas(clima);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("clima", JSON.createObjectNode().put("cidade", "Recife")))
                 .thenReturn(texto("Bom dia, senhor."));
@@ -102,7 +106,8 @@ class ParadaDoPedidoTest {
 
         assertEquals("Bom dia, senhor.", segunda.texto());
         var mensagens = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 mensagens.capture(), any(ArrayNode.class));
         String enviado = mensagens.getValue().toString();
         assertFalse(enviado.contains("e o tempo em Recife"), "o pedido cortado saiu do histórico");
@@ -129,7 +134,8 @@ class ParadaDoPedidoTest {
             assertFalse(alvo[0].interromperPedidoAtual(99));
         });
         alvo[0] = comFerramentas(clima);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("clima", JSON.createObjectNode().put("cidade", "Recife")))
                 .thenReturn(texto("Sol em Recife, senhor."));

@@ -128,17 +128,42 @@ public record JarvisProperties(
      *                          mesmo valor vai no marcador do bloco fixo e no cache automático da
      *                          conversa, porque a API exige que o TTL mais longo apareça primeiro —
      *                          misturar os dois seria um 400. Use {@link #ttlDeCache()} para ler.
+     * @param esforcos          quanto cada tipo de chamada pensa. Nulo é legítimo: sem o bloco,
+     *                          nenhum {@code output_config} é emitido e o corpo do pedido fica
+     *                          byte a byte igual ao de antes desta configuração existir.
      */
     public record Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens,
-            String cacheTtl) {
+            String cacheTtl, Esforcos esforcos) {
 
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Anthropic {
         }
 
+        /** A aridade de antes do esforço por origem, para os testes que montam este bloco. */
+        public Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens,
+                String cacheTtl) {
+            this(apiKey, modelo, maxTokens, cacheMinimoTokens, cacheTtl, null);
+        }
+
         /** A aridade de antes do TTL configurável, para os testes que montam este bloco. */
         public Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens) {
             this(apiKey, modelo, maxTokens, cacheMinimoTokens, "5m");
+        }
+
+        /**
+         * O {@code output_config.effort} de cada caminho que fala com o modelo, em texto cru.
+         *
+         * <p>Cru de propósito, como o {@code cacheTtl} e os valores de {@link Custo}: quem valida
+         * é o {@code Esforco.porChave} do {@code ClaudeClient}, e um
+         * {@code ESFORCO_CONVERSA=médio} no {@code .env} tem de cair no padrão com um WARN — não
+         * estourar {@code BindException} e impedir o Jarvis de subir.
+         *
+         * <p>O valor é <b>fixo por perfil</b>, nunca escolhido pedido a pedido: trocar o esforço
+         * no meio de uma conversa invalida o cache de prompt que o passo anterior acabou de
+         * escrever. É por isso que a configuração é por origem e é resolvida uma vez, na subida.
+         */
+        public record Esforcos(String conversa, String briefing, String inicializacao,
+                String apoio, String tarefa) {
         }
 
         /**

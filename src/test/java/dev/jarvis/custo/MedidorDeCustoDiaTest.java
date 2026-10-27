@@ -233,4 +233,43 @@ class MedidorDeCustoDiaTest {
         assertTrue(Files.exists(bloqueada.resolve("2026-10-21.json")));
         assertTrue(Files.exists(bloqueada.resolve("2026-10-22.json")));
     }
+    /** O diário em disco, lido direto: o Relatorio não expõe a contagem de chamadas. */
+    private EstadoDoDia doDisco(LocalDate dia) {
+        return new CustoDiarioEmArquivo(pasta, JsonMapper.builder().build(),
+                java.time.ZoneId.of("America/Sao_Paulo")).carregar(dia);
+    }
+
+    @Test
+    @DisplayName("a contagem de chamadas sobrevive ao restart, nos dois baldes")
+    void chamadasVoltamDoDisco() {
+        var relogio = new RelogioFalso("2026-10-22T15:00:00Z");
+        var antes = subir(relogio);
+        antes.registrar(Origem.CONVERSA, "modelo-a", 1_000, 300, 0, 0, 0);
+        antes.registrar(Origem.CONVERSA, "modelo-a", 1_000, 500, 0, 0, 0);
+        antes.registrar(Origem.BRIEFING, "modelo-a", 1_000, 90, 0, 0, 0);
+        antes.aguardar();
+
+        var dia = doDisco(LocalDate.parse("2026-10-22"));
+        // É este par — saída e chamadas — que dá a média por origem: 800/2 contra 90/1.
+        assertEquals(2, dia.porOrigem().get(Origem.CONVERSA).chamadas);
+        assertEquals(800, dia.porOrigem().get(Origem.CONVERSA).saida);
+        assertEquals(1, dia.porOrigem().get(Origem.BRIEFING).chamadas);
+        assertEquals(3, dia.porModelo().get("modelo-a").chamadas,
+                "os dois baldes recebem os mesmos números, e a contagem não é exceção");
+    }
+
+    @Test
+    @DisplayName("dia gravado antes do contador volta com chamadas zero, sem migração de arquivo")
+    void arquivoAntigoVoltaSemChamadas() throws IOException {
+        ArquivoAtomico.gravar(pasta.resolve("2026-10-20.json"), """
+                {"dia":"2026-10-20","fuso":"America/Sao_Paulo",
+                 "porOrigem":{"conversa":{"entrada":1000,"saida":400,"custoUsd":1.0}},
+                 "porModelo":{"modelo-a":{"entrada":1000,"saida":400,"custoUsd":1.0}}}
+                """);
+
+        var dia = doDisco(LocalDate.parse("2026-10-20"));
+        assertEquals(400, dia.porOrigem().get(Origem.CONVERSA).saida, "os tokens continuam lá");
+        assertEquals(0, dia.porOrigem().get(Origem.CONVERSA).chamadas,
+                "sem o campo, zero — e um dia com zero chamadas não afirma saída média nenhuma");
+    }
 }

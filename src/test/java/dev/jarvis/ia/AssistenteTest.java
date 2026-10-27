@@ -93,7 +93,8 @@ class AssistenteTest {
                 new SistemaDoJarvis(new PersonalidadeService(Path.of("nao-existe.md"), "Anderson"),
                         JSON, props()), JSON, conversas, new dev.jarvis.conversa.AnexosService(),
                 BuscaWebServidor.desligada(), new dev.jarvis.aprovacao.Aprovacoes());
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("observar_anexo", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("feito"));
@@ -198,7 +199,8 @@ class AssistenteTest {
                 "{\"arquivos\":[{\"id\":\"doc-123\",\"nome\":\"relatorio.txt\"}]}");
         Ferramenta ler = ferramentaDeFluxo("ler_arquivo",
                 "{\"id\":\"doc-123\",\"conteudo\":\"Receita de outubro: 42\",\"truncado\":false}");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()))
                 .thenReturn(chamada("listar_arquivos", JSON.createObjectNode().put("nome", "relatorio")))
@@ -208,7 +210,8 @@ class AssistenteTest {
                 "Crie o relatório, encontre o arquivo e resuma", Canal.TELEGRAM, null);
         assertEquals("O relatório registra receita de outubro de 42.", resposta.texto());
         var mensagens = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(4)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(4)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 mensagens.capture(), any(ArrayNode.class));
         assertTrue(mensagens.getValue().toString().contains("Receita de outubro: 42"));
     }
@@ -229,12 +232,14 @@ class AssistenteTest {
             public ObjectNode esquemaEntrada() { return JSON.createObjectNode().put("type", "object"); }
             public String executar(JsonNode entrada) { return "Nome inválido: informe somente o nome."; }
         };
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()));
         var resposta = comFerramentas(arquivo).responder(1L, "crie um arquivo", Canal.HUD, null);
         assertTrue(resposta.texto().contains("Nome inválido"));
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
     }
 
@@ -253,7 +258,8 @@ class AssistenteTest {
     void terceiraChamadaIdenticaNaoExecuta() throws Exception {
         AtomicInteger execucoes = new AtomicInteger();
         Ferramenta listar = ferramentaQueConta("listar_arquivos", "{\"arquivos\":[]}", execucoes);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("listar_arquivos",
                         JSON.createObjectNode().put("nome", "nota").put("pasta", "jarvis")))
@@ -278,7 +284,8 @@ class AssistenteTest {
         AtomicInteger execucoes = new AtomicInteger();
         Ferramenta status = ferramentaQueConta("status_operacao_pc", "ainda rodando", execucoes);
         var entrada = JSON.createObjectNode().put("id", "op-1");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("status_operacao_pc", entrada))
                 .thenReturn(chamada("status_operacao_pc", entrada))
@@ -301,7 +308,8 @@ class AssistenteTest {
         AtomicInteger execucoes = new AtomicInteger();
         Ferramenta tela = ferramentaQueConta("controlar_tela", "Volume abaixado.", execucoes);
         var entrada = JSON.createObjectNode().put("acao", "volume_menos");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("controlar_tela", entrada))
                 .thenReturn(chamada("controlar_tela", entrada))
@@ -320,7 +328,8 @@ class AssistenteTest {
         AtomicInteger execucoes = new AtomicInteger();
         Ferramenta clima = ferramentaQueConta("clima", "Sol, 28 graus.", execucoes);
         // Um thenReturn só se repete para sempre: é o modelo que não desiste.
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("clima", JSON.createObjectNode().put("cidade", "Recife")));
 
@@ -329,7 +338,8 @@ class AssistenteTest {
         assertEquals("Parei porque estava repetindo a mesma consulta sem avançar. Sol, 28 graus.",
                 resposta.texto());
         assertEquals(2, execucoes.get());
-        verify(claude, times(4)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(4)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class),
                 any(ArrayNode.class));
     }
@@ -341,7 +351,8 @@ class AssistenteTest {
         when(criar.nome()).thenReturn("criar_arquivo");
         when(criar.descricao()).thenReturn("Criar arquivo");
         when(criar.esquemaEntrada()).thenReturn(JSON.createObjectNode().put("type", "object"));
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("editar_arquivo", JSON.createObjectNode()))
                 .thenReturn(chamada("criar_arquivo", JSON.createObjectNode()));
@@ -351,14 +362,16 @@ class AssistenteTest {
 
         assertTrue(resposta.texto().contains("não criei um substituto"));
         verify(criar, org.mockito.Mockito.never()).executarDetalhado(any(), any());
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
     }
 
     @Test void escutaDaFerramentaChegaARespostaHudEUsaUltimaNaoNula() throws Exception {
         var entrada = JSON.createObjectNode().put("tempo", 12).put("motivo", "confirmar o horário");
         entrada.putArray("opcoes").add("sim").add("não");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("ouvir_resposta", JSON.createObjectNode().put("motivo", "primeira pergunta")))
                 .thenReturn(chamada("ouvir_resposta", entrada))
@@ -368,7 +381,8 @@ class AssistenteTest {
         assertEquals(new EscutaResposta(12, List.of("sim", "não"), "confirmar o horário"), resposta.escuta());
         assertEquals("Pode ser às oito?", resposta.texto());
         var captor = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(4)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(4)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), captor.capture());
         for (var definicoes : captor.getAllValues()) assertSame(captor.getValue(), definicoes);
         assertEquals("ouvir_resposta", captor.getValue().get(0).path("name").stringValue());
@@ -393,7 +407,8 @@ class AssistenteTest {
         var confirmacao = new Confirmacao("1234", "reiniciar o PC",
                 Instant.now().plusSeconds(120).toString(), "Vou reiniciar o PC em 60 segundos. Posso?");
         var explicita = new EscutaResposta(8, List.of("sim"), "outra pergunta");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("confirmar_teste", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Qual é o código?"));
@@ -406,7 +421,8 @@ class AssistenteTest {
 
     @Test void telegramNaoRecebeEscutaNemOfereceAFerramenta() throws Exception {
         var confirmacao = new Confirmacao("1234", "reiniciar", Instant.now().plusSeconds(120).toString());
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("confirmar_teste", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Confirme"));
@@ -415,7 +431,8 @@ class AssistenteTest {
                 .responder(1L, "reinicie", Canal.TELEGRAM, null);
         assertNull(resposta.escuta());
         var captor = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(2)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), captor.capture());
         assertFalse(captor.getValue().toString().contains("ouvir_resposta"));
     }
@@ -439,7 +456,8 @@ class AssistenteTest {
     private List<ArrayNode> mensagensEnviadas() throws Exception {
         ArgumentCaptor<ArrayNode> captor = ArgumentCaptor.forClass(ArrayNode.class);
         verify(claude, atLeastOnce())
-                .criarMensagem(any(Origem.class), any(ArrayNode.class), captor.capture(),
+                .criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                        any(ArrayNode.class), captor.capture(),
                         any(ArrayNode.class));
         return captor.getAllValues();
     }
@@ -460,7 +478,8 @@ class AssistenteTest {
     @Test
     @DisplayName("o histórico replicado não leva blocos de pensamento do turno anterior")
     void historicoSemPensamento() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaComPensamento("pronto, senhor"));
 
@@ -481,7 +500,8 @@ class AssistenteTest {
     @Test
     @DisplayName("dentro do mesmo turno o pensamento é devolvido intacto, como o laço de ferramentas exige")
     void pensamentoPreservadoDentroDoTurno() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaComFerramenta())
                 .thenReturn(respostaComPensamento("feito"));
@@ -497,7 +517,8 @@ class AssistenteTest {
     @Test
     @DisplayName("o system é montado uma vez por pedido e repetido em todas as idas e vindas")
     void systemEstavelDuranteOTurno() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaComFerramenta())
                 .thenReturn(respostaComPensamento("feito"));
@@ -506,7 +527,8 @@ class AssistenteTest {
 
         ArgumentCaptor<ArrayNode> captor = ArgumentCaptor.forClass(ArrayNode.class);
         verify(claude, times(2))
-                .criarMensagem(any(Origem.class), captor.capture(), any(ArrayNode.class),
+                .criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                        captor.capture(), any(ArrayNode.class),
                         any(ArrayNode.class));
 
         // Identidade, não igualdade: no mesmo minuto o texto sairia igual mesmo remontado, e o
@@ -522,7 +544,8 @@ class AssistenteTest {
         Ferramenta buscar = ferramentaDeFluxo("buscar_memoria",
                 "{\"achados\":[{\"assunto\":\"cidade\",\"trecho\":\"Curitiba\"}]}");
         Ferramenta lembrete = ferramentaDeFluxo("criar_lembrete", "Lembrete criado para amanhã.");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("buscar_memoria", JSON.createObjectNode().put("consulta", "cidade")))
                 .thenReturn(chamada("criar_lembrete", JSON.createObjectNode().put("texto", "feira")))
@@ -533,7 +556,8 @@ class AssistenteTest {
 
         assertEquals("Lembrete criado, senhor.", resposta.texto());
         ArgumentCaptor<ArrayNode> mensagens = ArgumentCaptor.forClass(ArrayNode.class);
-        verify(claude, times(3)).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, times(3)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 mensagens.capture(), any(ArrayNode.class));
         assertTrue(mensagens.getValue().toString().contains("Lembrete criado para amanhã."),
                 "a segunda ferramenta rodou de verdade: " + mensagens.getValue());
@@ -543,7 +567,8 @@ class AssistenteTest {
     @Test
     @DisplayName("pause_turn continua o mesmo turno, com os blocos da busca inalterados")
     void pausaContinuaOTurno() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaPausada())
                 .thenReturn(respostaComPensamento("é o Eduardo Pimentel"));
@@ -568,7 +593,8 @@ class AssistenteTest {
         // stop_reason de ferramenta, mas no conteúdo só o que o servidor já resolveu.
         soBusca.put("stop_reason", "tool_use");
         blocosDeBusca(soBusca.putArray("content")).addObject().put("type", "text").put("text", "achei");
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(soBusca);
 
@@ -613,7 +639,8 @@ class AssistenteTest {
 
         assertEquals("Desligando em 60 segundos, senhor. 1", responderComoDono(agente, "manda ver"));
         assertEquals(1, desligamentos.get());
-        verify(claude, never()).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, never()).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
         assertTrue(aprovacoes.pendenciaDe(42, "telegram-3").isEmpty(), "uso único");
     }
@@ -626,7 +653,8 @@ class AssistenteTest {
 
         assertEquals("Certo, não fiz.", responderComoDono(agente, "agora não"));
         assertEquals(0, desligamentos.get());
-        verify(claude, never()).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, never()).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
         assertTrue(aprovacoes.pendenciaDe(42, "telegram-3").isEmpty());
     }
@@ -635,7 +663,8 @@ class AssistenteTest {
     @DisplayName("AJUSTE cancela a proposta e segue para o modelo com a nota no turno")
     void ajusteCancelaESegueParaOModelo() throws Exception {
         when(classificador.classificar(any(), any())).thenReturn(ClassificadorDeResposta.Decisao.AJUSTE);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaComPensamento("Então só reinicio, senhor."));
         Assistente agente = comAprovacaoPendente();
@@ -655,7 +684,8 @@ class AssistenteTest {
     void outroAssuntoMantemAPendencia() throws Exception {
         when(classificador.classificar(any(), any()))
                 .thenReturn(ClassificadorDeResposta.Decisao.OUTRO_ASSUNTO);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaComPensamento("Faz 23 graus, senhor."));
         Assistente agente = comAprovacaoPendente();
@@ -676,7 +706,8 @@ class AssistenteTest {
         assertEquals("Só para confirmar, senhor: Vou desligar o PC em 60 segundos. Posso?",
                 responderComoDono(agente, "sei lá, você que sabe"));
         assertEquals(0, desligamentos.get());
-        verify(claude, never()).criarMensagem(any(Origem.class), any(ArrayNode.class),
+        verify(claude, never()).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class),
                 any(ArrayNode.class), any(ArrayNode.class));
         assertEquals("Vou desligar o PC em 60 segundos. Posso?", aprovacoes.pendenciaDe(42, "telegram-3").orElseThrow());
     }
@@ -715,7 +746,8 @@ class AssistenteTest {
     @Test
     @DisplayName("turno antigo com busca e ferramenta é guardado compacto: nenhum dos quatro blocos volta")
     void turnoComBuscaEFerramentasEhGuardadoCompacto() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamadaComBusca("listar_arquivos", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
@@ -739,7 +771,8 @@ class AssistenteTest {
     @Test
     @DisplayName("a nota compacta traz a ferramenta, os identificadores inteiros e a consulta da busca")
     void notaCompactaTrazOsIdentificadores() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamadaComBusca("listar_arquivos", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
@@ -762,7 +795,8 @@ class AssistenteTest {
     @Test
     @DisplayName("com HISTORICO_TURNOS_COMPLETOS=1 o turno imediatamente anterior fica inteiro")
     void turnoAnteriorFicaCompleto() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("listar_arquivos", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
@@ -787,7 +821,8 @@ class AssistenteTest {
     @Test
     @DisplayName("o que é enviado continua válido para a Messages API depois da compactação")
     void formatoAceitoPelaApi() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamadaComBusca("listar_arquivos", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
@@ -860,7 +895,8 @@ class AssistenteTest {
     @Test
     @DisplayName("compactar o que já está compacto devolve a mesma coisa: a nota sobrevive")
     void compactacaoEhIdempotente() throws Exception {
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("listar_arquivos", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
@@ -892,7 +928,8 @@ class AssistenteTest {
                 return "Apaguei ideias.md. Fica na lixeira por 30 dias; se quiser, eu volto.";
             }
         };
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(chamada("listar_arquivos", JSON.createObjectNode()))
                 .thenReturn(respostaComPensamento("Você tem notas.md e ideias.md."))
@@ -912,7 +949,8 @@ class AssistenteTest {
     @DisplayName("resposta longa é cortada no histórico, com reticências")
     void respostaLongaEhCortadaNoHistorico() throws Exception {
         String longa = "a".repeat(4_000);
-        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), any(ArrayNode.class),
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
+                any(ArrayNode.class), any(ArrayNode.class),
                 any(ArrayNode.class)))
                 .thenReturn(respostaComPensamento(longa))
                 .thenReturn(respostaComPensamento("Pronto, senhor."));

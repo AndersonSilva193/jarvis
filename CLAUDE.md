@@ -26,6 +26,10 @@ natural e executar ferramentas Java reais. Roda 24h numa VPS, dentro de um conta
   porque a pergunta é "este caminho chama o modelo várias vezes com o mesmo prefixo?" — e só o laço
   de ferramentas do `Assistente` chama. Os dois levam o mesmo TTL (`ANTHROPIC_CACHE_TTL`) de
   propósito: entrada de TTL mais longo tem de aparecer antes da de TTL mais curto, e misturar é 400.
+- **O esforço de saída vai no mesmo pedido** (`output_config.effort`) e é **decidido pela origem**,
+  nunca pedido a pedido: conversa e tarefa pensam em `medium`, briefing, introdução e apoio em `low`.
+  Quem resolve é o `ClaudeClient`, uma vez no construtor — nível que mudasse no meio de uma conversa
+  invalidaria o cache de prompt que o passo anterior acabou de escrever.
 - **Servidor web só para a HUD** (`spring-boot-starter-web`, porta `JARVIS_PORTA`, padrão 8090).
   O Telegram **não** depende dele: continua por long polling, sem porta aberta nem domínio.
   A API vive em `dev.jarvis.web`, exige `Authorization: Bearer <HUD_TOKEN>` em tudo menos
@@ -886,6 +890,74 @@ cache já quente num deploy.
 O mesmo valor vai nos **dois** marcadores (o do bloco fixo e o automático), e isso não é zelo: a API
 exige que a entrada de TTL mais longo apareça antes da de TTL mais curto, e marcadores com TTLs
 diferentes no mesmo pedido são 400.
+
+### O esforço de saída, por tipo de chamada
+
+`output_config.effort` (`low`, `medium` ou `high` — a API aceita cinco, expomos três) diz quanto o
+modelo pensa antes de responder, e é o lado **caro** da conta: ele mexe no token de saída, não no de
+entrada. Antes nenhuma chamada o mandava, então todas pensavam no padrão do modelo — `medium` no
+Haiku 5.5, mas `high` no Sonnet 5.5, de modo que o patamar de gasto mudava sozinho num
+`ANTHROPIC_MODELO` trocado.
+
+São cinco variáveis, e o que separa `medium` de `low` é sempre a mesma pergunta — **o raciocínio
+muda a resposta?**:
+
+| Variável | Padrão | Por quê |
+|---|---|---|
+| `ESFORCO_CONVERSA` | `medium` | o laço de ferramentas escolhe ferramenta, lê resultado e decide o passo seguinte |
+| `ESFORCO_BRIEFING` | `low` | os dados chegam prontos e o canal proíbe mudar número ou fato |
+| `ESFORCO_INICIALIZACAO` | `low` | idem, e quem bateu palma está esperando na frente do PC |
+| `ESFORCO_APOIO` | `low` | classificador e anotador decidem em poucos tokens, e o servidor revalida tudo depois |
+| `ESFORCO_TAREFA` | `medium` | é o mesmo laço da conversa, sem ninguém lendo na hora |
+
+**O valor é fixo por origem, nunca decidido pedido a pedido.** Trocar o esforço no meio de uma
+conversa invalida o cache de prompt que o passo anterior acabou de escrever — e é por isso que ele é
+resolvido **uma vez, no construtor do `ClaudeClient`**, para um `EnumMap` imutável. Esse é também o
+único lugar onde o WARN de valor torto sai: na subida, nomeando a variável e o valor recusado. A cada
+pedido seria ruído, e o nível já não mudaria mesmo.
+
+**São dois enums, e a diferença entre eles é a parte que importa.** O `Esforco` é o nível (constante
+Java, `chave()` para a API, como a `Origem`). O `PerfilDeEsforco` é *qual configuração vale para
+esta chamada*, e **não** é a `Origem`: a origem responde "quem gastou" e vai para o JSON do dia, o
+perfil responde "quanto pensar". As duas quase coincidem — menos num ponto, que é justo o que obriga
+a separá-las: a tarefa agendada e a conversa gastam no mesmo balde (`Origem.CONVERSA`) e pensam
+diferente. Por isso o `ClaudeClient` deriva o perfil da origem em todas as chamadas, e só o
+`Assistente` — o único que conhece o `Canal` — nomeia o perfil, numa sobrecarga de cinco argumentos.
+O computer use não tem perfil: monta o corpo do pedido por conta própria.
+
+O bloco entrou **esticando o `Anthropic`**, como sexto componente, num sub-record `Esforcos` de cinco
+Strings cruas — uma a mais no topo por variável deixaria o bloco com dez componentes. Os
+construtores de compatibilidade de quatro e de cinco argumentos cobrem os dezoito testes que montam
+`Anthropic` por posição. Cru porque `ESFORCO_CONVERSA=médio` tem de cair no padrão com um WARN, não
+estourar `BindException` e impedir o Jarvis de subir; e o padrão mora também no `PerfilDeEsforco`,
+pelo motivo do `validadeDoHistorico()` — quem monta as properties à mão recebe o mesmo valor que o
+`.env` entrega.
+
+**Duas consequências de cache, as duas aceitas.** O corpo passa a carregar `output_config` onde não
+carregava nada, e isso custa **um** rebuild de prefixo no deploy. Não há como evitá-lo, e o valor
+explícito é o ponto: confiar no padrão do modelo faria o esforço da conversa virar `high` sozinho no
+dia em que o `ANTHROPIC_MODELO` fosse para o Sonnet 5.5. E como a API trata troca de esforço como
+invalidação de `tools` e `system` (o quanto depende do modelo), briefing, introdução e apoio
+provavelmente deixam de ler o cache da personalidade escrito pela conversa — eles continuam
+partilhando prefixo **entre si**, porque os três são `low`. São ~1,25× a personalidade por
+briefing/introdução contra o que se economiza de saída em todas elas.
+
+### A saída média por origem
+
+`MedidorDeCusto` passou a contar **chamadas** por balde, e não só tokens: sem denominador, "tokens de
+saída" sobe junto com o uso e não compara nada. O campo `chamadas` percorre o caminho que a taxa de
+cache já percorreu — `Uso`, `EstadoDoDia`, `CustoDiarioEmArquivo` (gravar e ler) — e sai como uma
+linha de log, `Saída média por chamada em 2026-10-26: conversa 380, briefing 210`.
+
+Ela sai em **dois** pontos: no `virarODia()`, o registro do dia que acabou, e no `fechar()`
+(`@PreDestroy`), que é o que roda num `docker compose up -d --build` — então todo deploy deixa no log
+o retrato de antes, que é como se mede o efeito de uma troca de esforço sem esperar a meia-noite. No
+log e não no `custo_do_jarvis`: aquele relatório é lido em voz alta e já tem sete cláusulas.
+
+**Não há migração de arquivo.** Dia gravado antes do contador volta com `chamadas = 0` e **sai da
+frase**, pela regra do `percentualLidoDoCache()`: "0 token por chamada" afirmaria algo que o arquivo
+não sabe. Os dois baldes (`porOrigem` e `porModelo`) contam igual, mantendo a invariante do
+`EstadoDoDia` — a média falada, porém, sai de `porOrigem`, que é o único que divide por caminho.
 
 ### O aviso antecipado de voz
 

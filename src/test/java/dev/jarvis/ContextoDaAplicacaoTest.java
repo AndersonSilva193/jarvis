@@ -128,6 +128,22 @@ class ContextoDaAplicacaoTest {
     }
 
     @Test
+    @DisplayName("o bloco de esforços casa com o application.yml, nos cinco perfis")
+    void esforcosCasamComOYml() {
+        // Mesmo motivo dos blocos acima, e aqui o silêncio custa dinheiro: se jarvis.anthropic
+        // .esforcos não casar com o record, props.anthropic().esforcos() vem null, nenhum
+        // output_config é emitido e todas as chamadas voltam a pensar no padrão do modelo — sem
+        // erro nenhum no caminho, e com a conta de saída de volta ao patamar de antes.
+        var esforcos = props.anthropic().esforcos();
+        assertNotNull(esforcos, "jarvis.anthropic.esforcos não casou com JarvisProperties");
+        assertEquals("medium", esforcos.conversa());
+        assertEquals("low", esforcos.briefing());
+        assertEquals("low", esforcos.inicializacao());
+        assertEquals("low", esforcos.apoio());
+        assertEquals("medium", esforcos.tarefa());
+    }
+
+    @Test
     @DisplayName("as ferramentas de tela sobem fiadas, com os dois HttpClient resolvidos")
     void ferramentasDeTelaRegistradas() {
         // São as que dependem da porta PresencaDaHud (implementada pelo EventosHud) e, no caso do

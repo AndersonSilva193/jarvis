@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -40,6 +42,8 @@ public class ClaudeClient {
     private final JsonMapper json;
     private final JarvisProperties.Anthropic config;
     private final MedidorDeCusto medidor;
+    /** O esforço de cada perfil, resolvido na subida e nunca mais. Vazio = nenhum é emitido. */
+    private final Map<PerfilDeEsforco, Esforco> esforcos;
 
     public ClaudeClient(HttpClient http, JsonMapper json, JarvisProperties props,
             MedidorDeCusto medidor) {
@@ -47,6 +51,72 @@ public class ClaudeClient {
         this.json = json;
         this.config = props.anthropic();
         this.medidor = medidor;
+        this.esforcos = resolverEsforcos(this.config);
+    }
+
+    /**
+     * Lê os cinco níveis configurados <b>uma vez, no construtor</b> — e é isso que cumpre "o
+     * esforço é fixo dentro da mesma conversa" por construção: nada relê a configuração em tempo
+     * de pedido, diferente do {@code PersonalidadeService}.
+     *
+     * <p>É também o único lugar onde o WARN de valor torto sai: na subida, nomeando a variável e
+     * o valor recusado. A cada pedido ele seria ruído, e o nível já não mudaria mesmo.
+     *
+     * <p>Sem o bloco {@code esforcos} nenhum nível é resolvido, e o corpo do pedido fica igual ao
+     * de antes desta configuração existir. Campo em branco é o padrão do perfil, sem WARN: branco
+     * é "não mexi nisso", e só texto que não casa nível nenhum é erro de quem escreveu.
+     */
+    private static Map<PerfilDeEsforco, Esforco> resolverEsforcos(JarvisProperties.Anthropic config) {
+        JarvisProperties.Anthropic.Esforcos configurados =
+                config == null ? null : config.esforcos();
+        if (configurados == null) {
+            return Map.of();
+        }
+        Map<PerfilDeEsforco, Esforco> resolvidos = new EnumMap<>(PerfilDeEsforco.class);
+        for (PerfilDeEsforco perfil : PerfilDeEsforco.values()) {
+            String bruto = brutoDe(configurados, perfil);
+            Esforco esforco = Esforco.porChave(bruto);
+            if (esforco == null) {
+                if (bruto != null && !bruto.isBlank()) {
+                    log.warn("{}: '{}' não é um esforço válido (low, medium ou high); seguindo com "
+                            + "{}", perfil.variavel(), bruto.trim(), perfil.padrao().chave());
+                }
+                esforco = perfil.padrao();
+            }
+            resolvidos.put(perfil, esforco);
+        }
+        return Map.copyOf(resolvidos);
+    }
+
+    private static String brutoDe(JarvisProperties.Anthropic.Esforcos esforcos,
+            PerfilDeEsforco perfil) {
+        return switch (perfil) {
+            case CONVERSA -> esforcos.conversa();
+            case BRIEFING -> esforcos.briefing();
+            case INICIALIZACAO -> esforcos.inicializacao();
+            case APOIO -> esforcos.apoio();
+            case TAREFA -> esforcos.tarefa();
+        };
+    }
+
+    /**
+     * O perfil de esforço de quem não o informou — e a origem basta para quase todos.
+     *
+     * <p>Irmão do {@link #cacheDaConversa(Origem)}, e pelo mesmo motivo: a decisão é uma
+     * propriedade do caminho, não do pedido. A exceção é a tarefa agendada, que gasta na
+     * {@code CONVERSA} e pensa com {@code ESFORCO_TAREFA} — ela informa o perfil.
+     *
+     * <p>O {@code switch} é exaustivo de propósito: origem nova tem de escolher um perfil, não
+     * herdar um por omissão.
+     */
+    private static PerfilDeEsforco perfilPadrao(Origem origem) {
+        return switch (origem) {
+            // O computer use monta o corpo por conta própria e nunca chega aqui.
+            case CONVERSA, COMPUTER_USE -> PerfilDeEsforco.CONVERSA;
+            case BRIEFING -> PerfilDeEsforco.BRIEFING;
+            case INICIALIZACAO -> PerfilDeEsforco.INICIALIZACAO;
+            case ANOTADOR, CLASSIFICADOR -> PerfilDeEsforco.APOIO;
+        };
     }
 
     /** Versão simples, com o system num bloco de texto só e sem cache. */
@@ -63,7 +133,19 @@ public class ClaudeClient {
      */
     public JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
             ArrayNode ferramentas) throws IOException, InterruptedException {
-        return criarMensagem(origem, system, mensagens, ferramentas, config.maxTokens(),
+        return criarMensagem(origem, perfilPadrao(origem), system, mensagens, ferramentas);
+    }
+
+    /**
+     * A mesma chamada, com o perfil de esforço dito em voz alta.
+     *
+     * <p>Existe para o único caso em que a {@link Origem} não decide: a tarefa agendada gasta na
+     * {@code CONVERSA} e pensa com o {@code ESFORCO_TAREFA}. Quem informa é o {@code Assistente},
+     * que é quem conhece o {@link Canal}.
+     */
+    public JsonNode criarMensagem(Origem origem, PerfilDeEsforco perfil, ArrayNode system,
+            ArrayNode mensagens, ArrayNode ferramentas) throws IOException, InterruptedException {
+        return criarMensagem(origem, perfil, system, mensagens, ferramentas, config.maxTokens(),
                 PRAZO_PADRAO, TENTATIVAS, cacheDaConversa(origem));
     }
 
@@ -99,12 +181,13 @@ public class ClaudeClient {
     public JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
             ArrayNode ferramentas, int maxTokens, Duration prazo)
             throws IOException, InterruptedException {
-        return criarMensagem(origem, system, mensagens, ferramentas, maxTokens, prazo, 1, false);
+        return criarMensagem(origem, perfilPadrao(origem), system, mensagens, ferramentas,
+                maxTokens, prazo, 1, false);
     }
 
-    private JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
-            ArrayNode ferramentas, int maxTokens, Duration prazo, int tentativas,
-            boolean cacheDaConversa) throws IOException, InterruptedException {
+    private JsonNode criarMensagem(Origem origem, PerfilDeEsforco perfil, ArrayNode system,
+            ArrayNode mensagens, ArrayNode ferramentas, int maxTokens, Duration prazo,
+            int tentativas, boolean cacheDaConversa) throws IOException, InterruptedException {
         ObjectNode corpo = json.createObjectNode();
         corpo.put("model", config.modelo());
         corpo.put("max_tokens", maxTokens);
@@ -118,6 +201,12 @@ public class ClaudeClient {
             if ("1h".equals(config.ttlDeCache())) {
                 controle.put("ttl", "1h");
             }
+        }
+        // Quanto este caminho pensa. O campo só sai quando há nível resolvido: sem o bloco
+        // esforcos, o corpo fica byte a byte igual ao de antes desta configuração existir.
+        Esforco esforco = esforcos.get(perfil);
+        if (esforco != null) {
+            corpo.putObject("output_config").put("effort", esforco.chave());
         }
 
         HttpRequest requisicao = HttpRequest.newBuilder(URL)

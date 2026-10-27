@@ -27,6 +27,15 @@ jarvis:
     # então só compensa com uso várias vezes por hora. Valor torto cai em 5m. Trocar para 1h pede
     # trocar o cache_escrita de CUSTO_PRECOS junto, senão a conta sai errada com cara de certa.
     cache-ttl: ${ANTHROPIC_CACHE_TTL:5m}
+    # Quanto cada tipo de chamada pensa: low | medium | high. Valor torto cai no padrão com WARN.
+    # FIXO POR ORIGEM de propósito: trocar o nível no meio de uma conversa invalida o cache de
+    # prompt, então isto nunca é decidido pedido a pedido.
+    esforcos:
+      conversa: ${ESFORCO_CONVERSA:medium}
+      briefing: ${ESFORCO_BRIEFING:low}
+      inicializacao: ${ESFORCO_INICIALIZACAO:low}
+      apoio: ${ESFORCO_APOIO:low}
+      tarefa: ${ESFORCO_TAREFA:medium}
   busca-web:
     # Busca na web pela ferramenta server-side do Claude: quem executa é o servidor da Anthropic.
     ativa: ${BUSCA_WEB_ATIVA:true}
