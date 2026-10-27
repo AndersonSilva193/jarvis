@@ -22,8 +22,8 @@ class NomeTarefaComputerUseTest {
     @Test void resultadoFinalNaoCortaNoMeioDoTelefone() {
         // O texto real que chegou cortado em "Tel": três fichas passam de 300 caracteres fácil.
         String fichas = "Concluído: li as fichas de três academias.\n\n"
-                + "1. Jango Fight Centro de Treinamento\nEndereço: Rua Lydia Girardi Bertholdi, 120\n"
-                + "Nota: 4,9 (22 avaliações)\nTelefone: (41) 99999-0001\n".repeat(3);
+                + ("1. Jango Fight Centro de Treinamento\nEndereço: Rua Lydia Girardi Bertholdi, 120\n"
+                + "Nota: 4,9 (22 avaliações)\nTelefone: (41) 99999-0001\n").repeat(3);
         assertTrue(fichas.length() > 300);
         assertEquals(fichas.strip(), TarefasComputerUse.resultadoFinal(fichas));
     }

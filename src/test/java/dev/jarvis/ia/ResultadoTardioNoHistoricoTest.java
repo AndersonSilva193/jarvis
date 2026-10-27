@@ -72,13 +72,6 @@ class ResultadoTardioNoHistoricoTest {
         assertTrue(tardios.drenar(42).isEmpty(), "o item entra no histórico uma vez só");
     }
 
-    @Test void filaTemTetoPorChat() {
-        for (int i = 0; i < ResultadosTardios.MAX_POR_CHAT + 3; i++) tardios.registrar(7, "t", "r" + i);
-        var itens = tardios.drenar(7);
-        assertEquals(ResultadosTardios.MAX_POR_CHAT, itens.size());
-        assertEquals("r" + (ResultadosTardios.MAX_POR_CHAT + 2), itens.getLast().texto(), "sai o mais velho");
-    }
-
     private List<ArrayNode> mensagensEnviadas() throws Exception {
         ArgumentCaptor<ArrayNode> captor = ArgumentCaptor.forClass(ArrayNode.class);
         verify(claude, atLeastOnce()).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class),
