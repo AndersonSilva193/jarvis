@@ -227,6 +227,9 @@ public class MedidorDeCusto {
         List<String> semPreco = new ArrayList<>();
         double total = 0;
         long buscas = 0;
+        long entrada = 0;
+        long cacheEscrito = 0;
+        long cacheLido = 0;
         for (EstadoDoDia estado : estadosDe(inicio, hoje)) {
             estado.porOrigem().forEach((origem, uso) ->
                     porOrigem.merge(origem, uso.custoUsd, Double::sum));
@@ -237,12 +240,20 @@ public class MedidorDeCusto {
                     semPreco.add(modelo);
                 }
             }
+            // Os tokens saem de porModelo, nunca de porOrigem: os dois baldes recebem os mesmos
+            // números, e somar os dois contaria tudo duas vezes. É a invariante do EstadoDoDia.
+            for (Uso uso : estado.porModelo().values()) {
+                entrada += uso.entrada;
+                cacheEscrito += uso.cacheEscrito;
+                cacheLido += uso.cacheLido;
+            }
             total += estado.totalUsd();
             buscas += estado.buscasWeb();
         }
         double teto = props.tetoDiarioDeCusto();
         return new Relatorio(inicio, hoje, total, buscas, ordenar(porOrigem), ordenar(porModelo),
-                List.copyOf(semPreco), teto, quantos == 1 ? percentual(total, teto) : 0);
+                List.copyOf(semPreco), teto, quantos == 1 ? percentual(total, teto) : 0,
+                entrada, cacheEscrito, cacheLido);
     }
 
     /**
@@ -483,7 +494,16 @@ public class MedidorDeCusto {
      */
     public record Relatorio(LocalDate de, LocalDate ate, double totalUsd, long buscasWeb,
             Map<Origem, Double> porOrigem, Map<String, Double> porModelo,
-            List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto) {
+            List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto,
+            long tokensEntrada, long cacheEscrito, long cacheLido) {
+
+        /** A aridade de antes da taxa de acerto do cache, para quem monta este retrato à mão. */
+        public Relatorio(LocalDate de, LocalDate ate, double totalUsd, long buscasWeb,
+                Map<Origem, Double> porOrigem, Map<String, Double> porModelo,
+                List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto) {
+            this(de, ate, totalUsd, buscasWeb, porOrigem, porModelo, modelosSemPreco, tetoUsd,
+                    percentualDoTeto, 0, 0, 0);
+        }
 
         public boolean vazio() {
             return porModelo.isEmpty();
@@ -491,6 +511,22 @@ public class MedidorDeCusto {
 
         public int dias() {
             return (int) (ate.toEpochDay() - de.toEpochDay()) + 1;
+        }
+
+        /** O tamanho real do prompt: a API define o total como a soma dos três. */
+        public long tokensDeEntrada() {
+            return tokensEntrada + cacheEscrito + cacheLido;
+        }
+
+        /**
+         * Quanto da entrada veio do cache, em por cento, arredondado para baixo.
+         *
+         * <p>Devolve {@code -1} quando não houve token de entrada nenhum — e aí a frase não sai, em
+         * vez de dizer "0% lido" num período sem chamada, que é ruído num texto lido em voz alta.
+         */
+        public int percentualLidoDoCache() {
+            long base = tokensDeEntrada();
+            return base <= 0 ? -1 : (int) Math.floor(cacheLido * 100d / base);
         }
     }
 }

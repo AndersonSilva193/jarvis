@@ -51,12 +51,40 @@ class CustoDoJarvisFerramentaTest {
                 origens, modelos, semPreco, teto, percentual);
     }
 
+    /** O mesmo retrato, mais os três campos de token de onde sai a taxa de acerto do cache. */
+    private static MedidorDeCusto.Relatorio comCache(long entrada, long escrito, long lido) {
+        return new MedidorDeCusto.Relatorio(HOJE, HOJE, 1.0, 0, porOrigem(Origem.CONVERSA, 1.0),
+                Map.of("modelo-a", 1.0), List.of(), 0, 0, entrada, escrito, lido);
+    }
+
     private String executar(String periodo) {
         ObjectNode entrada = json.createObjectNode();
         if (periodo != null) {
             entrada.put("periodo", periodo);
         }
         return ferramenta.executar(entrada);
+    }
+
+    @Test
+    @DisplayName("diz quanto da entrada foi lido do cache")
+    void dizATaxaDeAcertoDoCache() {
+        when(medidor.periodo(1)).thenReturn(comCache(100_000, 100_000, 800_000));
+
+        String resposta = executar("hoje");
+
+        assertTrue(resposta.contains("Cache: 80% lido."), resposta);
+        assertTrue(resposta.length() <= MAX_CARACTERES, resposta);
+    }
+
+    @Test
+    @DisplayName("sem token de entrada no período, a frase do cache não sai")
+    void semEntradaNaoFalaDeCache() {
+        when(medidor.periodo(1)).thenReturn(comCache(0, 0, 0));
+
+        String resposta = executar("hoje");
+
+        assertFalse(resposta.contains("Cache"),
+                "isto é lido em voz alta; \"0% lido\" num período sem entrada é ruído: " + resposta);
     }
 
     @Test

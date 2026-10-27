@@ -23,6 +23,7 @@ public final class ProvedorAnthropicComputerUse implements ProvedorComputerUse {
     private final JsonMapper json;
     private final String chave;
     private final String modelo;
+    private final String ttlDeCache;
     private final MedidorDeCusto medidor;
     private final ArrayNode mensagens;
     private ArrayNode sistema;
@@ -32,6 +33,7 @@ public final class ProvedorAnthropicComputerUse implements ProvedorComputerUse {
         this.http = http; this.json = json;
         this.chave = props.anthropic().apiKey();
         this.modelo = props.computerUse().modeloAnthropic();
+        this.ttlDeCache = props.anthropic().ttlDeCache();
         this.medidor = medidor;
         this.mensagens = json.createArrayNode();
     }
@@ -74,6 +76,12 @@ public final class ProvedorAnthropicComputerUse implements ProvedorComputerUse {
                 "left_mouse_up", "hold_key", "cursor_position"))
             configs.putObject(nome).put("enabled", false);
         corpo.putObject("tool_choice").put("type", "auto").put("disable_parallel_tool_use", true);
+        // Cache automático da conversa, como no laço do Assistente — e aqui pesa mais: uma tarefa
+        // visual reenvia a lista inteira de mensagens, com uma captura de tela por ciclo, por até
+        // COMPUTER_USE_MAX_CICLOS ciclos. Do segundo em diante, as imagens já mandadas voltam como
+        // leitura de cache. O TTL é o mesmo do marcador do bloco fixo do system, de propósito.
+        ObjectNode controle = corpo.putObject("cache_control").put("type", "ephemeral");
+        if ("1h".equals(ttlDeCache)) controle.put("ttl", "1h");
         HttpRequest pedido = HttpRequest.newBuilder(URI.create("https://api.anthropic.com/v1/messages"))
                 .timeout(restante.compareTo(Duration.ofSeconds(90)) < 0 ? restante : Duration.ofSeconds(90))
                 .header("x-api-key", chave)

@@ -23,6 +23,10 @@ jarvis:
     # Menor prefixo cacheável do modelo. Precisa acompanhar ANTHROPIC_MODELO: 512 no Haiku 5.5
     # e no Sonnet 5.5, 4096 no Haiku 4.5. Abaixo disso a API ignora o cache_control calado.
     cache-minimo-tokens: ${ANTHROPIC_CACHE_MINIMO_TOKENS:512}
+    # Quanto uma entrada de cache vive: 5m ou 1h. O 1h custa 2x para ESCREVER (o 5m custa 1,25x),
+    # então só compensa com uso várias vezes por hora. Valor torto cai em 5m. Trocar para 1h pede
+    # trocar o cache_escrita de CUSTO_PRECOS junto, senão a conta sai errada com cara de certa.
+    cache-ttl: ${ANTHROPIC_CACHE_TTL:5m}
   busca-web:
     # Busca na web pela ferramenta server-side do Claude: quem executa é o servidor da Anthropic.
     ativa: ${BUSCA_WEB_ATIVA:true}

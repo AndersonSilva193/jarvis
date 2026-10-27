@@ -88,7 +88,8 @@ public class SistemaDoJarvis {
         boolean podeLembrar = memoria != null && usuario > 0
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD);
         String sobreUsuario = podeLembrar ? memoria.resumoParaContexto(usuario, mensagem) : "";
-        return PromptDeSistema.montar(json, texto, cachear, canal, props.nomeUsuario(),
-                ZonedDateTime.now(props.zona()), props.buscaWebAtiva(), naTela, sobreUsuario);
+        return PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
+                props.nomeUsuario(), ZonedDateTime.now(props.zona()), props.buscaWebAtiva(), naTela,
+                sobreUsuario);
     }
 }

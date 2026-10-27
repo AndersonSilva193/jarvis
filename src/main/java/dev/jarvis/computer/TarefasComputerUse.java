@@ -115,8 +115,22 @@ public class TarefasComputerUse {
                 ? new ProvedorOpenAiComputerUse(http, json, props, medidor)
                 : new ProvedorAnthropicComputerUse(http, json, props, medidor);
     }
+    /**
+     * Se o computer use está <b>ligado na configuração</b> — sem olhar se o agente está no ar.
+     *
+     * <p>É o que a {@code descricao()} da {@code tarefa_no_pc} usa, e a diferença em relação ao
+     * {@link #disponivel()} é o cache de prompt: o {@code online()} é uma janela de 90 segundos, e
+     * uma descrição que dependesse dele trocaria o array {@code tools} a cada batida de coração
+     * perdida do PC — invalidando, junto, o prefixo de {@code tools}, {@code system} e
+     * {@code messages}. Quem recusa com o agente fora do ar é a execução, como na
+     * {@code rodar_rotina}.
+     */
+    public boolean configurado() {
+        return props.computerUse() != null && props.computerUse().ativo();
+    }
+
     public boolean disponivel() {
-        return props.computerUse() != null && props.computerUse().ativo() && e2.online();
+        return configurado() && e2.online();
     }
     public String iniciar(String objetivo, String canal, long usuario) {
         if (!disponivel()) return "Computer use desativado ou agente do PC offline.";

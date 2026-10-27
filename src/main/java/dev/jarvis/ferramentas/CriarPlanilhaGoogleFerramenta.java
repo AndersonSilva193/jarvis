@@ -16,8 +16,15 @@ public class CriarPlanilhaGoogleFerramenta implements Ferramenta {
         this.google = google; this.json = json;
     }
     @Override public String nome() { return "criar_planilha_google"; }
+    /**
+     * Olha o {@code configurado()}, e não o {@code autorizado()}, de propósito: este texto e o
+     * schema abaixo vão para o array {@code tools}, e o {@code autorizado()} faz um
+     * {@code Files.isRegularFile} — muda quando o arquivo de credencial aparece e, com ele, muda o
+     * prefixo do cache de prompt. Falta de autorização é recusada na execução, pelo
+     * {@code erroDeDisponibilidade()}.
+     */
     @Override public String descricao() {
-        if (!google.autorizado()) return "Google Sheets nativo indisponível nesta instalação. "
+        if (!google.configurado()) return "Google Sheets nativo indisponível nesta instalação. "
                 + "Para pedido de planilha na conta Google, informe que não foi criada e ofereça XLSX local.";
         return "Cria uma NOVA planilha nativa na conta Google autorizada. "
                 + "Recebe nome, formato xlsx e abas estruturadas como criar_arquivo. "
@@ -27,7 +34,7 @@ public class CriarPlanilhaGoogleFerramenta implements Ferramenta {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         ObjectNode props = raiz.putObject("properties");
         props.putObject("nome").put("type", "string");
-        if (!google.autorizado()) {
+        if (!google.configurado()) {
             raiz.putArray("required").add("nome");
             return raiz;
         }

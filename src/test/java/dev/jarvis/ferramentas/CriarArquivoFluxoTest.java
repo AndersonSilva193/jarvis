@@ -25,7 +25,9 @@ class CriarArquivoFluxoTest {
         var props = new JarvisProperties("Jarvis", "America/Sao_Paulo", "", null,
                 null, null, null, null, null, null, null, null, null, null);
         var google = mock(GooglePlanilhasService.class);
-        when(google.autorizado()).thenReturn(true);
+        // O schema olha o configurado(), e não o autorizado(): este último faz um toque em disco e
+        // mudaria o array tools quando a credencial aparecesse, levando o cache de prompt com ela.
+        when(google.configurado()).thenReturn(true);
         Ferramenta[] ferramentas = {
                 new CriarArquivoFerramenta(new PcService(), mock(ArquivosPcService.class),
                         mock(TelegramClient.class), json, props),

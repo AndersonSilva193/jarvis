@@ -34,6 +34,10 @@ final class PromptDeSistema {
     /**
      * @param personalidade texto do arquivo de personalidade, usado sem nenhuma substituição
      * @param cachear       se o bloco fixo é grande o bastante para o modelo aceitar cachear
+     * @param ttlDeCache    {@code 5m} ou {@code 1h}, de {@code ANTHROPIC_CACHE_TTL}. O campo só é
+     *                      emitido no {@code 1h}: {@code 5m} é o padrão da API, e omiti-lo mantém o
+     *                      corpo byte a byte igual ao de antes desta configuração existir — ou seja,
+     *                      ninguém perde o cache já quente num deploy
      * @param buscaAtiva    se a busca na web está ligada; só então o modelo é instruído a usá-la
      * @param naTela        uma linha por janela aberta na HUD, já pronta e com o teto aplicado.
      *                      Vazia quando não há HUD conectada — e aí nada disso vai para o prompt.
@@ -41,15 +45,18 @@ final class PromptDeSistema {
      *                      usuário autenticado em conversa privada.
      */
     static ArrayNode montar(JsonMapper json, String personalidade, boolean cachear,
-            Canal canal, String nomeUsuario, ZonedDateTime agora, boolean buscaAtiva,
-            List<String> naTela, String sobreUsuario) {
+            String ttlDeCache, Canal canal, String nomeUsuario, ZonedDateTime agora,
+            boolean buscaAtiva, List<String> naTela, String sobreUsuario) {
         ArrayNode blocos = json.createArrayNode();
 
         ObjectNode fixo = blocos.addObject();
         fixo.put("type", "text");
         fixo.put("text", personalidade);
         if (cachear) {
-            fixo.putObject("cache_control").put("type", "ephemeral");
+            ObjectNode controle = fixo.putObject("cache_control").put("type", "ephemeral");
+            if ("1h".equals(ttlDeCache)) {
+                controle.put("ttl", "1h");
+            }
         }
 
         ObjectNode dinamico = blocos.addObject();

@@ -101,6 +101,13 @@ public class CustoDoJarvisFerramenta implements Ferramenta {
             texto.append(' ').append(relatorio.buscasWeb()).append(" busca")
                     .append(relatorio.buscasWeb() == 1 ? "" : "s").append(" na web.");
         }
+        // Quanto da entrada foi lida do cache, a 0,1x do preço, em vez de cobrada cheia. Sem token
+        // de entrada no período o método devolve -1 e a frase não sai: "cache: 0% lido" num dia sem
+        // chamada seria ruído, e isto é lido em voz alta.
+        int cache = relatorio.percentualLidoDoCache();
+        if (cache >= 0) {
+            texto.append(" Cache: ").append(cache).append("% lido.");
+        }
         if (dias == 1 && relatorio.tetoUsd() > 0) {
             texto.append(" Teto diário ").append(Dinheiro.usd(relatorio.tetoUsd())).append(" — ")
                     .append(relatorio.percentualDoTeto()).append("% usado.");

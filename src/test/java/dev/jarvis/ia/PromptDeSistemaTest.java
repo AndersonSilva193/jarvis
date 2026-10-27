@@ -41,7 +41,12 @@ class PromptDeSistemaTest {
 
     private static ArrayNode montar(Canal canal, boolean cachear, boolean buscaAtiva,
             List<String> naTela, String sobreUsuario) {
-        return PromptDeSistema.montar(JSON, PERSONALIDADE, cachear, canal, "Anderson", AGORA,
+        return montar(canal, cachear, "5m", buscaAtiva, naTela, sobreUsuario);
+    }
+
+    private static ArrayNode montar(Canal canal, boolean cachear, String ttl, boolean buscaAtiva,
+            List<String> naTela, String sobreUsuario) {
+        return PromptDeSistema.montar(JSON, PERSONALIDADE, cachear, ttl, canal, "Anderson", AGORA,
                 buscaAtiva, naTela, sobreUsuario);
     }
 
@@ -81,6 +86,20 @@ class PromptDeSistemaTest {
         assertTrue(semCache.get(0).path("cache_control").isMissingNode(),
                 "abaixo do mínimo do modelo o marcador seria ignorado calado; melhor nem mandar");
         assertTrue(semCache.get(1).path("cache_control").isMissingNode());
+    }
+
+    @Test
+    @DisplayName("o ttl só aparece no 1h; no padrão de 5m o campo nem é emitido")
+    void ttlDeCache() {
+        ArrayNode umaHora = montar(Canal.TELEGRAM, true, "1h", false, List.of(), "");
+        assertEquals("1h", umaHora.get(0).path("cache_control").path("ttl").stringValue());
+
+        ArrayNode cincoMinutos = montar(Canal.TELEGRAM, true, "5m", false, List.of(), "");
+        assertTrue(cincoMinutos.get(0).path("cache_control").path("ttl").isMissingNode(),
+                "5m é o padrão da API: omitir mantém o corpo igual ao de antes da configuração "
+                        + "existir, e ninguém perde o cache quente num deploy");
+        assertEquals("ephemeral",
+                cincoMinutos.get(0).path("cache_control").path("type").stringValue());
     }
 
     @Test

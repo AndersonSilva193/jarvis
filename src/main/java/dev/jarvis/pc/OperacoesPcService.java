@@ -76,15 +76,27 @@ public class OperacoesPcService {
     private final Path arquivo;
     private final Clock relogio;
     private volatile Instant ultimoContato;
-    private volatile List<RotinaPublica> rotinas = List.of();
+    /**
+     * As rotinas anunciadas moram no {@link CatalogoDoPc}, que as guarda em disco.
+     *
+     * <p>Elas vão para o {@code esquemaEntrada()} da {@code rodar_rotina}, isto é, para o array
+     * {@code tools} — e uma lista que esvazia a cada restart reconstruía o prefixo do cache de
+     * prompt inteiro. Quem lê não muda de lugar: continua o {@link #rotinas()} daqui.
+     */
+    private final CatalogoDoPc catalogo;
 
     @Autowired
-    public OperacoesPcService(JsonMapper json, JarvisProperties props) {
+    public OperacoesPcService(JsonMapper json, JarvisProperties props, CatalogoDoPc catalogo) {
         this(json, Path.of(props.pc().operacoesPasta() == null || props.pc().operacoesPasta().isBlank()
-                ? "/data/pc/operacoes.json" : props.pc().operacoesPasta()), Clock.systemUTC());
+                ? "/data/pc/operacoes.json" : props.pc().operacoesPasta()), Clock.systemUTC(),
+                catalogo);
     }
     public OperacoesPcService(JsonMapper json, Path arquivo, Clock relogio) {
+        this(json, arquivo, relogio, CatalogoDoPc.emMemoria());
+    }
+    public OperacoesPcService(JsonMapper json, Path arquivo, Clock relogio, CatalogoDoPc catalogo) {
         this.json = json; this.arquivo = arquivo; this.relogio = relogio;
+        this.catalogo = catalogo == null ? CatalogoDoPc.emMemoria() : catalogo;
         carregar();
     }
 
@@ -265,7 +277,7 @@ public class OperacoesPcService {
     }
     public synchronized void catalogo(List<RotinaPublica> anuncios) {
         ultimoContato = relogio.instant();
-        rotinas = anuncios == null ? List.of() : anuncios.stream().filter(r ->
+        catalogo.anunciarRotinas(anuncios == null ? List.of() : anuncios.stream().filter(r ->
                 r.nome() != null && r.nome().matches("[a-z0-9][a-z0-9_.-]{0,31}")
                 && r.descricao() != null && !r.descricao().isBlank()
                 && r.descricao().length() <= 160
@@ -273,9 +285,9 @@ public class OperacoesPcService {
                 && r.capacidades() != null && r.capacidades().size() <= 8
                 && r.capacidades().stream().allMatch(c -> c != null &&
                         c.matches("(leitura|altera_codigo|altera_artefatos|publica|remove|agentes|executa_codigo|rede)"))
-                ).limit(30).toList();
+                ).limit(30).toList());
     }
-    public List<RotinaPublica> rotinas() { return rotinas; }
+    public List<RotinaPublica> rotinas() { return catalogo.rotinas(); }
 
     /**
      * Enfileira uma rotina do catálogo e descreve em uma frase o que aconteceu.
@@ -291,7 +303,7 @@ public class OperacoesPcService {
      * do ar nesse meio.
      */
     public String iniciarRotina(String nome, String pedido, String canal, long usuario) {
-        if (!online() || rotinas.stream().noneMatch(r -> r.nome().equals(nome)))
+        if (!online() || rotinas().stream().noneMatch(r -> r.nome().equals(nome)))
             return "Agente offline ou rotina removida; não iniciei.";
         ObjectNode dados = json.createObjectNode().put("pedido", pedido).put("confirmado", true);
         ComandoPc comando = new ComandoPc(java.util.UUID.randomUUID().toString(),

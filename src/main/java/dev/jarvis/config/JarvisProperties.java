@@ -124,8 +124,34 @@ public record JarvisProperties(
      * @param cacheMinimoTokens menor prefixo que o modelo aceita cachear. Abaixo disso a API ignora o
      *                          cache_control em silêncio, então nem mandamos o marcador. Muda por
      *                          modelo: 512 no Haiku 5.5 e no Sonnet 5.5, 4096 no Haiku 4.5.
+     * @param cacheTtl          quanto tempo uma entrada de cache vive: {@code 5m} ou {@code 1h}. O
+     *                          mesmo valor vai no marcador do bloco fixo e no cache automático da
+     *                          conversa, porque a API exige que o TTL mais longo apareça primeiro —
+     *                          misturar os dois seria um 400. Use {@link #ttlDeCache()} para ler.
      */
-    public record Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens) {
+    public record Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens,
+            String cacheTtl) {
+
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Anthropic {
+        }
+
+        /** A aridade de antes do TTL configurável, para os testes que montam este bloco. */
+        public Anthropic(String apiKey, String modelo, int maxTokens, int cacheMinimoTokens) {
+            this(apiKey, modelo, maxTokens, cacheMinimoTokens, "5m");
+        }
+
+        /**
+         * O TTL em forma aceita pela API: {@code 1h} quando foi isso que pediram, {@code 5m} em
+         * qualquer outro caso.
+         *
+         * <p>Valor torto no {@code .env} cai no padrão em vez de virar um HTTP 400 a cada pedido —
+         * é a mesma leniência dos acessores de custo.
+         */
+        public String ttlDeCache() {
+            return cacheTtl != null && "1h".equals(cacheTtl.trim().toLowerCase(java.util.Locale.ROOT))
+                    ? "1h" : "5m";
+        }
     }
 
     /**

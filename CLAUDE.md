@@ -20,6 +20,12 @@ natural e executar ferramentas Java reais. Roda 24h numa VPS, dentro de um conta
   `cache_control` quando passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` (o mínimo muda por modelo); o
   dinâmico vem depois, com data, canal e regras. O cache casa **prefixo exato**, então nada que
   mude por pedido pode entrar no bloco fixo — nem o relógio, nem o nome do usuário.
+- **São dois breakpoints de cache, dos quatro que a API permite**: o explícito do bloco fixo e o
+  **automático da conversa**, um `cache_control` na chave de topo do pedido que a API coloca no
+  último bloco cacheável e avança sozinha. Quem o liga é a `Origem.CONVERSA` no `ClaudeClient`,
+  porque a pergunta é "este caminho chama o modelo várias vezes com o mesmo prefixo?" — e só o laço
+  de ferramentas do `Assistente` chama. Os dois levam o mesmo TTL (`ANTHROPIC_CACHE_TTL`) de
+  propósito: entrada de TTL mais longo tem de aparecer antes da de TTL mais curto, e misturar é 400.
 - **Servidor web só para a HUD** (`spring-boot-starter-web`, porta `JARVIS_PORTA`, padrão 8090).
   O Telegram **não** depende dele: continua por long polling, sem porta aberta nem domínio.
   A API vive em `dev.jarvis.web`, exige `Authorization: Bearer <HUD_TOKEN>` em tudo menos
@@ -54,7 +60,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.proativo` | O Jarvis falando primeiro: `AvisosProativos` (o único caminho do aviso não pedido), `MonitorDeSites`, `FalasService` (o catálogo das frases, com marcadores), `JanelaDeSilencio` e `HistoricoDeDisponibilidade`/`DisponibilidadeEmArquivo`/`DiaDeDisponibilidade` (o JSON por dia no volume `proativo`) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva, aviso antecipado e volta ao navegador), `DiarioDeVoz` (o uso por dia, de onde sai a projeção), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
-| `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
+| `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `CatalogoDoPc` (os apps e as rotinas que o PC anunciou, em disco), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
@@ -74,6 +80,39 @@ O portão vem **depois** dos dois que já existiam — a lista branca da tarefa 
 algo que ele pode usar; "você repetiu" não. Pelo mesmo motivo o tratamento de `criar_arquivo`
 continua lá: ele para na **segunda** tentativa e devolve o erro real ("Nome inválido…") em vez da
 frase genérica.
+
+### A lista de ferramentas tem de ser a mesma de ontem
+
+As definições vão no array `tools`, que é renderizado **antes** do `system`. Um byte diferente ali
+invalida, de uma vez, o cache de `tools`, o do `system` (a personalidade) e o das `messages` — e é a
+única invalidação, junto com a troca de modelo, sem escapatória nenhuma. Três regras seguram isso:
+
+- **Ordem alfabética.** O `porNome` do registro é um `TreeMap`. Era um `LinkedHashMap` na ordem em
+  que o Spring injetou a lista, que é a da varredura do classpath: determinística para um artefato,
+  **mas não contratual**, e podendo diferir entre `target/classes` e o jar. Ordem diferente é
+  prefixo diferente, ou seja, cache perdido num deploy que não mudou código.
+- **Nada de estado volátil na `descricao()` nem no `esquemaEntrada()`.** Quem precisa de estado usa
+  o que é **de partida**, não o que oscila: a `tarefa_no_pc` olha `TarefasComputerUse.configurado()`
+  e não `disponivel()` (este embute o `online()`, uma janela de 90 s — era uma invalidação por
+  batida de coração perdida), e a `criar_planilha_google` olha `google.configurado()` e não
+  `autorizado()` (que faz um `Files.isRegularFile`). Com o PC fora do ar ou sem autorização, quem
+  recusa é a **execução** — é o desenho que a `rodar_rotina` já tinha.
+- **O catálogo do PC vive em disco.** Os apps e as rotinas que o agente anuncia moram no
+  `CatalogoDoPc`, num `catalogo.json` ao lado do `operacoes.json` (volume `pc-operacoes`, sem
+  configuração nova — pasta derivada, como no `CacheDeVoz`). A regra é uma: **a lista muda quando o
+  PC anuncia uma lista diferente.** Ficar offline não muda nada, anúncio ausente não muda nada, e
+  anúncio igual nem grava. Anúncio **explicitamente vazio** muda, sim — é a assimetria que o
+  `PcService.registrarApps` sempre documentou: cabeçalho ausente é falta de informação, cabeçalho
+  vazio é informação. A higienização continua onde estava; o catálogo só guarda.
+
+Mesmo com as três, o registro **confere e avisa**: o `definicoes(canal, tarefaPlanilha)` guarda uma
+impressão digital por ferramenta (`Json.canonico` da definição) e solta um WARN nomeando o que
+mudou. A chave inclui o `tarefaPlanilha`, senão cada tarefa de planilha — que reduz a lista a cinco
+ferramentas — gritaria "removidas" e depois "acrescentadas"; são dois prefixos legítimos por canal,
+não uma mudança. A primeira montagem de cada chave só registra. Dentro de uma chave o **conjunto de
+nomes é fixo** (os dois filtros dependem só de canal e `tarefaPlanilha`, e os dois estão na chave),
+então hoje só o ramo `alterada(s)` pode disparar; o de `+nome`/`-nome` existe para o dia em que
+algum filtro passar a depender de estado, que é exatamente o bug que este aviso caça.
 
 ## Personalidade e canais
 
@@ -767,12 +806,22 @@ tokens só para o retrato da HUD. O registro de custo acontece uma vez por respo
 tentativas HTTP. A ferramenta `custo_do_jarvis` consulta hoje, os últimos sete ou os últimos
 trinta dias; `MedidorDeCusto.serieDiaria(int)` fornece os pontos para o futuro gráfico.
 
+Ela também fecha com **`Cache: X% lido.`**, que é a taxa de acerto do cache de prompt. O
+denominador é o tamanho real do prompt — `entrada + cache_escrito + cache_lido`, porque
+`input_tokens` da API é só o resto **não** cacheado. Período sem token de entrada nenhum devolve
+`-1` em `Relatorio.percentualLidoDoCache()` e a frase **não sai**: isto é lido em voz alta, e
+"0% lido" num dia sem chamada é ruído. Os tokens de cache já eram gravados por dia, por origem e
+por modelo desde o começo — o que faltava era o caminho de leitura, e é por isso que não houve
+migração de arquivo.
+
 `CUSTO_PRECOS` aceita `modelo=entrada/saida/cache_escrita/cache_leitura`, em dólares por milhão de
 tokens. `CUSTO_PRECOS_CONTEXTO_LONGO` aceita `modelo@limiar=...` com os mesmos quatro preços: se
 `entrada + cache_escrita + cache_leitura` ultrapassar o limiar, a tarifa longa vale para a chamada
 inteira. O Haiku 5.5 padrão tem limiar de 100 mil tokens; o `.env.example` traz as duas faixas,
-mas confira os preços atuais na documentação da Anthropic. O cache da personalidade usa o TTL
-padrão de cinco minutos. Modelo sem preço configurado mantém os tokens, marca o custo como
+mas confira os preços atuais na documentação da Anthropic. O cache usa o TTL de
+`ANTHROPIC_CACHE_TTL`, padrão de cinco minutos — e o `cache_escrita` configurado **tem de
+acompanhar**: escrever custa 1,25× no TTL de 5 min e **2× no de 1 h**, e o campo é um só. Modelo
+sem preço configurado mantém os tokens, marca o custo como
 incompleto e gera um WARN por modelo por dia. `CUSTO_PRECO_BUSCA_WEB` é por mil buscas, separado
 dos tokens.
 
@@ -819,6 +868,24 @@ O intervalo é o único número que o `@Scheduled` lê direto do yml
 (`fixedDelayString = "${jarvis.proativo.sites-intervalo-minutos:5}"`, em minutos), como o
 `jarvis.resumo-diario.cron` já faz. O acessor `intervaloDeChecagemDeSites()` existe para quem
 monta as properties à mão, com piso de 1 minuto.
+
+### O TTL do cache de prompt
+
+`ANTHROPIC_CACHE_TTL` (`5m` padrão, ou `1h`) entrou **esticando o bloco aninhado `Anthropic`**, como
+quinto componente, com um construtor de compatibilidade de quatro argumentos dentro do próprio
+record. É o que o CLAUDE.md manda preferir a criar o 22º componente do `JarvisProperties`, e
+**nenhuma** linha de teste precisou mudar — todas montam `Anthropic("chave", "modelo-a", 1024, 512)`.
+O acessor `ttlDeCache()` devolve `1h` só quando foi isso que pediram e `5m` em qualquer outro caso:
+valor torto no `.env` cai no padrão em vez de virar um HTTP 400 a cada pedido, como nos acessores de
+custo.
+
+O campo `ttl` **só é emitido no `1h`**. No `5m` ele é omitido de propósito: é o padrão da API, e
+omiti-lo mantém o corpo byte a byte igual ao de antes desta configuração existir — ninguém perde o
+cache já quente num deploy.
+
+O mesmo valor vai nos **dois** marcadores (o do bloco fixo e o automático), e isso não é zelo: a API
+exige que a entrada de TTL mais longo apareça antes da de TTL mais curto, e marcadores com TTLs
+diferentes no mesmo pedido são 400.
 
 ### O aviso antecipado de voz
 
@@ -984,7 +1051,10 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   (volume `lembretes`), reagendados na partida com aviso de "Atrasado:" para o que venceu no meio;
   histórico da conversa em `HISTORICO_PASTA` (volume `historico`), um `chat-<id>.json` por chat,
   descartando turno mais velho que `HISTORICO_VALIDADE_HORAS`; memória pessoal em `MEMORIA_PASTA` e
-  `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA`; o cache de voz em
+  `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA` e, ao lado dele, o
+  `catalogo.json` com os apps e as rotinas que o PC anunciou — não para a máquina funcionar, mas
+  para o array `tools` nascer igual depois de um restart e o cache de prompt não ser reconstruído;
+  o cache de voz em
   `/data/voz` e o uso de voz por dia em `/data/voz/uso` (35 dias, mais o marcador do período já
   avisado); o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
   Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
@@ -1008,7 +1078,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 - O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC, a fila de mensagens do
   Telegram e as confirmações pendentes são **em memória**: depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, qualquer confirmação pendente se perde e o que estava
-  esperando a vez na fila do Telegram morre com o processo.
+  esperando a vez na fila do Telegram morre com o processo. O que **não** se perde mais é o catálogo
+  de apps e rotinas do PC, que foi para o disco justamente porque ele entra no array `tools`.
 - No Telegram só entende texto (nada de áudio ou foto). Na HUD, quem transcreve e sintetiza é o
   navegador — ou a ElevenLabs, quando `VOZ_PROVEDOR=elevenlabs`.
 - Atende **uma execução por vez**: `Assistente.responder` segura um `ReentrantLock` **justo**

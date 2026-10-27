@@ -67,10 +67,17 @@ public class PcService {
     private final ConcurrentMap<String, Pendente> emAberto = new ConcurrentHashMap<>();
 
     private volatile Instant ultimoContato;
-    private volatile List<String> apps = List.of();
 
     private final Clock relogio;
     private final OperacoesPcService e2;
+    /**
+     * A lista de apps mora no {@link CatalogoDoPc}, que a guarda em disco.
+     *
+     * <p>Ela entra no {@code esquemaEntrada()} e na {@code descricao()} da {@code controlar_pc} —
+     * o array {@code tools} —, e a presença de {@code abrir_app} no enum depende de ela estar
+     * vazia ou não. Esvaziando a cada restart, o prefixo do cache de prompt era reconstruído.
+     */
+    private final CatalogoDoPc catalogo;
 
     public PcService() {
         this(Clock.systemUTC());
@@ -79,12 +86,20 @@ public class PcService {
     public PcService(Clock relogio) {
         this.relogio = relogio;
         this.e2 = null;
+        this.catalogo = CatalogoDoPc.emMemoria();
     }
 
     @Autowired
+    public PcService(OperacoesPcService e2, CatalogoDoPc catalogo) {
+        this.relogio = Clock.systemUTC();
+        this.e2 = e2;
+        this.catalogo = catalogo == null ? CatalogoDoPc.emMemoria() : catalogo;
+    }
+
     public PcService(OperacoesPcService e2) {
         this.relogio = Clock.systemUTC();
         this.e2 = e2;
+        this.catalogo = CatalogoDoPc.emMemoria();
     }
 
     /**
@@ -245,7 +260,7 @@ public class PcService {
 
     /** Os nomes de app que o agente diz aceitar. Lista vazia = nenhum, ou nunca reportou. */
     public List<String> appsConhecidos() {
-        return apps;
+        return catalogo.apps();
     }
 
     private void registrarContato() {
@@ -263,17 +278,21 @@ public class PcService {
      * <p>Assimetria de propósito: cabeçalho <b>ausente</b> é ausência de informação e mantém a
      * lista anterior (um agente antigo não apaga o enum no meio da sessão); cabeçalho
      * <b>presente e vazio</b> é informação explícita de que não há app liberado.
+     *
+     * <p>Quem guarda é o {@link CatalogoDoPc}, que só grava quando a lista anunciada é diferente da
+     * que já estava — e é por isso que a lista sobrevive ao restart, e com ela o prefixo do cache
+     * de prompt.
      */
     private void registrarApps(String headerApps) {
         if (headerApps == null) {
             return;
         }
-        this.apps = Arrays.stream(headerApps.split(","))
+        catalogo.anunciarApps(Arrays.stream(headerApps.split(","))
                 .map(nome -> nome.trim().toLowerCase(Locale.ROOT))
                 .filter(nome -> nome.matches(NOME_DE_APP))
                 .distinct()
                 .limit(MAX_APPS)
-                .toList();
+                .toList());
     }
 
     /**

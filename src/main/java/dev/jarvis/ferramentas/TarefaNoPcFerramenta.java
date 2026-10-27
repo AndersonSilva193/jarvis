@@ -32,9 +32,15 @@ public class TarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "tarefa_no_pc"; }
+    /**
+     * Olha o {@code configurado()}, e não o {@code disponivel()}, de propósito: este texto vai para
+     * o array {@code tools}, e o {@code disponivel()} embute uma janela de 90 segundos de contato
+     * com o agente — a descrição trocaria a cada batida de coração perdida e levaria o prefixo do
+     * cache de prompt com ela. Com o PC fora do ar quem recusa é a execução, logo abaixo.
+     */
     @Override public String descricao() {
-        if (!tarefas.disponivel()) return "Computer use indisponível agora: desativado ou agente "
-                + "do PC offline. Não prometa executar tarefa visual enquanto estiver indisponível.";
+        if (!tarefas.configurado()) return "Computer use desativado na configuração do Jarvis. "
+                + "Não prometa executar tarefa visual.";
         return "Último recurso para executar tarefa pela interface visual do monitor principal do PC. "
                 + "Se o usuário pediu uma ação que pode ser feita no PC e resposta direta, busca, "
                 + "criar_arquivo, rotina cadastrada ou ação fixa não resolverem, use esta ferramenta "

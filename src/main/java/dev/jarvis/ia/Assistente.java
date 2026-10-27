@@ -570,6 +570,11 @@ public class Assistente {
                         historico.size(), caracteresDoHistorico);
             }
 
+            // A Origem.CONVERSA é o que liga o cache automático no ClaudeClient: o prefixo deste
+            // passo é o do passo anterior mais o que a ferramenta devolveu, então do segundo passo
+            // em diante tudo que já foi enviado volta como leitura de cache em vez de entrada
+            // cheia. São até oito passos por pedido, e MAX_PASSOS tem de caber na janela de
+            // lookback de 20 posições da API (cada passo acrescenta duas: tool_use e tool_result).
             JsonNode resposta = claude.criarMensagem(Origem.CONVERSA, system, mensagens, definicoes);
             buscas += (int) Json.numero(resposta.path("usage").path("server_tool_use")
                     .path("web_search_requests"));

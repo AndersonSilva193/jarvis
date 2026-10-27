@@ -83,6 +83,46 @@ class MedidorDeCustoCalculoTest {
     }
 
     @Test
+    @DisplayName("a taxa de acerto do cache sai dos três campos de entrada somados")
+    void taxaDeAcertoDoCache() {
+        var medidor = medidor();
+        // 100 mil cheios, 100 mil escritos e 800 mil lidos: 80% da entrada veio do cache.
+        medidor.registrar(Origem.CONVERSA, "modelo-a", 100_000, 0, 100_000, 800_000, 0);
+
+        var hoje = medidor.hoje();
+        assertEquals(100_000, hoje.tokensEntrada());
+        assertEquals(100_000, hoje.cacheEscrito());
+        assertEquals(800_000, hoje.cacheLido());
+        assertEquals(1_000_000, hoje.tokensDeEntrada(),
+                "o total do prompt é a soma dos três: input_tokens é só o resto não cacheado");
+        assertEquals(80, hoje.percentualLidoDoCache());
+    }
+
+    @Test
+    @DisplayName("sem token de entrada nenhum a taxa não existe, em vez de ser zero")
+    void semEntradaNaoHaTaxa() {
+        var medidor = medidor();
+        medidor.registrar(Origem.CONVERSA, "modelo-a", 0, 500, 0, 0, 0);
+
+        assertEquals(-1, medidor.hoje().percentualLidoDoCache(),
+                "\"cache: 0% lido\" num período sem entrada é ruído num texto lido em voz alta");
+    }
+
+    @Test
+    @DisplayName("a taxa de acerto soma os dias do período, e não só o de hoje")
+    void taxaSomaOsDiasDoPeriodo() {
+        var medidor = medidor();
+        medidor.registrar(Origem.CONVERSA, "modelo-a", 0, 0, 0, 500_000, 0);
+        relogio.avancar(java.time.Duration.ofDays(1));
+        medidor.registrar(Origem.CONVERSA, "modelo-a", 500_000, 0, 0, 0, 0);
+
+        var semana = medidor.periodo(7);
+        assertEquals(500_000, semana.cacheLido());
+        assertEquals(1_000_000, semana.tokensDeEntrada());
+        assertEquals(50, semana.percentualLidoDoCache());
+    }
+
+    @Test
     @DisplayName("a busca na web entra uma vez, por mil")
     void buscaEntraUmaVez() {
         var medidor = medidor();

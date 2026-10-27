@@ -64,7 +64,29 @@ public class ClaudeClient {
     public JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
             ArrayNode ferramentas) throws IOException, InterruptedException {
         return criarMensagem(origem, system, mensagens, ferramentas, config.maxTokens(),
-                PRAZO_PADRAO, TENTATIVAS);
+                PRAZO_PADRAO, TENTATIVAS, cacheDaConversa(origem));
+    }
+
+    /**
+     * Se esta chamada leva o <b>cache automático da conversa</b>: um {@code cache_control} no nível
+     * do pedido, que a API põe no último bloco cacheável e avança sozinha conforme as mensagens
+     * crescem.
+     *
+     * <p>Quem decide é a {@link Origem}, e ela decide bem porque a pergunta é exatamente "este
+     * caminho chama o modelo <b>várias vezes com o mesmo prefixo</b>?". A {@code CONVERSA} é o laço
+     * de ferramentas do {@code Assistente}, de até oito passos: do segundo em diante, tudo que já
+     * foi enviado volta como leitura de cache (0,1× do preço) em vez de entrada cheia.
+     *
+     * <p>As outras fazem <b>uma</b> chamada só — briefing, introdução da HUD, classificador de
+     * resposta, anotador de memória — e para elas a escrita do cache seria prêmio de 1,25× sem
+     * nenhuma leitura depois. Origem nova que venha a repetir chamada no mesmo prefixo entra aqui.
+     *
+     * <p>São dois breakpoints dos quatro que a API permite: este e o do bloco fixo do {@code system}.
+     * Os dois levam o mesmo TTL de propósito — entrada de TTL mais longo tem de aparecer antes da de
+     * TTL mais curto, e misturar seria um HTTP 400.
+     */
+    private static boolean cacheDaConversa(Origem origem) {
+        return origem == Origem.CONVERSA;
     }
 
     /**
@@ -77,12 +99,12 @@ public class ClaudeClient {
     public JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
             ArrayNode ferramentas, int maxTokens, Duration prazo)
             throws IOException, InterruptedException {
-        return criarMensagem(origem, system, mensagens, ferramentas, maxTokens, prazo, 1);
+        return criarMensagem(origem, system, mensagens, ferramentas, maxTokens, prazo, 1, false);
     }
 
     private JsonNode criarMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
-            ArrayNode ferramentas, int maxTokens, Duration prazo, int tentativas)
-            throws IOException, InterruptedException {
+            ArrayNode ferramentas, int maxTokens, Duration prazo, int tentativas,
+            boolean cacheDaConversa) throws IOException, InterruptedException {
         ObjectNode corpo = json.createObjectNode();
         corpo.put("model", config.modelo());
         corpo.put("max_tokens", maxTokens);
@@ -90,6 +112,12 @@ public class ClaudeClient {
         corpo.set("messages", mensagens);
         if (!ferramentas.isEmpty()) {
             corpo.set("tools", ferramentas);
+        }
+        if (cacheDaConversa) {
+            ObjectNode controle = corpo.putObject("cache_control").put("type", "ephemeral");
+            if ("1h".equals(config.ttlDeCache())) {
+                controle.put("ttl", "1h");
+            }
         }
 
         HttpRequest requisicao = HttpRequest.newBuilder(URL)

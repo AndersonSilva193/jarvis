@@ -79,16 +79,35 @@ class TarefasPcSemIdTest {
         assertEquals("tarefa nova iniciada", aprovacoes.tratar("confirmo", 42, "terceiro-pedido").orElseThrow());
     }
 
-    @Test void descricaoApresentaUltimoRecursoSomenteQuandoDisponivel() {
+    @Test void descricaoApresentaUltimoRecursoSomenteQuandoConfigurado() {
         var ferramenta = new TarefaNoPcFerramenta(tarefas, aprovacoes, json);
-        when(tarefas.disponivel()).thenReturn(false, true);
-        assertTrue(ferramenta.descricao().contains("indisponível"));
+        when(tarefas.configurado()).thenReturn(false, true);
+        assertTrue(ferramenta.descricao().contains("desativado na configuração"));
         String disponivel = ferramenta.descricao();
         assertTrue(disponivel.contains("Último recurso"));
         assertTrue(disponivel.contains("Não diga que falta ferramenta"));
         assertTrue(disponivel.contains("pedir confirmação"));
         assertTrue(disponivel.contains("não peça palavra, código nem frase exata"));
         assertTrue(disponivel.contains("menu Iniciar"));
+    }
+
+    /**
+     * O PC sair do ar <b>não pode</b> mexer na descrição: ela vai para o array {@code tools}, que é
+     * renderizado antes do system, e trocá-la invalidaria o cache de prompt de tools, system e
+     * messages de uma vez. O {@code disponivel()} embute uma janela de 90 segundos de contato com o
+     * agente — era uma invalidação a cada batida de coração perdida.
+     */
+    @Test void descricaoNaoMudaQuandoOAgenteDoPcSaiDoAr() {
+        var ferramenta = new TarefaNoPcFerramenta(tarefas, aprovacoes, json);
+        when(tarefas.configurado()).thenReturn(true);
+
+        when(tarefas.disponivel()).thenReturn(true);
+        String comAgente = ferramenta.descricao();
+        when(tarefas.disponivel()).thenReturn(false);
+        String semAgente = ferramenta.descricao();
+
+        assertEquals(comAgente, semAgente,
+                "a descrição não pode depender do online(): é prefixo de cache de prompt");
     }
 
     @Test void abrirBattleNetPeloMenuIniciarPedeConfirmacaoMesmoComLoja() {

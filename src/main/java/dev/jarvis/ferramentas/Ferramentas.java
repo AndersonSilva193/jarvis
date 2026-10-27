@@ -1,8 +1,11 @@
 package dev.jarvis.ferramentas;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,9 +29,31 @@ public class Ferramentas {
 
     private static final Logger log = LoggerFactory.getLogger(Ferramentas.class);
 
-    private final Map<String, Ferramenta> porNome = new LinkedHashMap<>();
+    /**
+     * Por nome, em <b>ordem alfabética</b> — e é a ordem que importa, não só a busca.
+     *
+     * <p>As definições são renderizadas no array {@code tools}, antes do {@code system}, e entram
+     * no mesmo prefixo do cache de prompt. Antes isto era um {@code LinkedHashMap} na ordem em que
+     * o Spring injetou a lista, que é a da varredura do classpath: determinística para um artefato,
+     * mas não contratual, e podendo diferir entre {@code target/classes} e o jar. Uma ordem
+     * diferente é um prefixo diferente, ou seja, cache perdido num deploy que não mudou código.
+     */
+    private final Map<String, Ferramenta> porNome = new TreeMap<>();
     private final JsonMapper json;
     private final ApplicationEventPublisher eventos;
+
+    /**
+     * A última impressão digital das definições, por canal — nome da ferramenta para o JSON dela em
+     * forma canônica.
+     *
+     * <p>Serve para um WARN quando algo mudou, porque mudança aqui é cara e silenciosa: invalida o
+     * prefixo de {@code tools}, de {@code system} e de {@code messages} de uma vez.
+     *
+     * <p>A chave inclui o {@code tarefaPlanilha}: com tarefa de planilha ativa a lista cai para
+     * cinco ferramentas, e sem isso cada tarefa gritaria "trinta e sete removidas" e depois
+     * "trinta e sete acrescentadas". São dois prefixos legítimos por canal, não uma mudança.
+     */
+    private final Map<String, Map<String, String>> digitaisPorCanal = new ConcurrentHashMap<>();
 
     /** Sem barramento de eventos: o que vai para a tela simplesmente não sai daqui. */
     public Ferramentas(List<Ferramenta> ferramentas, JsonMapper json) {
@@ -58,6 +83,7 @@ public class Ferramentas {
 
     public ArrayNode definicoes(Canal canal, boolean tarefaPlanilha) {
         ArrayNode lista = json.createArrayNode();
+        Map<String, String> digitais = new LinkedHashMap<>();
         for (Ferramenta f : porNome.values()) {
             if (canal == Canal.TELEGRAM && "ouvir_resposta".equals(f.nome())) continue;
             if (tarefaPlanilha && !List.of("listar_arquivos", "ler_arquivo", "editar_arquivo",
@@ -66,8 +92,55 @@ public class Ferramentas {
             def.put("name", f.nome());
             def.put("description", f.descricao());
             def.set("input_schema", f.esquemaEntrada());
+            digitais.put(f.nome(), Json.canonico(def));
         }
+        conferirEstabilidade(canal, tarefaPlanilha, digitais);
         return lista;
+    }
+
+    /**
+     * Avisa quando as definições mudaram de um pedido para o outro, nomeando a ferramenta.
+     *
+     * <p>Mudança no array {@code tools} é a invalidação mais cara que existe no cache de prompt: as
+     * ferramentas são renderizadas antes do {@code system}, então um byte diferente aqui derruba o
+     * prefixo de {@code tools}, o do {@code system} (a personalidade) e o das {@code messages} de
+     * uma vez — e não há nada a fazer a respeito, diferente da troca de system, que tem mensagem de
+     * sistema no meio da conversa como saída. Sem este aviso, o dono descobriria pelo valor da
+     * fatura.
+     *
+     * <p>Usa o {@link Json#canonico} e não o {@code toString()}: o {@code JsonMapper} do projeto é
+     * cru, e dois schemas iguais escritos em ordem diferente de campo sairiam como textos
+     * diferentes. A primeira chamada de cada chave só registra — não há com o que comparar.
+     */
+    private void conferirEstabilidade(Canal canal, boolean tarefaPlanilha,
+            Map<String, String> digitais) {
+        String chave = (canal == null ? "qualquer" : canal.nome()) + "|" + tarefaPlanilha;
+        Map<String, String> antes = digitaisPorCanal.put(chave, Map.copyOf(digitais));
+        if (antes == null || antes.equals(digitais)) {
+            return;
+        }
+        List<String> alteradas = new ArrayList<>();
+        List<String> novas = new ArrayList<>();
+        List<String> removidas = new ArrayList<>();
+        for (Map.Entry<String, String> agora : digitais.entrySet()) {
+            String anterior = antes.get(agora.getKey());
+            if (anterior == null) {
+                novas.add(agora.getKey());
+            } else if (!anterior.equals(agora.getValue())) {
+                alteradas.add(agora.getKey());
+            }
+        }
+        for (String nome : antes.keySet()) {
+            if (!digitais.containsKey(nome)) {
+                removidas.add(nome);
+            }
+        }
+        StringBuilder texto = new StringBuilder();
+        if (!alteradas.isEmpty()) texto.append(" alterada(s) ").append(String.join(", ", alteradas));
+        if (!novas.isEmpty()) texto.append(" +").append(String.join(", +", novas));
+        if (!removidas.isEmpty()) texto.append(" -").append(String.join(", -", removidas));
+        log.warn("Definições de ferramenta mudaram em {}:{} — o cache de prompt de tools, system e "
+                + "messages foi invalidado neste pedido", chave, texto);
     }
 
     /** Recebe um bloco "tool_use" do modelo e devolve o bloco "tool_result" correspondente. */
