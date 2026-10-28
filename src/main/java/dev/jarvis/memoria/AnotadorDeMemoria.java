@@ -27,12 +27,20 @@ import dev.jarvis.diario.DiarioDeAcoes;
 import dev.jarvis.diario.OrigemDaAcao;
 import dev.jarvis.diario.TipoDeAcao;
 import dev.jarvis.ia.ClaudeClient;
+import dev.jarvis.ia.provedor.BlocoDeSistema;
+import dev.jarvis.ia.provedor.InstrucoesDeSistema;
+import dev.jarvis.ia.provedor.ListaDeFerramentas;
+import dev.jarvis.ia.provedor.Mensagem;
+import dev.jarvis.ia.provedor.OpcoesDoPedido;
+import dev.jarvis.ia.provedor.PedidoAoModelo;
+import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import dev.jarvis.ia.provedor.RespostaDoModelo;
 import dev.jarvis.util.Json;
 import dev.jarvis.util.Texto;
 import jakarta.annotation.PreDestroy;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 
 /**
  * O Jarvis anotando sozinho o que o dono conta.
@@ -110,7 +118,7 @@ public class AnotadorDeMemoria {
             """;
 
     private final MemoriaService memoria;
-    private final ClaudeClient claude;
+    private final ProvedorDeModelo modelo;
     private final JsonMapper json;
     private final JarvisProperties props;
     private final Clock relogio;
@@ -145,10 +153,15 @@ public class AnotadorDeMemoria {
         this(memoria, claude, json, props, Clock.systemUTC(), null);
     }
 
-    @Autowired
     public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
                              JarvisProperties props, DiarioDeAcoes diario) {
         this(memoria, claude, json, props, Clock.systemUTC(), diario);
+    }
+
+    @Autowired
+    public AnotadorDeMemoria(MemoriaService memoria, ProvedorDeModelo modelo, JsonMapper json,
+                             JarvisProperties props, DiarioDeAcoes diario) {
+        this(memoria, modelo, json, props, Clock.systemUTC(), diario);
     }
 
     public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
@@ -156,10 +169,16 @@ public class AnotadorDeMemoria {
         this(memoria, claude, json, props, relogio, null);
     }
 
+    /** Sobre o {@link ClaudeClient}, que é como os testes o montam. */
     public AnotadorDeMemoria(MemoriaService memoria, ClaudeClient claude, JsonMapper json,
                              JarvisProperties props, Clock relogio, DiarioDeAcoes diario) {
+        this(memoria, ProvedorAnthropic.sobre(claude, json), json, props, relogio, diario);
+    }
+
+    public AnotadorDeMemoria(MemoriaService memoria, ProvedorDeModelo modelo, JsonMapper json,
+                             JarvisProperties props, Clock relogio, DiarioDeAcoes diario) {
         this.memoria = memoria;
-        this.claude = claude;
+        this.modelo = modelo;
         this.json = json;
         this.props = props;
         this.relogio = relogio;
@@ -277,13 +296,10 @@ public class AnotadorDeMemoria {
     private void analisar(Chave chave, List<String> mensagens) throws IOException, InterruptedException {
         List<MemoriaService.Achado> gravados = memoria.assuntos(chave.usuario());
 
-        ArrayNode system = json.createArrayNode();
-        system.addObject().put("type", "text").put("text", SISTEMA);
-        ArrayNode conversa = json.createArrayNode();
-        conversa.addObject().put("role", "user").put("content", instrucao(mensagens, gravados));
-
-        JsonNode raiz = claude.criarMensagem(Origem.ANOTADOR, system, conversa,
-                json.createArrayNode(), MAX_TOKENS, PRAZO);
+        RespostaDoModelo raiz = modelo.responder(new PedidoAoModelo(
+                InstrucoesDeSistema.de(new BlocoDeSistema(SISTEMA, null)),
+                List.of(Mensagem.texto(Mensagem.Papel.USUARIO, instrucao(mensagens, gravados))),
+                ListaDeFerramentas.vazia(), OpcoesDoPedido.curta(Origem.ANOTADOR, MAX_TOKENS, PRAZO)));
         List<JsonNode> candidatos = candidatos(raiz);
 
         Map<String, Integer> motivos = new LinkedHashMap<>();
@@ -366,15 +382,9 @@ public class AnotadorDeMemoria {
     }
 
     /** Resposta que não é o JSON combinado não grava nada: o anotador erra para o lado de não anotar. */
-    private List<JsonNode> candidatos(JsonNode raiz) {
+    private List<JsonNode> candidatos(RespostaDoModelo raiz) {
         List<JsonNode> lista = new ArrayList<>();
-        StringBuilder texto = new StringBuilder();
-        for (JsonNode bloco : raiz.path("content")) {
-            if ("text".equals(Json.texto(bloco.path("type")))) {
-                texto.append(Json.texto(bloco.path("text")));
-            }
-        }
-        String bruto = texto.toString();
+        String bruto = String.join("", raiz.textos());
         int abre = bruto.indexOf('{');
         int fecha = bruto.lastIndexOf('}');
         if (abre < 0 || fecha <= abre) {

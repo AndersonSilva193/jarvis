@@ -31,14 +31,18 @@ import dev.jarvis.briefing.fontes.SitesService.Checagem;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.Canal;
 import dev.jarvis.ia.ClaudeClient;
+import dev.jarvis.ia.provedor.ListaDeFerramentas;
+import dev.jarvis.ia.provedor.Mensagem;
+import dev.jarvis.ia.provedor.OpcoesDoPedido;
+import dev.jarvis.ia.provedor.PedidoAoModelo;
+import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import dev.jarvis.ia.provedor.RespostaDoModelo;
 import dev.jarvis.ia.SistemaDoJarvis;
 import dev.jarvis.lembretes.LembreteService;
 import dev.jarvis.lembretes.LembreteService.Lembrete;
-import dev.jarvis.util.Json;
 import jakarta.annotation.PreDestroy;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 
 /**
  * A abertura falada da HUD: o que o Jarvis diz no instante em que a tela acende.
@@ -46,7 +50,7 @@ import tools.jackson.databind.node.ArrayNode;
  * <p>Espelha o {@code BriefingService} — várias fontes, uma chamada só ao Claude, fonte que falha
  * fica de fora —, com duas diferenças de propósito.
  *
- * <p><b>Fala com o {@link ClaudeClient} direto, não pelo Assistente.</b> Valem os dois motivos do
+ * <p><b>Fala com o {@link ProvedorDeModelo} direto, não pelo Assistente.</b> Valem os dois motivos do
  * {@code NarradorDeBriefing} (o ciclo de dependência pelas Ferramentas, e o risco de o modelo sair
  * chamando ferramenta no meio de uma apresentação), mais um que é só daqui: o
  * {@code Assistente.responder} toma um lock justo pelo turno inteiro, e o despertar passaria a
@@ -89,7 +93,7 @@ public class InicializacaoService {
     private final SitesService sites;
     private final ServidorService servidor;
     private final LembreteService lembretes;
-    private final ClaudeClient claude;
+    private final ProvedorDeModelo modelo;
     private final SistemaDoJarvis sistema;
     private final JsonMapper json;
     private final JarvisProperties props;
@@ -104,8 +108,16 @@ public class InicializacaoService {
 
     private Guardada guardada;
 
-    // Com dois construtores e nenhum anotado o Spring procuraria um sem argumentos.
+    // Com vários construtores e nenhum anotado o Spring procuraria um sem argumentos.
     @Autowired
+    public InicializacaoService(ClimaService clima, SitesService sites, ServidorService servidor,
+            LembreteService lembretes, ProvedorDeModelo modelo, SistemaDoJarvis sistema,
+            JsonMapper json, JarvisProperties props) {
+        this(clima, sites, servidor, lembretes, modelo, sistema, json, props, Clock.systemUTC(),
+                PRAZO_DAS_FONTES);
+    }
+
+    /** Sobre o {@link ClaudeClient}, que é como os testes a montam. */
     public InicializacaoService(ClimaService clima, SitesService sites, ServidorService servidor,
             LembreteService lembretes, ClaudeClient claude, SistemaDoJarvis sistema,
             JsonMapper json, JarvisProperties props) {
@@ -113,18 +125,25 @@ public class InicializacaoService {
                 PRAZO_DAS_FONTES);
     }
 
+    InicializacaoService(ClimaService clima, SitesService sites, ServidorService servidor,
+            LembreteService lembretes, ClaudeClient claude, SistemaDoJarvis sistema,
+            JsonMapper json, JarvisProperties props, Clock relogio, Duration prazoDasFontes) {
+        this(clima, sites, servidor, lembretes, ProvedorAnthropic.sobre(claude, json), sistema,
+                json, props, relogio, prazoDasFontes);
+    }
+
     /**
      * O relógio e o prazo injetáveis são para o teste: um evita esperar dois minutos pelo cache, o
      * outro evita esperar três segundos por uma fonte propositalmente travada.
      */
     InicializacaoService(ClimaService clima, SitesService sites, ServidorService servidor,
-            LembreteService lembretes, ClaudeClient claude, SistemaDoJarvis sistema,
+            LembreteService lembretes, ProvedorDeModelo modelo, SistemaDoJarvis sistema,
             JsonMapper json, JarvisProperties props, Clock relogio, Duration prazoDasFontes) {
         this.clima = clima;
         this.sites = sites;
         this.servidor = servidor;
         this.lembretes = lembretes;
-        this.claude = claude;
+        this.modelo = modelo;
         this.sistema = sistema;
         this.json = json;
         this.props = props;
@@ -229,20 +248,18 @@ public class InicializacaoService {
     /**
      * A apresentação em si, numa chamada ao Claude e sem ferramenta nenhuma.
      *
-     * <p>Falhando — e o {@link ClaudeClient} já tenta três vezes —, monta a frase em Java com o que
+     * <p>Falhando — e o provedor já tenta três vezes —, monta a frase em Java com o que
      * chegou. A tela acabou de acender: ficar muda seria pior que uma frase sem charme.
      */
     private String narrar(ZonedDateTime agora, ClimaHoje clima, List<Lembrete> deHoje,
             List<Checagem> checagens, EstadoServidor servidor, List<String> problemas) {
         try {
-            ArrayNode mensagens = json.createArrayNode();
-            mensagens.addObject()
-                    .put("role", "user")
-                    .put("content", instrucao(agora, clima, deHoje, checagens, servidor, problemas));
-
-            JsonNode resposta = claude.criarMensagem(Origem.INICIALIZACAO,
-                    sistema.blocos(Canal.HUD), mensagens, json.createArrayNode());
-            String texto = extrairTexto(resposta.path("content"));
+            RespostaDoModelo resposta = modelo.responder(new PedidoAoModelo(
+                    SistemaDoJarvis.instrucoes(sistema.blocos(Canal.HUD)),
+                    List.of(Mensagem.texto(Mensagem.Papel.USUARIO,
+                            instrucao(agora, clima, deHoje, checagens, servidor, problemas))),
+                    ListaDeFerramentas.vazia(), OpcoesDoPedido.de(Origem.INICIALIZACAO)));
+            String texto = extrairTexto(resposta.textos());
             if (!texto.isBlank()) {
                 return texto;
             }
@@ -312,16 +329,13 @@ public class InicializacaoService {
         return frases.toString();
     }
 
-    private static String extrairTexto(JsonNode conteudo) {
+    private static String extrairTexto(List<String> textos) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < conteudo.size(); i++) {
-            JsonNode bloco = conteudo.get(i);
-            if ("text".equals(Json.texto(bloco.path("type")))) {
-                if (!sb.isEmpty()) {
-                    sb.append(' ');
-                }
-                sb.append(Json.texto(bloco.path("text")));
+        for (String texto : textos) {
+            if (!sb.isEmpty()) {
+                sb.append(' ');
             }
+            sb.append(texto);
         }
         return sb.toString().trim();
     }

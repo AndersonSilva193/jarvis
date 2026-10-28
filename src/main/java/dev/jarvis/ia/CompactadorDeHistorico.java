@@ -8,6 +8,9 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import dev.jarvis.ia.provedor.Bloco;
+import dev.jarvis.ia.provedor.ConversorAnthropic;
+import dev.jarvis.ia.provedor.Mensagem;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -18,9 +21,13 @@ import tools.jackson.databind.node.ObjectNode;
  * o dono pediu, o que o Jarvis respondeu e uma nota curta do que foi usado.
  *
  * <p>É o que mais pesa na entrada de cada pedido. O array {@code messages} é remontado do zero a
- * cada passo ({@code Assistente.executarLoop}), então um {@code listar_arquivos} que devolveu o
+ * cada passo ({@code CicloDeFerramentas}), então um {@code listar_arquivos} que devolveu o
  * JSON do agente, ou uma busca na web com {@code encrypted_content}, voltava inteiro em todos os
  * pedidos seguintes até sair da janela de dez turnos — e com validade de 72 h isso dura três dias.
+ *
+ * <p>Trabalha no formato neutro ({@link Mensagem}), e é por isso que o turno compacto é legível por
+ * qualquer provedor: ele é só texto. A busca na web é reconhecida pela
+ * {@link Bloco.Opaco#consultaWeb()}, sem abrir o bloco de quem a fez.
  *
  * <p><b>O que a API aceita.</b> Busca web e busca de ferramentas têm blocos
  * {@code server_tool_use} e resultado, e a busca de ferramentas ainda pode deixar referências
@@ -75,12 +82,12 @@ public final class CompactadorDeHistorico {
      * <p>O {@code ArrayDeque} não tem acesso por índice, e são dez elementos no máximo: copiar,
      * limpar e recolocar é mais barato que qualquer alternativa esperta.
      */
-    public void aplicar(Deque<List<ObjectNode>> historico) {
+    public void aplicar(Deque<List<Mensagem>> historico) {
         int compactar = historico.size() - turnosCompletos;
         if (compactar <= 0) {
             return;
         }
-        List<List<ObjectNode>> todos = new ArrayList<>(historico);
+        List<List<Mensagem>> todos = new ArrayList<>(historico);
         historico.clear();
         for (int i = 0; i < todos.size(); i++) {
             historico.addLast(i < compactar ? compactar(todos.get(i)) : todos.get(i));
@@ -94,7 +101,7 @@ public final class CompactadorDeHistorico {
      * {@link #PREFIXO_NOTA} e recolocada, e o corte da resposta é estável porque incide só sobre o
      * texto, nunca sobre a nota.
      */
-    List<ObjectNode> compactar(List<ObjectNode> turno) {
+    List<Mensagem> compactar(List<Mensagem> turno) {
         if (turno.isEmpty()) {
             return turno;
         }
@@ -104,17 +111,17 @@ public final class CompactadorDeHistorico {
         String resposta = cortar(semNota(bruto, notaAnterior));
         // Nota deste turno quando há bloco de ferramenta; senão a que já estava lá. Sem isso, a
         // segunda passada apagaria o que a primeira escreveu.
-        String nota = nota(turno);
+        String nota = notaDe(turno);
         if (nota.isEmpty()) {
             nota = notaAnterior;
         }
         String falado = nota.isEmpty() ? resposta : resposta + "\n" + nota;
 
-        List<ObjectNode> compacto = new ArrayList<>(2);
-        compacto.add(json.createObjectNode().put("role", "user").put("content", pedido));
+        List<Mensagem> compacto = new ArrayList<>(2);
+        compacto.add(Mensagem.texto(Mensagem.Papel.USUARIO, pedido));
         // Mensagem sem conteúdo a API recusa, como no semPensamentos.
-        compacto.add(json.createObjectNode().put("role", "assistant")
-                .put("content", falado.isBlank() ? "(sem resposta)" : falado));
+        compacto.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE,
+                falado.isBlank() ? "(sem resposta)" : falado));
         return compacto;
     }
 
@@ -130,23 +137,22 @@ public final class CompactadorDeHistorico {
      * a mandar para {@code apagar_arquivo} um id que nenhuma ferramenta aceita.
      */
     String nota(List<ObjectNode> turno) {
+        ConversorAnthropic conversor = new ConversorAnthropic(json);
+        return notaDe(turno.stream().map(conversor::mensagemDe).toList());
+    }
+
+    /** A {@link #nota(List)} de um turno já no formato neutro. */
+    String notaDe(List<Mensagem> turno) {
         Map<String, String> resultados = resultadosPorId(turno);
         List<String> segmentos = new ArrayList<>();
         List<String> consultas = new ArrayList<>();
-        for (ObjectNode mensagem : turno) {
-            JsonNode conteudo = mensagem.path("content");
-            if (!conteudo.isArray()) {
-                continue;
-            }
-            for (JsonNode bloco : conteudo) {
-                String tipo = Json.texto(bloco.path("type"));
-                if ("tool_use".equals(tipo)) {
-                    String nome = Json.texto(bloco.path("name"));
-                    String achados = identificadores(resultados.get(Json.texto(bloco.path("id"))));
-                    segmentos.add(achados.isEmpty() ? nome : nome + " → " + achados);
-                } else if ("server_tool_use".equals(tipo)
-                        && "web_search".equals(Json.texto(bloco.path("name")))) {
-                    String consulta = Json.texto(bloco.path("input").path("query"));
+        for (Mensagem mensagem : turno) {
+            for (Bloco bloco : mensagem.blocos()) {
+                if (bloco instanceof Bloco.Chamada chamada) {
+                    String achados = identificadores(resultados.get(chamada.id()));
+                    segmentos.add(achados.isEmpty() ? chamada.nome() : chamada.nome() + " → " + achados);
+                } else if (bloco instanceof Bloco.Opaco opaco) {
+                    String consulta = opaco.consultaWeb();
                     if (!consulta.isBlank() && !consultas.contains(consulta)) {
                         consultas.add(consulta);
                     }
@@ -179,17 +185,13 @@ public final class CompactadorDeHistorico {
         }
     }
 
-    /** O {@code content} de cada {@code tool_result}, por {@code tool_use_id}. */
-    private Map<String, String> resultadosPorId(List<ObjectNode> turno) {
+    /** O conteúdo de cada resultado de ferramenta, pelo id da chamada. */
+    private Map<String, String> resultadosPorId(List<Mensagem> turno) {
         Map<String, String> porId = new LinkedHashMap<>();
-        for (ObjectNode mensagem : turno) {
-            JsonNode conteudo = mensagem.path("content");
-            if (!conteudo.isArray()) {
-                continue;
-            }
-            for (JsonNode bloco : conteudo) {
-                if ("tool_result".equals(Json.texto(bloco.path("type")))) {
-                    porId.put(Json.texto(bloco.path("tool_use_id")), Json.texto(bloco.path("content")));
+        for (Mensagem mensagem : turno) {
+            for (Bloco bloco : mensagem.blocos()) {
+                if (bloco instanceof Bloco.Resultado resultado) {
+                    porId.put(resultado.id(), resultado.conteudo());
                 }
             }
         }
@@ -264,14 +266,13 @@ public final class CompactadorDeHistorico {
     }
 
     /** O pedido: a primeira mensagem do usuário do turno, que já nasce como texto. */
-    private String textoDoUsuario(List<ObjectNode> turno) {
-        for (ObjectNode mensagem : turno) {
-            if ("user".equals(Json.texto(mensagem.path("role")))) {
-                JsonNode conteudo = mensagem.path("content");
-                if (conteudo.isString()) {
-                    return conteudo.stringValue();
+    private String textoDoUsuario(List<Mensagem> turno) {
+        for (Mensagem mensagem : turno) {
+            if (mensagem.papel() == Mensagem.Papel.USUARIO) {
+                if (textoSimples(mensagem)) {
+                    return mensagem.texto();
                 }
-                String texto = blocosDeTexto(conteudo);
+                String texto = blocosDeTexto(mensagem);
                 if (!texto.isBlank()) {
                     return texto;
                 }
@@ -286,14 +287,13 @@ public final class CompactadorDeHistorico {
      * <p>De trás para a frente porque o turno pode ter terminado numa saída antecipada do laço, e
      * aí a última mensagem é a dos {@code tool_result}, não a do assistente.
      */
-    private String textoDaResposta(List<ObjectNode> turno) {
+    private String textoDaResposta(List<Mensagem> turno) {
         for (int i = turno.size() - 1; i >= 0; i--) {
-            ObjectNode mensagem = turno.get(i);
-            if (!"assistant".equals(Json.texto(mensagem.path("role")))) {
+            Mensagem mensagem = turno.get(i);
+            if (mensagem.papel() != Mensagem.Papel.ASSISTENTE) {
                 continue;
             }
-            JsonNode conteudo = mensagem.path("content");
-            String texto = conteudo.isString() ? conteudo.stringValue() : blocosDeTexto(conteudo);
+            String texto = textoSimples(mensagem) ? mensagem.texto() : blocosDeTexto(mensagem);
             if (!texto.isBlank()) {
                 return texto;
             }
@@ -301,20 +301,18 @@ public final class CompactadorDeHistorico {
         return "";
     }
 
-    private String blocosDeTexto(JsonNode conteudo) {
-        if (!conteudo.isArray()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (JsonNode bloco : conteudo) {
-            if ("text".equals(Json.texto(bloco.path("type")))) {
-                if (!sb.isEmpty()) {
-                    sb.append("\n\n");
-                }
-                sb.append(Json.texto(bloco.path("text")));
-            }
-        }
-        return sb.toString().trim();
+    /**
+     * Texto nascido em Java (o pedido, o turno já compacto): sai como está, sem aparar. O do modelo
+     * vem em blocos e é aparado — a mesma distinção entre {@code content} em string e em array de
+     * antes do formato neutro.
+     */
+    private static boolean textoSimples(Mensagem mensagem) {
+        return mensagem.blocos().size() == 1
+                && mensagem.blocos().getFirst() instanceof Bloco.Texto t && t.original() == null;
+    }
+
+    private String blocosDeTexto(Mensagem mensagem) {
+        return mensagem.texto().trim();
     }
 
     /** A nota que uma passada anterior já tinha anexado, se a última linha for uma. */

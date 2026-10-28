@@ -14,10 +14,15 @@ import dev.jarvis.custo.Origem;
 import dev.jarvis.ia.Canal;
 import dev.jarvis.ia.ClaudeClient;
 import dev.jarvis.ia.SistemaDoJarvis;
-import dev.jarvis.util.Json;
-import tools.jackson.databind.JsonNode;
+import dev.jarvis.ia.provedor.ListaDeFerramentas;
+import dev.jarvis.ia.provedor.Mensagem;
+import dev.jarvis.ia.provedor.OpcoesDoPedido;
+import dev.jarvis.ia.provedor.PedidoAoModelo;
+import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import dev.jarvis.ia.provedor.RespostaDoModelo;
+import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 
 /**
  * Lê o briefing em voz de gente: pega as seções já montadas em Java e pede ao Claude que apresente
@@ -27,7 +32,7 @@ import tools.jackson.databind.node.ArrayNode;
  * cada bloco é dito enquanto o seu card está na tela. Um bloco único de prosa não teria onde
  * encaixar nessa coreografia.
  *
- * <p>Fala com o {@link ClaudeClient} direto, e não pelo Assistente, por dois motivos. Primeiro,
+ * <p>Fala com o {@link ProvedorDeModelo} direto, e não pelo Assistente, por dois motivos. Primeiro,
  * dependência: o Assistente puxa as Ferramentas, e entre elas está a do briefing — o ciclo
  * BriefingService → Assistente → Ferramentas → BriefingFerramenta → BriefingService nem sobe.
  * Segundo, risco: mandar a lista de ferramentas aqui abriria a porta para o modelo chamar
@@ -45,14 +50,18 @@ public class NarradorDeBriefing {
     /** Os pedaços voltam marcados com [0], [1], ...; [0] é a abertura e o resto segue as seções. */
     private static final Pattern MARCADOR = Pattern.compile("(?m)^[ \\t]*\\[(\\d+)\\][ \\t]*");
 
-    private final ClaudeClient claude;
+    private final ProvedorDeModelo modelo;
     private final SistemaDoJarvis sistema;
-    private final JsonMapper json;
 
+    /** Sobre o {@link ClaudeClient}, que é como os testes o montam. */
     public NarradorDeBriefing(ClaudeClient claude, SistemaDoJarvis sistema, JsonMapper json) {
-        this.claude = claude;
+        this(ProvedorAnthropic.sobre(claude, json), sistema);
+    }
+
+    @Autowired
+    public NarradorDeBriefing(ProvedorDeModelo modelo, SistemaDoJarvis sistema) {
+        this.modelo = modelo;
         this.sistema = sistema;
-        this.json = json;
     }
 
     /**
@@ -67,14 +76,13 @@ public class NarradorDeBriefing {
             return List.of();
         }
         try {
-            ArrayNode mensagens = json.createArrayNode();
-            mensagens.addObject()
-                    .put("role", "user")
-                    .put("content", instrucao(nomeUsuario, secoes));
-
-            JsonNode resposta = claude.criarMensagem(Origem.BRIEFING,
-                    sistema.blocos(Canal.BRIEFING), mensagens, json.createArrayNode());
-            List<String> falas = separar(extrairTexto(resposta.path("content")), secoes.size() + 2);
+            // Sem ferramenta nenhuma, de propósito: é o que impede o modelo de chamar o
+            // briefing_do_dia no meio da narração do próprio briefing.
+            RespostaDoModelo resposta = modelo.responder(new PedidoAoModelo(
+                    SistemaDoJarvis.instrucoes(sistema.blocos(Canal.BRIEFING)),
+                    List.of(Mensagem.texto(Mensagem.Papel.USUARIO, instrucao(nomeUsuario, secoes))),
+                    ListaDeFerramentas.vazia(), OpcoesDoPedido.de(Origem.BRIEFING)));
+            List<String> falas = separar(extrairTexto(resposta.textos()), secoes.size() + 2);
 
             if (falas.isEmpty()) {
                 log.warn("A narração do briefing voltou fora do formato esperado; fica o texto montado em Java.");
@@ -146,16 +154,13 @@ public class NarradorDeBriefing {
         return trechos.size() == esperados ? List.copyOf(trechos) : List.of();
     }
 
-    private static String extrairTexto(JsonNode conteudo) {
+    private static String extrairTexto(List<String> textos) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < conteudo.size(); i++) {
-            JsonNode bloco = conteudo.get(i);
-            if ("text".equals(Json.texto(bloco.path("type")))) {
-                if (!sb.isEmpty()) {
-                    sb.append("\n\n");
-                }
-                sb.append(Json.texto(bloco.path("text")));
+        for (String texto : textos) {
+            if (!sb.isEmpty()) {
+                sb.append("\n\n");
             }
+            sb.append(texto);
         }
         return sb.toString().trim();
     }

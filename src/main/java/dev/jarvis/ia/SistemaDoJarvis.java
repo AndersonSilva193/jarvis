@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.ia.provedor.ConversorAnthropic;
+import dev.jarvis.ia.provedor.InstrucoesDeSistema;
 import dev.jarvis.memoria.MemoriaService;
 import dev.jarvis.tela.PresencaDaHud;
 import dev.jarvis.tela.TelaEstadoService;
@@ -92,5 +94,16 @@ public class SistemaDoJarvis {
         return PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
                 props.nomeUsuario(), ZonedDateTime.now(props.zona()), props.buscaWebAtiva(), naTela,
                 sobreUsuario);
+    }
+
+    /**
+     * Os blocos de {@link #blocos} no formato neutro, que é o que o {@code ProvedorDeModelo} recebe.
+     *
+     * <p>Lê dos blocos, e não os remonta: quem chama continua pedindo {@code blocos(...)} uma vez por
+     * pedido, e a Anthropic recebe de volta o mesmo objeto que saiu daqui — os outros provedores, o
+     * texto e a validade do cache de cada bloco.
+     */
+    public static InstrucoesDeSistema instrucoes(ArrayNode blocos) {
+        return ConversorAnthropic.instrucoesDe(blocos);
     }
 }

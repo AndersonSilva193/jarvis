@@ -2,6 +2,7 @@ package dev.jarvis.aprovacao;
 
 import java.text.Normalizer;
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -11,10 +12,16 @@ import org.springframework.stereotype.Component;
 
 import dev.jarvis.custo.Origem;
 import dev.jarvis.ia.ClaudeClient;
-import dev.jarvis.util.Json;
-import tools.jackson.databind.JsonNode;
+import dev.jarvis.ia.provedor.BlocoDeSistema;
+import dev.jarvis.ia.provedor.InstrucoesDeSistema;
+import dev.jarvis.ia.provedor.ListaDeFerramentas;
+import dev.jarvis.ia.provedor.Mensagem;
+import dev.jarvis.ia.provedor.OpcoesDoPedido;
+import dev.jarvis.ia.provedor.PedidoAoModelo;
+import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import dev.jarvis.ia.provedor.RespostaDoModelo;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 
 /**
  * Entende a resposta do usuário a uma pergunta de aprovação, em linguagem natural.
@@ -84,12 +91,16 @@ public class ClassificadorDeResposta {
 
             Na dúvida, responda duvida.""";
 
-    private final ClaudeClient claude;
-    private final JsonMapper json;
+    private final ProvedorDeModelo modelo;
 
+    /** Sobre o {@link ClaudeClient}, que é como os testes o montam; nulo é "sem modelo". */
     public ClassificadorDeResposta(ClaudeClient claude, JsonMapper json) {
-        this.claude = claude;
-        this.json = json;
+        this(ProvedorAnthropic.sobre(claude, json));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ClassificadorDeResposta(ProvedorDeModelo modelo) {
+        this.modelo = modelo;
     }
 
     /**
@@ -98,7 +109,7 @@ public class ClassificadorDeResposta {
      * espírito de {@code BuscaWebServidor.desligada()}.
      */
     public static ClassificadorDeResposta semModelo() {
-        return new ClassificadorDeResposta(null, JsonMapper.builder().build());
+        return new ClassificadorDeResposta((ProvedorDeModelo) null);
     }
 
     /**
@@ -112,22 +123,20 @@ public class ClassificadorDeResposta {
             if (SIM.contains(recebido)) return Decisao.SIM;
             if (NAO.contains(recebido)) return Decisao.NAO;
         }
-        if (claude == null) return Decisao.DUVIDA;
+        if (modelo == null) return Decisao.DUVIDA;
         return pelaModelo(pergunta, resposta);
     }
 
     private Decisao pelaModelo(String pergunta, String resposta) {
         try {
-            ArrayNode system = json.createArrayNode();
-            system.addObject().put("type", "text").put("text", SISTEMA);
-            ArrayNode mensagens = json.createArrayNode();
-            mensagens.addObject().put("role", "user").put("content",
-                    "Pergunta do assistente: " + (pergunta == null ? "" : pergunta)
-                            + "\nResposta da pessoa: " + (resposta == null ? "" : resposta));
-
-            JsonNode raiz = claude.criarMensagem(Origem.CLASSIFICADOR, system, mensagens, json.createArrayNode(),
-                    MAX_TOKENS, PRAZO);
-            return deTexto(textoDe(raiz.path("content")));
+            String mensagem = "Pergunta do assistente: " + (pergunta == null ? "" : pergunta)
+                    + "\nResposta da pessoa: " + (resposta == null ? "" : resposta);
+            RespostaDoModelo raiz = modelo.responder(new PedidoAoModelo(
+                    InstrucoesDeSistema.de(new BlocoDeSistema(SISTEMA, null)),
+                    List.of(Mensagem.texto(Mensagem.Papel.USUARIO, mensagem)),
+                    ListaDeFerramentas.vazia(),
+                    OpcoesDoPedido.curta(Origem.CLASSIFICADOR, MAX_TOKENS, PRAZO)));
+            return deTexto(String.join("", raiz.textos()));
         } catch (InterruptedException e) {
             // Quem interrompeu quer o turno encerrado, não uma decisão a mais.
             Thread.currentThread().interrupt();
@@ -151,15 +160,6 @@ public class ClassificadorDeResposta {
             case "outro_assunto" -> Decisao.OUTRO_ASSUNTO;
             default -> Decisao.DUVIDA;
         };
-    }
-
-    private static String textoDe(JsonNode conteudo) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < conteudo.size(); i++) {
-            JsonNode bloco = conteudo.get(i);
-            if ("text".equals(Json.texto(bloco.path("type")))) sb.append(Json.texto(bloco.path("text")));
-        }
-        return sb.toString();
     }
 
     /**

@@ -13,7 +13,6 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import dev.jarvis.conversa.*;
-import dev.jarvis.custo.Origem;
 import dev.jarvis.ferramentas.ResultadoFerramenta;
 
 import org.slf4j.Logger;
@@ -26,10 +25,12 @@ import dev.jarvis.aprovacao.ClassificadorDeResposta;
 import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
 import dev.jarvis.memoria.AnotadorDeMemoria;
 import dev.jarvis.memoria.EsquecimentosDeMemoria;
-import dev.jarvis.util.Json;
-import tools.jackson.databind.JsonNode;
+import dev.jarvis.ia.provedor.Bloco;
+import dev.jarvis.ia.provedor.FormatoNeutro;
+import dev.jarvis.ia.provedor.Mensagem;
+import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeModelo;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -39,36 +40,23 @@ import tools.jackson.databind.node.ObjectNode;
 @Service
 public class Assistente {
 
-    /** Limite de idas e vindas com ferramentas por pedido, para nunca entrar em loop infinito. */
-    private static final int MAX_PASSOS = 8;
-    /** A partir desta chamada idêntica no mesmo pedido, a ferramenta é recusada sem executar. */
-    private static final int LIMITE_REPETICAO = 3;
-    /**
-     * O limite folgado. Consulta de estado ("já terminou?") e ação em passos (volume, avançar) são
-     * repetidas de propósito: aí o modelo não está em círculo, está contando.
-     */
-    private static final int LIMITE_REPETICAO_FOLGADO = 5;
-    /** As de limite folgado que o prefixo {@code status_} não pega: as duas de ação em passos. */
-    private static final List<String> REPETIVEIS = List.of("controlar_tela", "controlar_pc");
-    /** Recusas por repetição que encerram o turno: insistir depois da primeira é andar em círculo. */
-    private static final int BLOQUEIOS_PARA_PARAR = 2;
     /**
      * Quantas trocas (pedido + resposta) o Jarvis lembra por conversa. Também é o teto do que volta
      * do disco na partida: o arquivo pode ter sido gravado por uma versão que lembrava mais.
      */
     private static final int MAX_TURNOS_HISTORICO = 10;
-    /** A resposta de um turno cortado pelo usuário. Curta de propósito: ele pediu para parar. */
-    private static final String PAREI = "Parei, senhor.";
+    private static final String PAREI = PedidoInterrompido.PAREI;
 
     private static final Logger log = LoggerFactory.getLogger(Assistente.class);
 
-    private final ClaudeClient claude;
+    /** O laço de ferramentas de um pedido. Montado aqui, com as mesmas peças: não é bean. */
+    private final CicloDeFerramentas ciclo;
     private final Ferramentas ferramentas;
-    private final SistemaDoJarvis sistema;
     private final JsonMapper json;
+    /** Como o turno vai ao disco e volta dele. */
+    private final FormatoNeutro formato;
     private final RegistroConversas conversas;
     private final AnexosService anexos;
-    private final BuscaWebServidor buscaWeb;
     private final Aprovacoes aprovacoes;
     private final ClassificadorDeResposta classificador;
     private final HistoricoEmArquivo arquivo;
@@ -92,23 +80,13 @@ public class Assistente {
     private record EmAndamento(long chatId, long usuario,
             java.util.concurrent.atomic.AtomicBoolean parado) { }
 
-    /**
-     * O corte do turno. Sem pilha nem mensagem supressa: ela não é um erro, é o usuário pedindo
-     * para parar, e nunca sai desta classe.
-     */
-    private static final class PedidoInterrompido extends RuntimeException {
-        PedidoInterrompido() {
-            super(PAREI, null, false, false);
-        }
-    }
-
     /** Há pedido sendo atendido agora. */
     public boolean ocupado() {
         return emAndamento.get() != null;
     }
 
     /**
-     * Marca o pedido em andamento como interrompido: o {@code executarLoop} o encerra no próximo
+     * Marca o pedido em andamento como interrompido: o {@link CicloDeFerramentas} o encerra no próximo
      * passo, sem executar mais nenhuma ferramenta.
      *
      * <p>Devolve {@code false} quando não há nada a interromper — e é esse {@code false} que faz a
@@ -124,8 +102,11 @@ public class Assistente {
         return true;
     }
 
-    /** Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e resposta). */
-    private final Map<Long, Deque<List<ObjectNode>>> historicos = new HashMap<>();
+    /**
+     * Cada turno é a lista de mensagens de um pedido (texto do usuário, chamadas de ferramenta e
+     * resposta), no formato neutro: é o que o {@code ProvedorDeModelo} recebe e o que vai ao disco.
+     */
+    private final Map<Long, Deque<List<Mensagem>>> historicos = new HashMap<>();
     private final Map<Long, Long> usuarioPorChat = new HashMap<>();
 
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json) {
@@ -190,25 +171,39 @@ public class Assistente {
                 classificador, anotador, esquecimentos, compactador, new ResultadosTardios());
     }
 
-    @Autowired
+    /**
+     * A aridade completa com o {@code ClaudeClient}, que é como os testes montam esta classe: o
+     * cliente vira um {@code ProvedorAnthropic} e o resto segue igual.
+     */
     public Assistente(ClaudeClient claude, Ferramentas ferramentas, SistemaDoJarvis sistema, JsonMapper json,
             RegistroConversas conversas, AnexosService anexos, BuscaWebServidor buscaWeb,
             Aprovacoes aprovacoes, HistoricoEmArquivo arquivo, ClassificadorDeResposta classificador,
             AnotadorDeMemoria anotador, EsquecimentosDeMemoria esquecimentos,
             CompactadorDeHistorico compactador, ResultadosTardios tardios) {
+        this(ProvedorAnthropic.sobre(claude, json), ferramentas, sistema, json, conversas, anexos,
+                buscaWeb, aprovacoes, arquivo, classificador, anotador, esquecimentos, compactador,
+                tardios);
+    }
+
+    @Autowired
+    public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
+            JsonMapper json, RegistroConversas conversas, AnexosService anexos,
+            BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
+            ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
+            EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
+            ResultadosTardios tardios) {
         this.tardios = tardios != null ? tardios : new ResultadosTardios();
         this.compactador = compactador;
         this.esquecimentos = esquecimentos;
         this.anotador = anotador;
         this.classificador = classificador;
         this.arquivo = arquivo;
-        this.claude = claude;
+        this.ciclo = new CicloDeFerramentas(modelo, ferramentas, sistema, buscaWeb, json);
         this.ferramentas = ferramentas;
-        this.sistema = sistema;
         this.json = json;
+        this.formato = new FormatoNeutro(json);
         this.conversas = conversas;
         this.anexos = anexos;
-        this.buscaWeb = buscaWeb;
         this.aprovacoes = aprovacoes;
     }
 
@@ -226,7 +221,11 @@ public class Assistente {
         int chats = 0;
         for (HistoricoEmArquivo.Salvo salvo : arquivo.carregarTudo()) {
             if (!salvo.turnos().isEmpty()) {
-                Deque<List<ObjectNode>> historico = new ArrayDeque<>(salvo.turnos());
+                Deque<List<Mensagem>> historico = new ArrayDeque<>();
+                for (List<ObjectNode> salvoDoTurno : salvo.turnos()) {
+                    List<Mensagem> turno = deDisco(salvoDoTurno);
+                    if (!turno.isEmpty()) historico.addLast(turno);
+                }
                 while (historico.size() > MAX_TURNOS_HISTORICO) historico.removeFirst();
                 // Vale a mesma regra de sempre, e é isso que compacta o arquivo gravado por uma
                 // versão que guardava o turno inteiro: o último volta completo, os anteriores não.
@@ -238,6 +237,26 @@ public class Assistente {
             chats++;
         }
         if (chats > 0) log.info("Histórico restaurado de {} conversa(s) em {}", chats, arquivo.pasta());
+    }
+
+    /**
+     * Um turno salvo, no formato neutro ou no de antes dele. Turno ilegível sai inteiro, e só ele:
+     * meio turno no histórico deixaria uma chamada de ferramenta sem resultado, e isso a API recusa.
+     */
+    private List<Mensagem> deDisco(List<ObjectNode> salvo) {
+        List<Mensagem> turno = new ArrayList<>(salvo.size());
+        try {
+            for (ObjectNode mensagem : salvo) turno.add(formato.deJson(mensagem));
+            return turno;
+        } catch (RuntimeException e) {
+            log.warn("Turno salvo ignorado por estar ilegível: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** O turno como vai ao disco: no formato neutro, que qualquer provedor sabe ler. */
+    private List<ObjectNode> paraDisco(List<Mensagem> turno) {
+        return turno.stream().map(formato::paraJson).toList();
     }
 
     /** Espera a última gravação sair antes de o processo morrer. */
@@ -297,13 +316,13 @@ public class Assistente {
             if (progresso.usuarioAutenticado() > 0) usuarioPorChat.put(chatId, progresso.usuarioAutenticado());
             String ultimoAnexo = progresso.usuarioAutenticado() > 0
                     ? ultimoAnexoDeArquivo(conversas.historico(chatId), canal, Instant.now()) : "";
-            Deque<List<ObjectNode>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
+            Deque<List<Mensagem>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
             // O que terminou enquanto ninguém conversava — a tarefa no PC manda o aviso direto ao
             // Telegram — entra aqui, antes do pedido novo, que é a ordem em que aconteceu. Sem
             // isso o dono lia o resultado e o modelo não, e "qual o telefone da segunda?" ficava
             // sem resposta. O corte e a gravação em disco são os do fim do turno, como sempre.
             for (ResultadosTardios.Item item : tardios.drenar(chatId)) historico.addLast(turnoTardio(item));
-            List<ObjectNode> turno = new ArrayList<>();
+            List<Mensagem> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(texto));
 
             List<ResultadoFerramenta> resultados = new ArrayList<>();
@@ -350,14 +369,12 @@ public class Assistente {
             }
             if (decisaoPc.isPresent()) {
                 resposta = decisaoPc.get();
-                turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
+                turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
             } else if (ComandoDeRepouso.reconhece(texto)) {
-                ObjectNode chamada = json.createObjectNode().put("type", "tool_use")
-                        .put("id", "repouso_" + id).put("name", "controlar_pc");
-                chamada.putObject("input").put("acao", "modo_repouso");
-                ObjectNode resultado = ferramentas.executar(chamada, progresso, resultados::add);
-                resposta = Json.texto(resultado.path("content"));
-                turno.add(json.createObjectNode().put("role", "assistant").put("content", resposta));
+                Bloco.Chamada chamada = new Bloco.Chamada("repouso_" + id, "controlar_pc",
+                        json.createObjectNode().put("acao", "modo_repouso"));
+                resposta = ferramentas.executar(chamada, progresso, resultados::add).conteudo();
+                turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
             } else {
                 OuvinteProgresso comAnexo = new OuvinteProgresso() {
                     @Override public String idPedido() { return progresso.idPedido(); }
@@ -377,7 +394,7 @@ public class Assistente {
                     @Override public long revisaoMemoriaEsquecida() { return progresso.revisaoMemoriaEsquecida(); }
                 };
                 try {
-                    resposta = executarLoop(historico, turno, canal, comAnexo, resultados,
+                    resposta = ciclo.executar(historico, turno, canal, comAnexo, resultados,
                             marca.parado()::get);
                 } catch (PedidoInterrompido e) {
                     resposta = PAREI;
@@ -449,7 +466,7 @@ public class Assistente {
                 // Turno concluído, e só agora: nada do que deu erro no meio chega ao disco. A
                 // gravação em si sai numa thread virtual, fora do caminho da resposta.
                 arquivo.agendar(chatId, usuarioPorChat.getOrDefault(chatId, 0L),
-                        new ArrayList<>(historico), conversas.trocas(chatId));
+                        historico.stream().map(this::paraDisco).toList(), conversas.trocas(chatId));
                 // O anotador recebe o texto do usuário, nunca a resposta nem saída de ferramenta.
                 if (anotador != null) {
                     anotador.registrarTurno(chatId, progresso.usuarioAutenticado(), canal.nome(), texto);
@@ -464,12 +481,12 @@ public class Assistente {
      * do servidor, montada em Java, para o modelo não tomá-la por pedido; a do assistente é
      * exatamente o que o dono recebeu, porque foi o Jarvis quem disse aquilo.
      */
-    private List<ObjectNode> turnoTardio(ResultadosTardios.Item item) {
+    private List<Mensagem> turnoTardio(ResultadosTardios.Item item) {
         String origem = item.origem().isBlank() ? "uma tarefa em segundo plano" : item.origem();
-        List<ObjectNode> turno = new ArrayList<>();
+        List<Mensagem> turno = new ArrayList<>();
         turno.add(mensagemDoUsuario("(nota do servidor, não é um pedido novo: " + origem
                 + " terminou fora da conversa e o usuário recebeu a mensagem a seguir.)"));
-        turno.add(json.createObjectNode().put("role", "assistant").put("content", item.texto()));
+        turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, item.texto()));
         return turno;
     }
 
@@ -530,9 +547,9 @@ public class Assistente {
                 new java.util.concurrent.atomic.AtomicBoolean());
         emAndamento.set(marca);
         try {
-            List<ObjectNode> turno = new ArrayList<>();
+            List<Mensagem> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(instrucao));
-            return executarLoop(new ArrayDeque<>(), turno, canal, contexto, new ArrayList<>(),
+            return ciclo.executar(new ArrayDeque<>(), turno, canal, contexto, new ArrayList<>(),
                     marca.parado()::get);
         } catch (PedidoInterrompido e) {
             return PAREI;
@@ -546,269 +563,6 @@ public class Assistente {
             conversas.limpar(chatId);
             arquivo.apagar(chatId);
         } finally { execucao.unlock(); }
-    }
-
-    private String executarLoop(Deque<List<ObjectNode>> historico, List<ObjectNode> turno, Canal canal,
-            OuvinteProgresso progresso, List<ResultadoFerramenta> detalhados,
-            java.util.function.BooleanSupplier parado)
-            throws Exception {
-        // Montado UMA vez por pedido, de propósito. O bloco dinâmico tem a hora: remontá-lo a cada
-        // ida e vinda de ferramenta mudaria o system no meio do turno, e o modelo rejeita (HTTP 400)
-        // os blocos de pensamento que ele devolveu sob o system anterior. É aqui, então, que o
-        // resumo da memória é decidido: com o usuário do pedido e a mensagem dele, uma vez só.
-        ArrayNode system = sistema.blocos(canal, progresso.usuarioAutenticado(),
-                Json.texto(turno.getFirst().path("content")));
-        // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
-        // do cache de prompt. A da busca na web é server-side — quem executa é a Anthropic.
-        ArrayNode definicoes = ferramentas.definicoes(canal, !progresso.idTarefaPlanilha().isBlank());
-        definicoes.addObject().put("type", "tool_search_tool_bm25_20251119")
-                .put("name", "tool_search_tool_bm25");
-        if (buscaWeb.ativa()) {
-            definicoes.add(buscaWeb.definicao());
-        }
-        // O esforço, pelo mesmo motivo do system e das definições: decidido uma vez, antes do laço.
-        // Um nível que mudasse entre passos invalidaria o prefixo que o cache automático da
-        // conversa acabou de escrever. A tarefa agendada gasta na mesma Origem.CONVERSA e pensa com
-        // o ESFORCO_TAREFA — é o canal que separa as duas, e só aqui ele é conhecido.
-        PerfilDeEsforco esforco = canal == Canal.TAREFA
-                ? PerfilDeEsforco.TAREFA : PerfilDeEsforco.CONVERSA;
-        int buscas = 0;
-        java.util.concurrent.atomic.AtomicInteger restante = new java.util.concurrent.atomic.AtomicInteger(4_000);
-        java.util.concurrent.atomic.AtomicBoolean esqueceu = new java.util.concurrent.atomic.AtomicBoolean();
-        Map<String, String> evidencias = new HashMap<>();
-        String ultimoErroDeArquivo = "";
-        String ultimaFalhaDeArquivo = "";
-        String falhaEdicao = "";
-        // A conta das repetições vale pelo turno inteiro, não por passo: o modelo repete a mesma
-        // consulta de uma ida e vinda para a outra, que é justamente onde o teto de passos não
-        // ajuda — ele só percebe depois de oito chamadas pagas ao Claude.
-        Map<String, Integer> chamadasPorAssinatura = new HashMap<>();
-        int bloqueios = 0;
-        String ultimoResultadoUtil = "";
-
-        for (int passo = 0; passo < MAX_PASSOS; passo++) {
-            // A conferência de cada passo: o usuário pediu para parar, e o passo que vem custaria
-            // mais uma chamada paga ao modelo para um turno que não vai ser usado.
-            if (parado.getAsBoolean()) throw new PedidoInterrompido();
-            ArrayNode mensagens = json.createArrayNode();
-            int caracteresDoHistorico = 0;
-            for (List<ObjectNode> turnoAnterior : historico) {
-                for (ObjectNode m : turnoAnterior) {
-                    mensagens.add(m);
-                    if (passo == 0) caracteresDoHistorico += m.toString().length();
-                }
-            }
-            for (ObjectNode m : turno) {
-                mensagens.add(m);
-            }
-            // Uma vez por pedido, e só com histórico: é o número que se compara antes e depois da
-            // compactação. O par dele é o "Claude: entrada=..." do ClaudeClient, que é em tokens —
-            // um diz o que foi montado aqui, o outro o que a API cobrou.
-            if (passo == 0 && !historico.isEmpty()) {
-                log.info("Histórico enviado: {} turno(s), {} caracteres",
-                        historico.size(), caracteresDoHistorico);
-            }
-
-            // A Origem.CONVERSA é o que liga o cache automático no ClaudeClient: o prefixo deste
-            // passo é o do passo anterior mais o que a ferramenta devolveu, então do segundo passo
-            // em diante tudo que já foi enviado volta como leitura de cache em vez de entrada
-            // cheia. São até oito passos por pedido, e MAX_PASSOS tem de caber na janela de
-            // lookback de 20 posições da API (cada passo acrescenta duas: tool_use e tool_result).
-            JsonNode resposta = claude.criarMensagem(Origem.CONVERSA, esforco, system, mensagens,
-                    definicoes);
-            buscas += (int) Json.numero(resposta.path("usage").path("server_tool_use")
-                    .path("web_search_requests"));
-            JsonNode conteudo = resposta.path("content");
-
-            ObjectNode doAssistente = json.createObjectNode();
-            doAssistente.put("role", "assistant");
-            if (conteudo.isEmpty()) {
-                // A API não aceita mensagem vazia no histórico.
-                doAssistente.put("content", "(sem resposta)");
-            } else {
-                doAssistente.set("content", conteudo);
-            }
-            turno.add(doAssistente);
-
-            String motivo = Json.texto(resposta.path("stop_reason"));
-            // A API pausa turno longo de busca. Continuar é reenviar a mensagem do assistente
-            // inalterada — ela já foi anexada crua ao turno logo acima.
-            if ("pause_turn".equals(motivo)) {
-                continue;
-            }
-            if (!"tool_use".equals(motivo)) {
-                registrarBuscas(buscas);
-                return extrairTexto(conteudo);
-            }
-
-            // O modelo pediu uma ou mais ferramentas: executamos e devolvemos os resultados.
-            ArrayNode resultados = json.createArrayNode();
-            String erroRepetidoDeArquivo = "";
-            boolean substitutoRecusado = false;
-            boolean pesquisaFeita = buscas > 0;
-            for (int i = 0; i < conteudo.size(); i++) {
-                JsonNode bloco = conteudo.get(i);
-                if ("tool_use".equals(Json.texto(bloco.path("type")))) {
-                    String nomeFerramenta = Json.texto(bloco.path("name"));
-                    if (!progresso.idTarefaPlanilha().isBlank() && !List.of("listar_arquivos",
-                            "ler_arquivo", "editar_arquivo", "verificar_site", "clima")
-                            .contains(nomeFerramenta)) {
-                        resultados.add(json.createObjectNode().put("type", "tool_result")
-                                .put("tool_use_id", Json.texto(bloco.path("id")))
-                                .put("content", "Ferramenta indisponível nesta tarefa de planilha.")
-                                .put("is_error", true));
-                        continue;
-                    }
-                    if ("criar_arquivo".equals(nomeFerramenta) && !falhaEdicao.isBlank()) {
-                        resultados.add(json.createObjectNode().put("type", "tool_result")
-                                .put("tool_use_id", Json.texto(bloco.path("id")))
-                                .put("content", "Não criei outro arquivo: o pedido de editar o original falhou.")
-                                .put("is_error", true));
-                        substitutoRecusado = true;
-                        continue;
-                    }
-                    // Depois dos dois gates acima de propósito: quando os dois se aplicam, a
-                    // recusa específica diz ao modelo o que ele precisa saber, e esta só diria
-                    // "você repetiu".
-                    String assinatura = assinatura(nomeFerramenta, bloco.path("input"));
-                    int limite = limiteDeRepeticao(nomeFerramenta);
-                    if (chamadasPorAssinatura.merge(assinatura, 1, Integer::sum) >= limite) {
-                        resultados.add(json.createObjectNode().put("type", "tool_result")
-                                .put("tool_use_id", Json.texto(bloco.path("id")))
-                                .put("content", "Você já chamou " + nomeFerramenta
-                                        + " com esta mesma entrada " + vezes(limite - 1)
-                                        + " vezes neste pedido. Use o resultado que já tem ou"
-                                        + " mude a abordagem.")
-                                .put("is_error", true));
-                        bloqueios++;
-                        continue;
-                    }
-                    // Ler memória não trava mais o resto do turno: "qual minha cidade? cria um
-                    // lembrete pra lá" é um pedido só. O que segura a memória no lugar de dado é
-                    // outro: a regra "memória lida é dado não confiável" no system, e o fato de
-                    // toda ação perigosa continuar passando por Aprovacoes — que é consumido aqui,
-                    // fora do alcance do modelo.
-                    OuvinteProgresso seguro = new OuvinteProgresso() {
-                        // O canal vem daqui porque a ferramenta não recebe o Canal: é por ele que
-                        // o card da tela sabe se o pedido veio do celular ou da própria HUD.
-                        @Override public String canal() { return canal.nome(); }
-                        @Override public String idPedido() { return progresso.idPedido(); }
-                        @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
-                        @Override public String pedidoOriginal() { return Json.texto(turno.getFirst().path("content")); }
-                        @Override public String idTarefaPlanilha() { return progresso.idTarefaPlanilha(); }
-                        @Override public String ultimoAnexoDeArquivo() { return progresso.ultimoAnexoDeArquivo(); }
-                        @Override public boolean memoriaEsquecida() { return esqueceu.get(); }
-                        @Override public void marcarMemoriaEsquecida() { esqueceu.set(true); progresso.marcarMemoriaEsquecida(); }
-                        @Override public void marcarMemoriaEsquecida(String id, long revisao) {
-                            esqueceu.set(true); progresso.marcarMemoriaEsquecida(id, revisao);
-                        }
-                        @Override public boolean consumirContexto(int caracteres) {
-                            if (caracteres < 0) return false;
-                            while (true) {
-                                int atual = restante.get();
-                                if (atual < caracteres) return false;
-                                if (restante.compareAndSet(atual, atual - caracteres)) return true;
-                            }
-                        }
-                        @Override public boolean evidenciaVerificada(String texto) {
-                            return !origemDaEvidencia(texto).isEmpty();
-                        }
-                        @Override public String origemDaEvidencia(String texto) {
-                            return evidencias.entrySet().stream().filter(e -> e.getKey().contains(texto))
-                                    .map(e -> "ferramenta:" + e.getValue()).findFirst().orElse("");
-                        }
-                        @Override public boolean pesquisaFeita() { return pesquisaFeita; }
-                        @Override public void ferramenta(String nome, String descricao, Integer atual, Integer total) {
-                            OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
-                        }
-                    };
-                    // A parada vale também dentro do passo que já voltou com tool_use: o que o
-                    // usuário mandou parar é a ferramenta, não a chamada ao modelo.
-                    if (parado.getAsBoolean()) throw new PedidoInterrompido();
-                    int anteriores = detalhados.size();
-                    ObjectNode resultado = ferramentas.executar(bloco, seguro, detalhados::add);
-                    // A Ferramentas limita apenas o texto que volta ao modelo. As decisões deste
-                    // laço continuam usando o resultado integral recebido pelo callback.
-                    String textoIntegral = detalhados.size() > anteriores
-                            ? detalhados.getLast().texto() : Json.texto(resultado.path("content"));
-                    if ("editar_arquivo".equals(nomeFerramenta)) {
-                        boolean preparada = detalhados.size() > anteriores
-                                && (detalhados.getLast().confirmacao() != null
-                                        || !detalhados.getLast().artefatos().isEmpty());
-                        falhaEdicao = preparada ? "" : textoIntegral;
-                    }
-                    if (List.of("verificar_site", "status_servidor", "clima").contains(Json.texto(bloco.path("name")))
-                            && !resultado.path("is_error").asBoolean(false))
-                        evidencias.put(textoIntegral, nomeFerramenta);
-                    resultados.add(resultado);
-                    // O que vai na frase de desistência, se o modelo insistir na repetição.
-                    // "Útil" aqui é "executou e não estourou": falha de negócio volta sem
-                    // is_error, que a Ferramentas só marca em exceção ou ferramenta desconhecida.
-                    if (!resultado.path("is_error").asBoolean(false)) {
-                        String util = textoIntegral;
-                        if (!util.isBlank()) ultimoResultadoUtil = util;
-                    }
-                    if ("criar_arquivo".equals(nomeFerramenta)
-                            || "criar_planilha_google".equals(nomeFerramenta)) {
-                        String textoResultado = textoIntegral;
-                        ultimoErroDeArquivo = textoResultado.startsWith("Arquivo criado:")
-                                || textoResultado.startsWith("Planilha criada:") ? ""
-                                : textoResultado.substring(0, Math.min(240, textoResultado.length()));
-                        if (!ultimoErroDeArquivo.isBlank()) {
-                            // A mesma assinatura do portão acima, mais o erro: aqui basta a
-                            // segunda tentativa, e o motivo real vale mais que "você repetiu".
-                            String chave = assinatura + '\u0000' + ultimoErroDeArquivo;
-                            if (chave.equals(ultimaFalhaDeArquivo)) erroRepetidoDeArquivo = ultimoErroDeArquivo;
-                            ultimaFalhaDeArquivo = chave;
-                        } else ultimaFalhaDeArquivo = "";
-                    }
-                }
-            }
-            // Busca de ferramentas e busca web já vêm resolvidas pelo servidor da Anthropic e não
-            // passam pelo registro de ferramentas. Se o turno só tinha desses blocos, não
-            // há resultado para devolver — e mensagem de content vazio a API recusa.
-            if (resultados.isEmpty()) {
-                registrarBuscas(buscas);
-                return extrairTexto(conteudo);
-            }
-            ObjectNode comResultados = json.createObjectNode();
-            comResultados.put("role", "user");
-            comResultados.set("content", resultados);
-            turno.add(comResultados);
-            if (esqueceu.get()) return "Memória esquecida.";
-            if (substitutoRecusado) return "Não alterei o arquivo original e não criei um substituto. "
-                    + falhaEdicao.substring(0, Math.min(240, falhaEdicao.length()));
-            // Repetir a mesma entrada recusada desperdiça chamadas do modelo e acabava no erro
-            // genérico da HUD. O turno já tem o tool_result, então o histórico continua válido.
-            if (!erroRepetidoDeArquivo.isBlank()) return erroRepetidoDeArquivo;
-            // Por último: as saídas acima sabem dizer o que deu errado, e esta só sabe que o
-            // modelo estava andando em círculo. O turno já tem os tool_result das recusas, então
-            // o histórico continua válido.
-            if (bloqueios >= BLOQUEIOS_PARA_PARAR) {
-                log.warn("Turno encerrado: {} chamada(s) repetida(s) recusada(s)", bloqueios);
-                return ("Parei porque estava repetindo a mesma consulta sem avançar. "
-                        + ultimoResultadoUtil.substring(0,
-                                Math.min(240, ultimoResultadoUtil.length()))).trim();
-            }
-        }
-        registrarBuscas(buscas);
-        throw new IllegalStateException("precisei de passos demais para resolver isso. "
-                + (ultimoErroDeArquivo.isBlank() ? "Tente um pedido mais simples." : ultimoErroDeArquivo));
-    }
-
-    /**
-     * Quantas buscas na web o pedido gastou. Cada uma é cobrada à parte dos tokens, então bater no
-     * teto merece aviso: é o sinal de pedido caro, ou de pergunta que não precisava de busca.
-     */
-    private void registrarBuscas(int buscas) {
-        if (buscas <= 0) {
-            return;
-        }
-        if (buscaWeb.maxUsos() > 0 && buscas >= buscaWeb.maxUsos()) {
-            log.warn("Busca na web: {} buscas neste pedido, o teto (BUSCA_WEB_MAX_USOS)", buscas);
-        } else {
-            log.info("Busca na web: {} busca(s) neste pedido", buscas);
-        }
     }
 
     /**
@@ -828,79 +582,27 @@ public class Assistente {
      * {@code server_tool_use} sem resultado é HTTP 400. A busca de ferramentas também preserva
      * seu resultado e as referências às definições encontradas até o turno ser compactado.
      */
-    private List<ObjectNode> semPensamentos(List<ObjectNode> turno) {
-        List<ObjectNode> limpo = new ArrayList<>(turno.size());
-        for (ObjectNode mensagem : turno) {
-            JsonNode conteudo = mensagem.path("content");
-            if (!conteudo.isArray()) {
+    private List<Mensagem> semPensamentos(List<Mensagem> turno) {
+        List<Mensagem> limpo = new ArrayList<>(turno.size());
+        for (Mensagem mensagem : turno) {
+            // Só o que vale dentro do turno sai — o pensamento. Busca web e busca de ferramentas,
+            // inclusive resultados e referências, ficam intactas enquanto este turno estiver completo.
+            List<Bloco> mantidos = mensagem.blocos().stream()
+                    .filter(bloco -> !(bloco instanceof Bloco.Opaco opaco && opaco.soNoTurno()))
+                    .toList();
+            if (mantidos.size() == mensagem.blocos().size()) {
                 limpo.add(mensagem);
-                continue;
-            }
-            ArrayNode mantidos = json.createArrayNode();
-            for (int i = 0; i < conteudo.size(); i++) {
-                JsonNode bloco = conteudo.get(i);
-                String tipo = Json.texto(bloco.path("type"));
-                // Só o pensamento sai. Busca web e busca de ferramentas, inclusive resultados e
-                // referências, ficam intactas enquanto este turno estiver completo.
-                if (!"thinking".equals(tipo) && !"redacted_thinking".equals(tipo)) {
-                    mantidos.add(bloco);
-                }
-            }
-            ObjectNode copia = mensagem.deepCopy();
-            // Mensagem sem conteúdo nenhum a API recusa; sobra o texto de marcação.
-            if (mantidos.isEmpty()) {
-                copia.put("content", "(sem resposta)");
+            } else if (mantidos.isEmpty()) {
+                // Mensagem sem conteúdo nenhum a API recusa; sobra o texto de marcação.
+                limpo.add(Mensagem.texto(mensagem.papel(), "(sem resposta)"));
             } else {
-                copia.set("content", mantidos);
+                limpo.add(new Mensagem(mensagem.papel(), mantidos));
             }
-            limpo.add(copia);
         }
         return limpo;
     }
 
-    /** Quantas chamadas idênticas a ferramenta aguenta antes de a próxima ser recusada. */
-    private static int limiteDeRepeticao(String nome) {
-        return nome.startsWith("status_") || REPETIVEIS.contains(nome)
-                ? LIMITE_REPETICAO_FOLGADO : LIMITE_REPETICAO;
+    private static Mensagem mensagemDoUsuario(String texto) {
+        return Mensagem.texto(Mensagem.Papel.USUARIO, texto);
     }
-
-    /** A mesma chamada é o mesmo nome com a mesma entrada, seja qual for a ordem das chaves. */
-    private static String assinatura(String nome, JsonNode entrada) {
-        return nome + '\u0000' + Json.canonico(entrada);
-    }
-
-    /**
-     * O número da recusa por extenso. O texto da recusa é fixo, mas a contagem acompanha o limite
-     * da ferramenta: dizer "duas vezes" na quinta chamada de um {@code status_} seria o servidor
-     * contando errado para o modelo.
-     */
-    private static String vezes(int quantas) {
-        return switch (quantas) {
-            case 2 -> "duas";
-            case 4 -> "quatro";
-            default -> String.valueOf(quantas);
-        };
-    }
-
-    private ObjectNode mensagemDoUsuario(String texto) {
-        ObjectNode m = json.createObjectNode();
-        m.put("role", "user");
-        m.put("content", texto);
-        return m;
-    }
-
-    private String extrairTexto(JsonNode conteudo) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < conteudo.size(); i++) {
-            JsonNode bloco = conteudo.get(i);
-            if ("text".equals(Json.texto(bloco.path("type")))) {
-                if (!sb.isEmpty()) {
-                    sb.append("\n\n");
-                }
-                sb.append(Json.texto(bloco.path("text")));
-            }
-        }
-        return sb.isEmpty() ? "(sem resposta)" : sb.toString().trim();
-    }
-
 }

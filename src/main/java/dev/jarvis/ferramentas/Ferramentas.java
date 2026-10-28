@@ -19,6 +19,9 @@ import dev.jarvis.tela.ComandoTela;
 import dev.jarvis.tela.TelaEvento;
 import dev.jarvis.util.Json;
 import dev.jarvis.ia.Canal;
+import dev.jarvis.ia.provedor.Bloco;
+import dev.jarvis.ia.provedor.ConversorAnthropic;
+import dev.jarvis.ia.provedor.DefinicaoDeFerramenta;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.custo.MedidorDeCusto;
 import tools.jackson.databind.JsonNode;
@@ -46,6 +49,8 @@ public class Ferramentas {
      */
     private final Map<String, Ferramenta> porNome = new TreeMap<>();
     private final JsonMapper json;
+    /** A forma da API para quem ainda pede JSON: os testes e a impressão digital das definições. */
+    private final ConversorAnthropic conversor;
     private final ApplicationEventPublisher eventos;
     private final MedidorDeCusto medidor;
     private final LeiturasVisiveis leiturasVisiveis;
@@ -85,6 +90,7 @@ public class Ferramentas {
             ApplicationEventPublisher eventos, JarvisProperties props, MedidorDeCusto medidor,
             LeiturasVisiveis leiturasVisiveis) {
         this.json = json;
+        this.conversor = new ConversorAnthropic(json);
         this.eventos = eventos;
         this.medidor = medidor;
         this.leiturasVisiveis = leiturasVisiveis;
@@ -114,20 +120,31 @@ public class Ferramentas {
 
     public ArrayNode definicoes(Canal canal, boolean tarefaPlanilha) {
         ArrayNode lista = json.createArrayNode();
+        for (DefinicaoDeFerramenta definicao : definicoesNeutras(canal, tarefaPlanilha)) {
+            lista.add(conversor.definicao(definicao));
+        }
+        return lista;
+    }
+
+    /**
+     * As mesmas definições no formato neutro, que é o que o laço de ferramentas entrega ao
+     * {@code ProvedorDeModelo}. É aqui que o aviso de estabilidade roda, então ele vale para os dois
+     * caminhos — e a impressão digital continua sendo a da forma que a API recebe.
+     */
+    public List<DefinicaoDeFerramenta> definicoesNeutras(Canal canal, boolean tarefaPlanilha) {
+        List<DefinicaoDeFerramenta> lista = new ArrayList<>();
         Map<String, String> digitais = new LinkedHashMap<>();
         for (Ferramenta f : porNome.values()) {
             if (canal == Canal.TELEGRAM && "ouvir_resposta".equals(f.nome())) continue;
             if (tarefaPlanilha && !List.of("listar_arquivos", "ler_arquivo", "editar_arquivo",
                     "verificar_site", "clima").contains(f.nome())) continue;
-            ObjectNode def = lista.addObject();
-            def.put("name", f.nome());
-            def.put("description", f.descricao());
-            def.set("input_schema", f.esquemaEntrada());
-            if (!sempreCarregadas.contains(f.nome()) && !EXTRAS_SEMPRE_CARREGADAS.contains(f.nome())
-                    && !((canal == null || canal == Canal.HUD) && "ouvir_resposta".equals(f.nome()))) {
-                def.put("defer_loading", true);
-            }
-            digitais.put(f.nome(), Json.canonico(def));
+            boolean sobDemanda = !sempreCarregadas.contains(f.nome())
+                    && !EXTRAS_SEMPRE_CARREGADAS.contains(f.nome())
+                    && !((canal == null || canal == Canal.HUD) && "ouvir_resposta".equals(f.nome()));
+            DefinicaoDeFerramenta definicao = new DefinicaoDeFerramenta(f.nome(), f.descricao(),
+                    f.esquemaEntrada(), sobDemanda);
+            lista.add(definicao);
+            digitais.put(f.nome(), Json.canonico(conversor.definicao(definicao)));
         }
         conferirEstabilidade(canal, tarefaPlanilha, digitais);
         return lista;
@@ -185,19 +202,27 @@ public class Ferramentas {
 
     public ObjectNode executar(JsonNode blocoToolUse, dev.jarvis.conversa.OuvinteProgresso progresso,
             java.util.function.Consumer<ResultadoFerramenta> receber) {
-        String nome = Json.texto(blocoToolUse.path("name"));
-        JsonNode entrada = blocoToolUse.path("input");
+        Bloco.Chamada chamada = new Bloco.Chamada(Json.texto(blocoToolUse.path("id")),
+                Json.texto(blocoToolUse.path("name")), blocoToolUse.path("input"));
+        return (ObjectNode) conversor.bloco(executar(chamada, progresso, receber));
+    }
 
-        ObjectNode resultado = json.createObjectNode();
-        resultado.put("type", "tool_result");
-        resultado.put("tool_use_id", Json.texto(blocoToolUse.path("id")));
+    /**
+     * Executa a chamada que o modelo fez e devolve o resultado para ele, no formato neutro.
+     *
+     * <p>O resultado integral vai ao {@code receber}; o que volta daqui é só o texto limitado por
+     * {@code RESULTADO_MAX_CARACTERES}. Falha vira resultado com {@code erro}, nunca exceção: um
+     * pedido não cai porque uma ferramenta caiu.
+     */
+    public Bloco.Resultado executar(Bloco.Chamada chamada, dev.jarvis.conversa.OuvinteProgresso progresso,
+            java.util.function.Consumer<ResultadoFerramenta> receber) {
+        String nome = chamada.nome();
+        JsonNode entrada = chamada.entrada();
 
         Ferramenta ferramenta = porNome.get(nome);
         if (ferramenta == null) {
-            resultado.put("content", LimiteDeResultado.paraModelo(
-                    "Ferramenta desconhecida: " + nome, resultadoMaxCaracteres, json));
-            resultado.put("is_error", true);
-            return resultado;
+            return new Bloco.Resultado(chamada.id(), LimiteDeResultado.paraModelo(
+                    "Ferramenta desconhecida: " + nome, resultadoMaxCaracteres, json), true);
         }
 
         log.info("Executando ferramenta {}", nome);
@@ -227,7 +252,7 @@ public class Ferramentas {
                 }
                 @Override public String canal() { return progresso.canal(); }
                 @Override public boolean pesquisaFeita() { return progresso.pesquisaFeita(); }
-                @Override public String idFerramenta() { return Json.texto(blocoToolUse.path("id")); }
+                @Override public String idFerramenta() { return chamada.id(); }
                 @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
                     progresso.ferramenta(nome, descricao, passo, total);
                 }
@@ -241,16 +266,15 @@ public class Ferramentas {
             String textoParaModelo = LimiteDeResultado.paraModelo(
                     saida == null || saida.isBlank() ? "(sem resultado)" : saida,
                     resultadoMaxCaracteres, json);
-            resultado.put("content", textoParaModelo);
             if (leiturasVisiveis != null && "ler_arquivo".equals(nome))
                 leiturasVisiveis.registrar(progresso.usuarioAutenticado(), textoParaModelo, json);
+            return new Bloco.Resultado(chamada.id(), textoParaModelo, false);
         } catch (Exception e) {
             log.warn("Ferramenta {} falhou: {}", nome, e.getMessage());
-            resultado.put("content", LimiteDeResultado.paraModelo(
-                    "Erro ao executar " + nome + ": " + e.getMessage(), resultadoMaxCaracteres, json));
-            resultado.put("is_error", true);
+            return new Bloco.Resultado(chamada.id(), LimiteDeResultado.paraModelo(
+                    "Erro ao executar " + nome + ": " + e.getMessage(), resultadoMaxCaracteres, json),
+                    true);
         }
-        return resultado;
     }
 
     /** Uma HUD que caiu não pode derrubar o pedido, por isso cada aviso vai dentro do avisar(). */

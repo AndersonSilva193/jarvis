@@ -47,7 +47,8 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | Pacote | Responsabilidade |
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (leitura + filtro de usuário numa thread, fila e um trabalhador na outra) |
-| `dev.jarvis.ia` | `Assistente` (loop de agente e histórico), `ClaudeClient`, `CompactadorDeHistorico` (encolhe o turno que saiu da janela de turnos completos), `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
+| `dev.jarvis.ia` | `Assistente` (histórico, aprovações e anexos), `CicloDeFerramentas` (o laço de ferramentas de um pedido), `ClaudeClient`, `CompactadorDeHistorico` (encolhe o turno que saiu da janela de turnos completos), `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
+| `dev.jarvis.ia.provedor` | `ProvedorDeModelo` (como conversar com um modelo, sem dizer qual), o formato neutro (`PedidoAoModelo`, `Mensagem`, `Bloco`, `RespostaDoModelo`, `OpcoesDoPedido`, `InstrucoesDeSistema`, `ListaDeFerramentas`), `ProvedorAnthropic`/`ConversorAnthropic` e `FormatoNeutro` (o histórico em disco) |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
@@ -71,7 +72,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 
 ### A mesma ferramenta, a mesma entrada, de novo
 
-O `executarLoop` conta as chamadas por **assinatura** — nome da ferramenta mais `Json.canonico` da
+O `CicloDeFerramentas` conta as chamadas por **assinatura** — nome da ferramenta mais `Json.canonico` da
 entrada, porque o `JsonMapper` é cru e `{"a":1,"b":2}` e `{"b":2,"a":1}` são o mesmo pedido. A
 **terceira** idêntica no mesmo turno é recusada sem executar, com `tool_result` de `is_error`
 dizendo ao modelo que use o resultado que já tem. São **cinco** para as `status_*` e para
@@ -117,6 +118,45 @@ não uma mudança. A primeira montagem de cada chave só registra. Dentro de uma
 nomes é fixo** (os dois filtros dependem só de canal e `tarefaPlanilha`, e os dois estão na chave),
 então hoje só o ramo `alterada(s)` pode disparar; o de `+nome`/`-nome` existe para o dia em que
 algum filtro passar a depender de estado, que é exatamente o bug que este aviso caça.
+
+## O provedor de modelo
+
+**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são cinco:
+`CicloDeFerramentas`, `NarradorDeBriefing`, `InicializacaoService`, `ClassificadorDeResposta` e
+`AnotadorDeMemoria`. O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
+quem traduz é o `ProvedorAnthropic`. Ele é **só tradução**: repetição, cache da conversa, TTL,
+esforço e custo continuam no `ClaudeClient`, que não mudou. O computer use segue com os provedores
+próprios dele.
+
+Um `Bloco` é `Texto`, `Chamada`, `Resultado` ou `Opaco`. Os três primeiros são o contrato de todo
+modelo com ferramentas. O resto (busca na web, pensamento assinado, busca de ferramentas) vai num
+`Opaco` marcado com o provedor, que nenhum outro recebe. Três decisões mantêm o corpo enviado
+**byte a byte igual** ao de antes, que é o que o cache de prompt cobra:
+
+- **Bloco que veio da API volta cru.** `Texto` e `Chamada` guardam o `original`, então
+  `citations` e campo novo de `tool_use` atravessam. Texto nascido em Java não tem original, e
+  mensagem de um texto só sem original sai com `content` em **string**.
+- **O mesmo objeto neutro vira o mesmo `ArrayNode`.** `InstrucoesDeSistema` e
+  `ListaDeFerramentas` guardam a forma que cada provedor fez delas. O system é lido do
+  `SistemaDoJarvis.blocos(...)` por `SistemaDoJarvis.instrucoes(...)`, e a Anthropic recebe de
+  volta o próprio objeto que saiu de lá.
+- **`Opaco.soNoTurno`** marca o pensamento. O `semPensamentos` tira "o que vale só no turno" sem
+  conhecer tipo de bloco, e o compactador lê a busca na web pela `consultaWeb`.
+
+A sobrecarga do `ClaudeClient` é escolhida pelas `OpcoesDoPedido`, uma por tipo de chamada:
+`curta(origem, teto, prazo)` → a de tentativa única; `de(origem, perfil)` → a de perfil explícito
+(o laço); `de(origem)` → a que deriva o perfil da origem.
+
+**O histórico está no formato neutro**, na memória e no disco
+(`{"papel":"usuario","blocos":[{"tipo":"texto",...}]}`). O `HistoricoEmArquivo` não conhece
+formato. O `FormatoNeutro` lê também o `role`/`content` gravado antes, e o arquivo antigo é
+regravado neutro no fim do turno seguinte. O `semImagens` percorre o JSON inteiro, em vez de uma
+lista de chaves, para valer nas duas formas.
+
+Os construtores que recebem `ClaudeClient` continuam e embrulham num `ProvedorAnthropic.sobre(...)`,
+que devolve `null` sem cliente (o "sem modelo" do `ClassificadorDeResposta.semModelo()`). O
+`@Autowired` mora no construtor que recebe `ProvedorDeModelo`. Provedor novo implementa a
+interface e precisa de um `@Primary`, ou de quem escolha entre os dois.
 
 ## Personalidade e canais
 
@@ -991,7 +1031,7 @@ tempo um turno vale, não quantos entram no prompt.
 ### O turno antigo encolhe
 
 Guardar dez turnos **inteiros** por 72 h era o que mais pesava na entrada. O array `messages` é
-remontado do zero a cada passo do `executarLoop`, então um `listar_arquivos` que devolveu o JSON do
+remontado do zero a cada passo do `CicloDeFerramentas`, então um `listar_arquivos` que devolveu o JSON do
 agente, ou uma busca com `encrypted_content`, voltava em todos os pedidos seguintes por três dias.
 
 O `CompactadorDeHistorico` troca o turno velho por **duas** mensagens — o pedido e a resposta final,
@@ -1204,7 +1244,7 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   Uma frase curta de parada — `PedidoDeParada`: até 3 palavras, uma raiz (`para`, `pare`, `parar`,
   `cancela`, `cancelar`, `espera`, `espere`, `deixa`) e nada além de enfeite conhecido — **não entra
   na fila**: ela marca o pedido em andamento (`Assistente.interromperPedidoAtual`) e cancela a
-  tarefa de computer use do mesmo usuário, que roda fora do lock. O `executarLoop` confere a marca
+  tarefa de computer use do mesmo usuário, que roda fora do lock. O `CicloDeFerramentas` confere a marca
   no começo de cada passo e antes de cada ferramenta, e encerra o turno com "Parei, senhor." sem
   executar mais nada; como no turno com erro, esse turno **não** entra no histórico, não vai ao
   disco e não chega ao anotador. Sem nada em andamento, `interromperPedidoAtual` devolve `false` e a

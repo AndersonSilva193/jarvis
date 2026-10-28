@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,10 @@ import tools.jackson.databind.node.ObjectNode;
  * do {@code Assistente}, já sem blocos de pensamento) e as trocas públicas que a HUD mostra. São
  * dois recortes do mesmo diálogo e saem do disco juntos; separá-los em dois arquivos abriria a
  * janela de o modelo lembrar de um turno que a tela já esqueceu.
+ *
+ * Esta classe não conhece o formato das mensagens: grava e lê o JSON que recebe. Quem escolhe é o
+ * {@code Assistente}, que manda o formato neutro do {@code FormatoNeutro} e lê de volta tanto ele
+ * quanto o {@code role}/{@code content} gravado por versões anteriores.
  *
  * <b>O que nunca entra:</b> bloco de pensamento (já vem fora) e imagem em base64 — uma captura de
  * tela são centenas de kilobytes que o modelo não vai reler e que ficariam parados num volume. No
@@ -261,45 +266,50 @@ public class HistoricoEmArquivo {
 
     /**
      * Troca toda imagem por {@code [imagem omitida]}: o bloco {@code image} inteiro, inclusive o
-     * aninhado dentro de um {@code tool_result}, e o data URI escrito no meio de um texto.
+     * aninhado dentro de um resultado de ferramenta, e o data URI escrito no meio de um texto.
+     *
+     * <p>Percorre a mensagem inteira, sem procurar chave nenhuma: o turno chega no formato neutro
+     * ({@code blocos}, {@code texto}, o {@code bruto} de um opaco) e o arquivo antigo, no da
+     * Anthropic ({@code content}, {@code text}). Uma lista de chaves esquecida aqui seria imagem
+     * parada num volume.
      */
     private ObjectNode semImagens(ObjectNode mensagem) {
-        ObjectNode copia = mensagem.deepCopy();
-        JsonNode conteudo = copia.path("content");
-        if (conteudo.isString()) {
-            copia.put("content", DATA_URI.matcher(conteudo.stringValue()).replaceAll(IMAGEM_OMITIDA));
-        } else if (conteudo.isArray()) {
-            copia.set("content", limparBlocos((ArrayNode) conteudo));
-        }
-        return copia;
+        return (ObjectNode) limpar(mensagem);
     }
 
-    private ArrayNode limparBlocos(ArrayNode blocos) {
-        ArrayNode limpos = json.createArrayNode();
-        for (JsonNode bloco : blocos) {
-            String tipo = Json.texto(bloco.path("type"));
+    private JsonNode limpar(JsonNode no) {
+        if (no.isObject()) {
+            String tipo = Json.texto(no.path("type"));
             if ("image".equals(tipo) || "input_image".equals(tipo)) {
-                limpos.add(json.createObjectNode().put("type", "text").put("text", IMAGEM_OMITIDA));
-                continue;
+                return json.createObjectNode().put("type", "text").put("text", IMAGEM_OMITIDA);
             }
-            if (!bloco.isObject()) {
-                limpos.add(bloco);
-                continue;
+            ObjectNode copia = json.createObjectNode();
+            for (Map.Entry<String, JsonNode> campo : no.properties()) {
+                JsonNode valor = campo.getValue();
+                if (valor.isString()) {
+                    copia.put(campo.getKey(), semDataUri(valor.stringValue()));
+                } else {
+                    copia.set(campo.getKey(), limpar(valor));
+                }
             }
-            ObjectNode copia = ((ObjectNode) bloco).deepCopy();
-            if (copia.path("content").isArray()) {
-                copia.set("content", limparBlocos((ArrayNode) copia.path("content")));
-            } else if (copia.path("content").isString()) {
-                copia.put("content", DATA_URI.matcher(copia.path("content").stringValue())
-                        .replaceAll(IMAGEM_OMITIDA));
-            }
-            if (copia.path("text").isString()) {
-                copia.put("text", DATA_URI.matcher(copia.path("text").stringValue())
-                        .replaceAll(IMAGEM_OMITIDA));
-            }
-            limpos.add(copia);
+            return copia;
         }
-        return limpos;
+        if (no.isArray()) {
+            ArrayNode copia = json.createArrayNode();
+            for (JsonNode item : no) {
+                if (item.isString()) {
+                    copia.add(semDataUri(item.stringValue()));
+                } else {
+                    copia.add(limpar(item));
+                }
+            }
+            return copia;
+        }
+        return no.deepCopy();
+    }
+
+    private static String semDataUri(String texto) {
+        return DATA_URI.matcher(texto).replaceAll(IMAGEM_OMITIDA);
     }
 
     /**
