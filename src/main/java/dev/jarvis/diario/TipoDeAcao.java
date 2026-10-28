@@ -33,7 +33,11 @@ public enum TipoDeAcao {
     DESLIGAR_PC("desligar_pc", "PC desligado", "vezes que desliguei o PC", false),
     ESQUECER_MEMORIA("esquecer_memoria", "memória esquecida", "memórias esquecidas", false),
     TAREFA_PLANILHA("tarefa_planilha", "tarefa de planilha agendada",
-            "tarefas de planilha agendadas", false);
+            "tarefas de planilha agendadas", false),
+
+    // ---- o que o dono pediu com todas as letras, sem pergunta no meio
+    // Não é autônoma: quem disse "modo local" sabe que trocou, e a seção do briefing é para o resto.
+    TROCA_DE_MODELO("troca_de_modelo", "troca de modelo", "trocas de modelo", false);
 
     private final String chave;
     private final String singular;

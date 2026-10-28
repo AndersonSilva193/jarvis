@@ -89,6 +89,8 @@ jarvis:
       apoio: ${IA_LOCAL_APOIO:}
       timeout-segundos: ${IA_LOCAL_TIMEOUT_SEGUNDOS:60}
       vram-minima-mb: ${IA_LOCAL_VRAM_MINIMA_MB:6000}
+      # Modo de partida do seletor (auto, local ou claude). A troca por frase persiste em disco.
+      modo: ${IA_MODO_PADRAO:auto}
     # Token do agente que roda no PC Windows. Separado do HUD_TOKEN de propósito: a HUD não manda
     # na máquina. Vazio = /api/pc recusa tudo com 401 e o controle do PC fica desligado.
     token: ${PC_TOKEN:}

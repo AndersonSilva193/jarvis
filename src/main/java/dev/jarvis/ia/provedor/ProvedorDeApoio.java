@@ -26,8 +26,9 @@ import dev.jarvis.custo.MedidorDeCusto;
  * valia para o Claude — o JSON do classificador, a evidência literal do anotador, as marcas do
  * briefing —, e quem chama continua conferindo o que volta do Claude como sempre conferiu.
  *
- * <p>Com {@code IA_LOCAL_APOIO} desligado, isto é só o Claude: nenhuma reserva é contada, porque
- * nada foi tentado.
+ * <p>Quem decide se o local é tentado é o {@link SeletorDeModelo}, pelo modo que o dono escolheu.
+ * Com {@code IA_LOCAL_APOIO} desligado, no modo CLAUDE ou num pedido pontual ao Claude, isto é só
+ * o Claude: nenhuma reserva é contada, porque nada foi tentado.
  */
 @Component
 @Qualifier(ProvedorDeApoio.QUALIFICADOR)
@@ -41,24 +42,31 @@ public class ProvedorDeApoio implements ProvedorDeModelo {
 
     private final ProvedorDeModelo claude;
     private final ProvedorDeModelo local;
-    private final DisponibilidadeLocal disponibilidade;
+    private final SeletorDeModelo seletor;
     /** Pode ser nulo nos testes que não conferem a contagem. */
     private final MedidorDeCusto medidor;
-    private final JarvisProperties props;
 
     @Autowired
-    public ProvedorDeApoio(ProvedorAnthropic claude, ProvedorLocal local,
-            DisponibilidadeLocal disponibilidade, MedidorDeCusto medidor, JarvisProperties props) {
-        this((ProvedorDeModelo) claude, local, disponibilidade, medidor, props);
+    public ProvedorDeApoio(ProvedorAnthropic claude, ProvedorLocal local, SeletorDeModelo seletor,
+            MedidorDeCusto medidor) {
+        this((ProvedorDeModelo) claude, local, seletor, medidor);
     }
 
     public ProvedorDeApoio(ProvedorDeModelo claude, ProvedorDeModelo local,
-            DisponibilidadeLocal disponibilidade, MedidorDeCusto medidor, JarvisProperties props) {
+            SeletorDeModelo seletor, MedidorDeCusto medidor) {
         this.claude = claude;
         this.local = local;
-        this.disponibilidade = disponibilidade;
+        this.seletor = seletor;
         this.medidor = medidor;
-        this.props = props;
+    }
+
+    /**
+     * A aridade de antes do seletor: um seletor em memória, no modo padrão, que se comporta como o
+     * {@code ProvedorDeApoio} se comportava. É como a {@code BancadaLocal} monta este provedor.
+     */
+    public ProvedorDeApoio(ProvedorDeModelo claude, ProvedorDeModelo local,
+            DisponibilidadeLocal disponibilidade, MedidorDeCusto medidor, JarvisProperties props) {
+        this(claude, local, SeletorDeModelo.emMemoria(disponibilidade, props), medidor);
     }
 
     /** Sem validador próprio: serve resposta com texto ou com chamada. */
@@ -70,12 +78,12 @@ public class ProvedorDeApoio implements ProvedorDeModelo {
     @Override
     public RespostaDoModelo responder(PedidoAoModelo pedido, Predicate<RespostaDoModelo> aceita)
             throws IOException, InterruptedException {
-        if (!props.apoioLocal()) {
-            return claude.responder(pedido);
+        SeletorDeModelo.Escolha escolha = seletor.escolher(pedido.opcoes().origem());
+        if (escolha.indisponivel()) {
+            return reserva(escolha.motivo(), pedido);
         }
-        DisponibilidadeLocal.Situacao situacao = disponibilidade.agora();
-        if (!situacao.pode()) {
-            return reserva(situacao.motivo(), pedido);
+        if (!escolha.local()) {
+            return claude.responder(pedido);
         }
         try {
             RespostaDoModelo resposta = local.responder(pedido);

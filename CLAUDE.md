@@ -47,8 +47,8 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | Pacote | Responsabilidade |
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (leitura + filtro de usuário numa thread, fila e um trabalhador na outra) |
-| `dev.jarvis.ia` | `Assistente` (histórico, aprovações e anexos), `CicloDeFerramentas` (o laço de ferramentas de um pedido), `ClaudeClient`, `CompactadorDeHistorico` (encolhe o turno que saiu da janela de turnos completos), `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
-| `dev.jarvis.ia.provedor` | `ProvedorDeModelo` (como conversar com um modelo, sem dizer qual), o formato neutro (`PedidoAoModelo`, `Mensagem`, `Bloco`, `RespostaDoModelo`, `OpcoesDoPedido`, `InstrucoesDeSistema`, `ListaDeFerramentas`), `ProvedorAnthropic`/`ConversorAnthropic`, `FormatoNeutro` (o histórico em disco) e a IA local: `ProvedorLocal`/`ConversorOllama` (o Ollama do PC pelo `inferir`), `DisponibilidadeLocal` (o `X-Pc-Ia` lido), `ProvedorDeApoio` (local primeiro, Claude de reserva) e `FalhaLocal` |
+| `dev.jarvis.ia` | `Assistente` (histórico, aprovações e anexos), `CicloDeFerramentas` (o laço de ferramentas de um pedido), `ClaudeClient`, `CompactadorDeHistorico` (encolhe o turno que saiu da janela de turnos completos), `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `TrocaDeModelo` ("modo local", "qual modelo você está usando?" e o "pergunta pro Claude:" pontual), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
+| `dev.jarvis.ia.provedor` | `ProvedorDeModelo` (como conversar com um modelo, sem dizer qual), o formato neutro (`PedidoAoModelo`, `Mensagem`, `Bloco`, `RespostaDoModelo`, `OpcoesDoPedido`, `InstrucoesDeSistema`, `ListaDeFerramentas`), `ProvedorAnthropic`/`ConversorAnthropic`, `FormatoNeutro` (o histórico em disco) e a IA local: `ProvedorLocal`/`ConversorOllama` (o Ollama do PC pelo `inferir`), `DisponibilidadeLocal` (o `X-Pc-Ia` lido), `ProvedorDeApoio` (local primeiro, Claude de reserva), `FalhaLocal` e o `SeletorDeModelo` (o modo AUTO/LOCAL/CLAUDE, `ModoDeIa`, `ModoDeIaEvento`) |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
@@ -204,6 +204,48 @@ zero), e não uma linha em `porModelo`: o relatório falado soma dólares dali, 
 divide pelo prompt inteiro — tokens sem cache do local baixariam a taxa do Claude sem o Claude ter
 mudado nada. As reservas são contadas por motivo (`reservas`), e os três campos só entram no arquivo
 quando existem. Leitura em `MedidorDeCusto.localDeHoje()` e numa linha de log ao lado da saída média.
+
+### O seletor de modelo
+
+O `ProvedorDeApoio` não decide mais sozinho: ele pergunta ao `SeletorDeModelo.escolher(origem)`, que
+olha o **modo** que o dono escolheu.
+
+| Modo | Local disponível | Local indisponível |
+|---|---|---|
+| `AUTO` (padrão) | local | Claude, calado |
+| `LOCAL` | local | Claude, com **um** aviso por período de indisponibilidade |
+| `CLAUDE` | Claude | Claude |
+
+- **Acima do modo há duas coisas.** A chave mestra (`IA_LOCAL_ATIVA`/`IA_LOCAL_APOIO`): desligada,
+  tudo vai ao Claude em qualquer modo, com motivo `ia_local_desligada` e sem aviso — é o "nada muda"
+  de sempre. E o pedido pontual: "pergunta pro Claude: ..." ou "usa o Claude pra isso: ..." abre
+  `claudeNestePedido()`, um `ThreadLocal` que vale até o turno acabar. O turno inteiro roda numa
+  thread só (o lock do `Assistente`), então o classificador do turno — e, quando a conversa entrar
+  no seletor, o laço de ferramentas — herdam sem fiação nova. O prefixo sai do texto, o modo não muda.
+- **Reserva só conta quando o local foi pedido e não pôde** (`Escolha.indisponivel()`, os quatro
+  motivos da `DisponibilidadeLocal`). Modo `CLAUDE`, chave mestra e pontual vão direto: nada foi
+  tentado.
+- **O aviso do LOCAL sai pelo `AvisosProativos`** (`ia:local`, estado `indisponivel:<início do
+  período>`, frase `ia_local_indisponivel`), e só quando uma chamada **de fato** caiu no Claude — é aí
+  que a frase é verdade. O período fecha quando o local volta. Quem troca para LOCAL com o PC fora já
+  ouviu isso na resposta da troca, e o período conta como avisado.
+- **O efetivo** (provedor, modelo e motivo) é o das tarefas de apoio, e vai à HUD no SSE `ia.modo`
+  sempre que muda: troca de modo, entrada e saída de fallback. Um tique de 30 s reavalia sem ninguém
+  chamar. `GET`/`POST /api/ia/modo` devolvem a mesma forma do evento. O nome do modelo local é o
+  `modelo=` do `X-Pc-Ia`, higienizado (`DisponibilidadeLocal.modeloAnunciado()`): vai ao dono, nunca
+  ao prompt.
+- **As frases são do servidor** (`TrocaDeModelo`, irmã do `PedidoDeParada`): até 6 palavras sem
+  contar "Jarvis", conjunto fechado de verbos e enfeites, um modo só. Vêm depois do
+  `aprovacoes.tratar` e **antes** do classificador, então não gastam modelo e a pendência em aberto
+  continua esperando. "Qual modelo você está usando?" diz o modo, quem pensa no apoio e que a
+  conversa continua no Claude — afirmar o contrário seria o servidor mentindo sobre si.
+- **Cada troca entra no diário** (`TipoDeAcao.TROCA_DE_MODELO`, não autônoma: o dono pediu), venha
+  da frase ou da HUD. Troca para o mesmo modo não faz nada.
+- **O modo vive em `modo-ia.json`, ao lado do `operacoes.json`** (volume `pc-operacoes`, pasta
+  derivada como a do `CatalogoDoPc`). O `IA_MODO_PADRAO` é só o da primeira partida.
+- Busca na web e computer use **não passam pelo seletor**: são da Anthropic por construção, e um
+  `Origem.COMPUTER_USE` que chegar recebe `so_anthropic`. Conversa, tarefas e rotinas entram no
+  seletor na 9.7; até lá o `ProvedorAnthropic` continua o `@Primary` delas.
 
 **O `inferir` não vai ao `operacoes.json`.** O `dados` é o prompt, com mensagens do dono, e ninguém
 espera por ele depois de um restart; o resultado de um id que sumiu recebe 404, que o agente trata
@@ -975,7 +1017,9 @@ monta as properties à mão, com piso de 1 minuto.
 apoio no Claude), `IA_LOCAL_TIMEOUT_SEGUNDOS` (60) e `IA_LOCAL_VRAM_MINIMA_MB` (6000) entraram
 **esticando o bloco `Pc`** com um sub-record `IaLocal` como sexto componente, e um construtor de
 compatibilidade de cinco argumentos dentro do próprio `Pc` — nenhuma linha de teste precisou
-mudar. O `apoio` é `String` crua pelo motivo do `Esforcos`: vazio tem de significar "o mesmo que
+mudar. O `IA_MODO_PADRAO` (`auto`) esticou o próprio `IaLocal` como quinto componente, cru pelo
+motivo do `apoio` (valor torto cai em `auto` com um WARN na subida), com o construtor de quatro
+argumentos ao lado. O `apoio` é `String` crua pelo motivo do `Esforcos`: vazio tem de significar "o mesmo que
 `ativa`", o que um `boolean` não sabe dizer. Os acessores (`apoioLocal()`, `prazoDaIaLocal()`,
 `vramMinimaDaIaLocal()`) moram no `JarvisProperties`, com os padrões repetidos lá para quem monta as
 properties à mão.
@@ -1266,7 +1310,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   descartando turno mais velho que `HISTORICO_VALIDADE_HORAS`; memória pessoal em `MEMORIA_PASTA` e
   `MEMORIA_PASTA_EXCLUSOES`; o diário do E2 do PC em `PC_OPERACOES_PASTA` e, ao lado dele, o
   `catalogo.json` com os apps e as rotinas que o PC anunciou — não para a máquina funcionar, mas
-  para o array `tools` nascer igual depois de um restart e o cache de prompt não ser reconstruído;
+  para o array `tools` nascer igual depois de um restart e o cache de prompt não ser reconstruído
+  (e, também ali, o `modo-ia.json` com o modo do seletor);
   o cache de voz em
   `/data/voz` e o uso de voz por dia em `/data/voz/uso` (35 dias, mais o marcador do período já
   avisado); o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o

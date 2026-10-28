@@ -46,6 +46,9 @@ public class FalasService {
         falas.put("voz_indisponivel",
                 "A voz da ElevenLabs saiu do ar: {motivo}. Volto à voz do navegador.");
         falas.put("voz_renovada", "A cota de voz foi renovada. Volto à minha voz.");
+        // O modo LOCAL forçado caindo no Claude: uma vez por período de indisponibilidade.
+        falas.put("ia_local_indisponivel",
+                "O PC não está disponível; estou usando o Claude por enquanto.");
         return Map.copyOf(falas);
     }
 

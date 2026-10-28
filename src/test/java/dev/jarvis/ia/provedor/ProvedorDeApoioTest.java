@@ -90,6 +90,31 @@ class ProvedorDeApoioTest {
     }
 
     @Test
+    @DisplayName("modo CLAUDE com o local pronto: só o Claude, sem inferir e sem reserva")
+    void modoClaude() throws Exception {
+        bancada = new BancadaLocal(pasta).responde("do local");
+        SeletorDeModelo seletor = SeletorDeModelo.emMemoria(bancada.disponibilidade, bancada.props);
+        seletor.mudar(ModoDeIa.CLAUDE, "telegram");
+        ProvedorDeApoio apoio = new ProvedorDeApoio(claude, bancada.local, seletor, bancada.medidor);
+
+        assertEquals(List.of("do Claude"), apoio.responder(pedido()).textos());
+        assertTrue(bancada.recebidos.isEmpty());
+        assertTrue(bancada.medidor.localDeHoje().reservas().isEmpty());
+    }
+
+    @Test
+    @DisplayName("modo LOCAL com o local pronto: o local atende")
+    void modoLocal() throws Exception {
+        bancada = new BancadaLocal(pasta).responde("do local");
+        SeletorDeModelo seletor = SeletorDeModelo.emMemoria(bancada.disponibilidade, bancada.props);
+        seletor.mudar(ModoDeIa.LOCAL, "telegram");
+        ProvedorDeApoio apoio = new ProvedorDeApoio(claude, bancada.local, seletor, bancada.medidor);
+
+        assertEquals(List.of("do local"), apoio.responder(pedido()).textos());
+        assertEquals(0, chamadasAoClaude.get());
+    }
+
+    @Test
     @DisplayName("sem validador, resposta vazia do local é reprovada")
     void vazioReprovado() throws Exception {
         bancada = new BancadaLocal(pasta).responde("   ");

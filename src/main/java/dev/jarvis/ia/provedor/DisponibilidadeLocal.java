@@ -93,6 +93,17 @@ public class DisponibilidadeLocal {
         return Situacao.livre();
     }
 
+    /**
+     * O {@code modelo=} do último cabeçalho, para o seletor dizer quem está pensando. Vai ao dono
+     * (resposta e HUD), nunca ao prompt, e mesmo assim só passa nome de modelo do Ollama: letras,
+     * dígitos e {@code ._:/-}, até 60 caracteres. O resto é vazio.
+     */
+    public java.util.Optional<String> modeloAnunciado() {
+        return pc.estadoIa()
+                .map(estado -> ler(estado.cabecalho()).getOrDefault("modelo", ""))
+                .filter(modelo -> modelo.matches("[A-Za-z0-9._:/-]{1,60}"));
+    }
+
     /** {@code chave=valor} separados por {@code ;}. Par torto é ignorado, não derruba o resto. */
     static Map<String, String> ler(String cabecalho) {
         Map<String, String> pares = new HashMap<>();

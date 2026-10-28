@@ -293,8 +293,20 @@ public record JarvisProperties(
          *
          * @param apoio crua, e não {@code Boolean}: vazia quer dizer "o mesmo que {@code ativa}", e
          *              é isso que deixa ligar a IA local com uma variável só
+         * @param modo  o modo do {@code SeletorDeModelo} na primeira partida ({@code auto},
+         *              {@code local} ou {@code claude}). Cru pelo motivo do {@code apoio}: valor
+         *              torto cai em {@code auto} com um WARN, em vez de impedir o Jarvis de subir.
+         *              Depois da primeira troca vale o que está no {@code modo-ia.json}.
          */
-        public record IaLocal(boolean ativa, String apoio, int timeoutSegundos, int vramMinimaMb) { }
+        public record IaLocal(boolean ativa, String apoio, int timeoutSegundos, int vramMinimaMb,
+                String modo) {
+            @org.springframework.boot.context.properties.bind.ConstructorBinding
+            public IaLocal { }
+            /** A aridade de antes do seletor, pelo motivo de sempre: construção por posição. */
+            public IaLocal(boolean ativa, String apoio, int timeoutSegundos, int vramMinimaMb) {
+                this(ativa, apoio, timeoutSegundos, vramMinimaMb, "");
+            }
+        }
     }
 
     /** Credenciais OAuth da integração opcional com uma conta Google. */
@@ -438,6 +450,15 @@ public record JarvisProperties(
         int segundos = pc == null || pc.iaLocal() == null || pc.iaLocal().timeoutSegundos() <= 0
                 ? 60 : pc.iaLocal().timeoutSegundos();
         return java.time.Duration.ofSeconds(segundos);
+    }
+
+    /**
+     * O {@code IA_MODO_PADRAO} cru, ou vazio. Quem o interpreta é o {@code ModoDeIa.deChave}, uma
+     * vez, na partida do seletor — é lá que o WARN de valor torto sai.
+     */
+    public String modoPadraoDaIa() {
+        return pc == null || pc.iaLocal() == null || pc.iaLocal().modo() == null
+                ? "" : pc.iaLocal().modo();
     }
 
     /** VRAM livre exigida para carregar o modelo, com 6000 MB de padrão. */

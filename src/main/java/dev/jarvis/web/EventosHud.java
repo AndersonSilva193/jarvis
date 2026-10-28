@@ -20,6 +20,7 @@ import dev.jarvis.briefing.BriefingIniciadoEvento;
 import dev.jarvis.conversa.EventoConversa;
 import dev.jarvis.conversa.RespostaConversa;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.ia.provedor.ModoDeIaEvento;
 import dev.jarvis.tela.PresencaDaHud;
 import dev.jarvis.tela.TelaEvento;
 
@@ -82,6 +83,17 @@ public class EventosHud implements PresencaDaHud {
         List<SseEmitter> destinatarios = List.copyOf(conectados);
         transmissao.submit(() -> destinatarios.stream().filter(conectados::contains)
                 .forEach(emissor -> enviarPara(emissor, evento.nome(), evento.dados())));
+    }
+
+    /**
+     * O modo de IA mudou, ou quem pensa entrou ou saiu do fallback. Pelo executor, como o
+     * {@link #aoTela}: o seletor publica de dentro de uma chamada de apoio.
+     */
+    @EventListener
+    public void aoModoDeIa(ModoDeIaEvento evento) {
+        List<SseEmitter> destinatarios = List.copyOf(conectados);
+        transmissao.submit(() -> destinatarios.stream().filter(conectados::contains)
+                .forEach(emissor -> enviarPara(emissor, "ia.modo", evento)));
     }
 
     @EventListener

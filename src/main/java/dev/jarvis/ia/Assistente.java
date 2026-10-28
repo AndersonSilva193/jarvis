@@ -30,6 +30,7 @@ import dev.jarvis.ia.provedor.FormatoNeutro;
 import dev.jarvis.ia.provedor.Mensagem;
 import dev.jarvis.ia.provedor.ProvedorAnthropic;
 import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import dev.jarvis.ia.provedor.SeletorDeModelo;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -68,6 +69,8 @@ public class Assistente {
     private final EsquecimentosDeMemoria esquecimentos;
     /** O que terminou fora de um turno (a tarefa no PC) e precisa entrar no histórico. */
     private final ResultadosTardios tardios;
+    /** Quem atende "modo local" e "pergunta pro Claude: ...". Nulo nos construtores enxutos. */
+    private final SeletorDeModelo seletor;
     private final ReentrantLock execucao = new ReentrantLock(true);
     /**
      * O pedido que está sendo atendido agora, ou nulo. Serve a duas perguntas de quem está na borda
@@ -185,13 +188,25 @@ public class Assistente {
                 tardios);
     }
 
-    @Autowired
+    /** A aridade de antes do seletor: sem ele, "modo local" é só mais uma mensagem ao modelo. */
     public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
             JsonMapper json, RegistroConversas conversas, AnexosService anexos,
             BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
             ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
             EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
             ResultadosTardios tardios) {
+        this(modelo, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, anotador, esquecimentos, compactador, tardios, null);
+    }
+
+    @Autowired
+    public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
+            JsonMapper json, RegistroConversas conversas, AnexosService anexos,
+            BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
+            ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
+            EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
+            ResultadosTardios tardios, SeletorDeModelo seletor) {
+        this.seletor = seletor;
         this.tardios = tardios != null ? tardios : new ResultadosTardios();
         this.compactador = compactador;
         this.esquecimentos = esquecimentos;
@@ -285,6 +300,15 @@ public class Assistente {
     }
 
     public RespostaConversa responder(long chatId, String texto, Canal canal, OuvinteProgresso ouvinte) throws Exception {
+        // "Pergunta pro Claude: ..." — o pedido segue sem o prefixo, e toda escolha de modelo desta
+        // thread é o Claude até o turno acabar. O modo gravado não muda.
+        java.util.Optional<String> pontual = seletor == null ? java.util.Optional.empty()
+                : TrocaDeModelo.pontual(texto);
+        if (pontual.isPresent()) {
+            try (SeletorDeModelo.Escopo escopo = seletor.claudeNestePedido()) {
+                return responder(chatId, pontual.get(), canal, ouvinte);
+            }
+        }
         OuvinteProgresso origem = ouvinte == null ? new OuvinteProgresso() { } : ouvinte;
         java.util.concurrent.atomic.AtomicBoolean apagou = new java.util.concurrent.atomic.AtomicBoolean();
         java.util.concurrent.atomic.AtomicReference<String> apagadoId = new java.util.concurrent.atomic.AtomicReference<>("");
@@ -329,10 +353,15 @@ public class Assistente {
             String resposta;
             boolean interrompido = false;
             var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id, canal.nome());
+            // "Modo local" e "qual modelo você está usando?" são do servidor, e vêm antes do
+            // classificador: não gastam modelo nenhum, e a pendência em aberto continua esperando.
+            java.util.Optional<TrocaDeModelo.Comando> trocaDeModelo =
+                    decisaoPc.isPresent() || seletor == null ? java.util.Optional.empty()
+                            : TrocaDeModelo.comando(texto);
             // Só quando o texto não é um código nem uma frase fixa é que vale classificar: a
             // pergunta pendente é a única coisa que a mensagem pode estar respondendo, e sem
             // pendência em aberto nada disso roda — nem a lista, nem a chamada curta ao modelo.
-            String emAberto = decisaoPc.isPresent() ? ""
+            String emAberto = decisaoPc.isPresent() || trocaDeModelo.isPresent() ? ""
                     : aprovacoes.pendenciaDe(progresso.usuarioAutenticado(), id).orElse("");
             Decisao decisao = emAberto.isEmpty() ? Decisao.OUTRO_ASSUNTO
                     : classificador.classificar(emAberto, texto);
@@ -369,6 +398,9 @@ public class Assistente {
             }
             if (decisaoPc.isPresent()) {
                 resposta = decisaoPc.get();
+                turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
+            } else if (trocaDeModelo.isPresent()) {
+                resposta = TrocaDeModelo.atender(trocaDeModelo.get(), seletor, canal.nome());
                 turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
             } else if (ComandoDeRepouso.reconhece(texto)) {
                 Bloco.Chamada chamada = new Bloco.Chamada("repouso_" + id, "controlar_pc",
