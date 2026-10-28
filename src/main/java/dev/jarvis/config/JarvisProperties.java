@@ -223,18 +223,28 @@ public record JarvisProperties(
      * @param searxngUrl   endereço do SearXNG, que pode ser interno à rede do Docker. É
      *                     configuração do dono, não vem do modelo. Vazio, o SearXNG é pulado.
      * @param cotaMensalTavily créditos do Tavily por mês: aviso em 80%, e em 100% o Tavily é pulado
-     *                         até a virada. Zero desliga a conta.
+     *                         até a virada. Zero desliga a conta. Crua, como os preços do
+     *                         {@link Custo}: um {@code BUSCA_COTA_MENSAL_TAVILY} torto no {@code .env}
+     *                         estourava {@code BindException} e o Jarvis não subia. Quem interpreta é
+     *                         {@link JarvisProperties#cotaMensalDoTavily()}, que cai no padrão com WARN.
      */
     public record BuscaWeb(boolean ativa, String tipo, int maxUsos, String provedores,
-            String tavilyApiKey, String searxngUrl, int cotaMensalTavily) {
+            String tavilyApiKey, String searxngUrl, String cotaMensalTavily) {
 
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public BuscaWeb {
         }
 
+        /** Com a cota já em número, para os testes que montam este bloco. */
+        public BuscaWeb(boolean ativa, String tipo, int maxUsos, String provedores,
+                String tavilyApiKey, String searxngUrl, int cotaMensalTavily) {
+            this(ativa, tipo, maxUsos, provedores, tavilyApiKey, searxngUrl,
+                    String.valueOf(cotaMensalTavily));
+        }
+
         /** A aridade de antes da busca configurável, para os testes que montam este bloco. */
         public BuscaWeb(boolean ativa, String tipo, int maxUsos) {
-            this(ativa, tipo, maxUsos, null, "", "", 1000);
+            this(ativa, tipo, maxUsos, null, "", "", "1000");
         }
     }
 
@@ -690,9 +700,22 @@ public record JarvisProperties(
         return url;
     }
 
-    /** Créditos do Tavily por mês. Zero ou negativo é "sem conta de cota". */
+    /**
+     * Créditos do Tavily por mês. Zero ou negativo é "sem conta de cota". Vazio é o padrão de 1000;
+     * valor que não é número também, com WARN — o Jarvis sobe mesmo com o {@code .env} torto.
+     */
     public int cotaMensalDoTavily() {
-        return buscaWeb == null ? 1000 : Math.max(0, buscaWeb.cotaMensalTavily());
+        String bruto = buscaWeb == null || buscaWeb.cotaMensalTavily() == null ? ""
+                : buscaWeb.cotaMensalTavily().trim();
+        if (bruto.isEmpty()) {
+            return 1000;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(bruto));
+        } catch (NumberFormatException e) {
+            log.warn("BUSCA_COTA_MENSAL_TAVILY não é um número inteiro; usando 1000. Confira o .env.");
+            return 1000;
+        }
     }
 
     /**
