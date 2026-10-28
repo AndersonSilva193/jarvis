@@ -46,6 +46,8 @@ public interface Ferramenta {
             case "listar_lembretes" -> "consultando os lembretes";
             case "listar_memorias" -> "consultando a memória";
             case "desfazer_anotacao" -> "tirando a anotação";
+            case "ler_procedimento" -> "lembrando como se faz";
+            case "esquecer_procedimento" -> "tirando o procedimento";
             case "briefing_do_dia" -> "preparando o briefing";
             case "status_voz" -> "consultando a cota de voz";
             case "custo_do_jarvis" -> "somando o custo";

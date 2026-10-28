@@ -143,6 +143,7 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
                 tipos.add(TipoDeAcao.ANOTAR_MEMORIA);
                 tipos.add(TipoDeAcao.ATUALIZAR_MEMORIA);
                 tipos.add(TipoDeAcao.ESQUECER_MEMORIA);
+                tipos.add(TipoDeAcao.APRENDER_PROCEDIMENTO);
             }
             case "pc" -> {
                 tipos.add(TipoDeAcao.ROTINA);

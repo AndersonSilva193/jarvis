@@ -24,7 +24,7 @@ import dev.jarvis.ia.provedor.ProvedorDeModelo;
 import dev.jarvis.ia.provedor.RespostaDoModelo;
 import tools.jackson.databind.json.JsonMapper;
 
-/** A prova de citação vale para o modelo do PC: evidência inventada lá manda o trecho ao Claude. */
+/** O validador do modelo do PC: resposta fora do JSON combinado manda o trecho ao Claude. */
 class AnotadorLocalTest {
 
     private static final long DONO = 42L;
@@ -66,9 +66,9 @@ class AnotadorLocalTest {
     }
 
     @Test
-    @DisplayName("evidência inventada no local: o Claude refaz e é a dele que grava")
-    void evidenciaInventadaVaiAoClaude() throws Exception {
-        bancada = new BancadaLocal(pasta).responde(resposta("eu adoro o neovim"));
+    @DisplayName("resposta ilegível no local: o Claude refaz e é a dele que grava")
+    void respostaIlegivelVaiAoClaude() throws Exception {
+        bancada = new BancadaLocal(pasta).responde("Claro! Anotei que ele usa o Neovim.");
         ProvedorDeModelo claude = pedido -> {
             chamadasAoClaude.incrementAndGet();
             return new RespostaDoModelo(List.of(new Bloco.Texto(resposta("eu programo no neovim"))), null, null);
@@ -80,6 +80,22 @@ class AnotadorLocalTest {
         assertEquals(1, chamadasAoClaude.get());
         assertEquals(1, memoria.assuntos(DONO).size());
         assertEquals(1L, bancada.medidor.localDeHoje().reservas().get(ProvedorDeApoio.REPROVADO));
+    }
+
+    @Test
+    @DisplayName("sem prova de citação: evidência reescrita no local grava sem o Claude")
+    void evidenciaReescritaFicaNoLocal() throws Exception {
+        bancada = new BancadaLocal(pasta).responde(resposta("ele adora o neovim"));
+        ProvedorDeModelo claude = pedido -> {
+            chamadasAoClaude.incrementAndGet();
+            return new RespostaDoModelo(List.of(new Bloco.Texto("{\"candidatos\":[]}")), null, null);
+        };
+        var memoria = memoria();
+
+        analisar(bancada.apoio(claude), memoria);
+
+        assertEquals(0, chamadasAoClaude.get());
+        assertEquals(1, memoria.assuntos(DONO).size());
     }
 
     @Test

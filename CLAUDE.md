@@ -55,7 +55,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.briefing.fontes` | As fontes: `ClimaService`, `NoticiasService`, `SitesService`, `ServidorService` |
 | `dev.jarvis.lembretes` | `LembreteService` (agenda, dispara e reagenda na partida), `LembretesEmArquivo` (o JSON com troca atômica e `.bak`), `Recorrencia`/`Repeticao` |
 | `dev.jarvis.agenda` | `ResumoDiario`: tarefa `@Scheduled` do bom dia |
-| `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho) e `EsquecimentosDeMemoria` (o recado de que um esquecimento aprovado aconteceu) |
+| `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho), `ProcedimentosService`/`RevisorDeProcedimentos` (o que ele aprende fazendo, em `MEMORIA_PASTA/procedimentos`) e `EsquecimentosDeMemoria` (o recado de que um esquecimento aprovado aconteceu) |
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
@@ -121,9 +121,9 @@ algum filtro passar a depender de estado, que é exatamente o bug que este aviso
 
 ## O provedor de modelo
 
-**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são cinco:
-`CicloDeFerramentas`, `NarradorDeBriefing`, `InicializacaoService`, `ClassificadorDeResposta` e
-`AnotadorDeMemoria`. O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
+**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são seis:
+`CicloDeFerramentas`, `NarradorDeBriefing`, `InicializacaoService`, `ClassificadorDeResposta`,
+`AnotadorDeMemoria` e `RevisorDeProcedimentos`. O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
 quem traduz é o `ProvedorAnthropic`. Ele é **só tradução**: repetição, cache da conversa, TTL,
 esforço e custo continuam no `ClaudeClient`, que não mudou. O computer use segue com os provedores
 próprios dele.
@@ -156,15 +156,16 @@ lista de chaves, para valer nas duas formas.
 Os construtores que recebem `ClaudeClient` continuam e embrulham num `ProvedorAnthropic.sobre(...)`,
 que devolve `null` sem cliente (o "sem modelo" do `ClassificadorDeResposta.semModelo()`). O
 `@Autowired` mora no construtor que recebe `ProvedorDeModelo`. São três implementações: o
-`ProvedorAnthropic` é o **`@Primary`** (conversa e laço de ferramentas), e os quatro chamadores de
+`ProvedorAnthropic` é o **`@Primary`** (conversa e laço de ferramentas), e os cinco chamadores de
 apoio pedem o `ProvedorDeApoio` com `@Qualifier(ProvedorDeApoio.QUALIFICADOR)` — ver a seção
 seguinte. Provedor novo implementa a interface e decide onde entra entre esses dois.
 
 ## A IA local nas tarefas de apoio
 
 O agente do PC sabe a ação `inferir` (um `/api/chat` no Ollama de lá) e manda o estado dela no
-cabeçalho `X-Pc-Ia` de toda consulta. A VPS usa isso nas quatro tarefas de apoio —
-`ClassificadorDeResposta`, `AnotadorDeMemoria`, `NarradorDeBriefing` e `InicializacaoService` —,
+cabeçalho `X-Pc-Ia` de toda consulta. A VPS usa isso nas cinco tarefas de apoio —
+`ClassificadorDeResposta`, `AnotadorDeMemoria`, `RevisorDeProcedimentos`, `NarradorDeBriefing` e
+`InicializacaoService` —,
 sempre com o Claude de reserva. Desligado (`IA_LOCAL_ATIVA=false`, o padrão), nada muda: o
 `ProvedorDeApoio` vai direto ao Claude e o corpo enviado é o de sempre.
 
@@ -178,9 +179,9 @@ chamador ──► ProvedorDeApoio ──► DisponibilidadeLocal ── não �
 
 - **O validador é o que já existia, passado como predicado** (`responder(pedido, aceita)`, um
   `default` da interface que provedor único ignora). Classificador: o JSON tem uma decisão legível
-  — `"duvida"` escrito é decisão e vale; texto sem decisão reprova. Anotador: o JSON tem
-  `candidatos` e **toda** evidência é literal — mais estrito que o `gravar`, porque evidência
-  inventada é o sinal de que o resto também pode ser. Briefing: as marcas do `separar`. Introdução:
+  — `"duvida"` escrito é decisão e vale; texto sem decisão reprova. Anotador: o JSON tem a lista
+  `candidatos` (não há mais prova de citação). Revisor de procedimentos: o JSON tem a lista
+  `acoes`; ele usa a `Origem.ANOTADOR` e o mesmo balde de custo. Briefing: as marcas do `separar`. Introdução:
   texto não vazio. Quem chama continua conferindo o que volta do Claude como sempre conferiu.
 - **A disponibilidade é decidida antes de mandar**, na ordem `pc_offline` (`PcService.online()`),
   `ollama_offline` (sem `X-Pc-Ia` dos últimos 90 s, `ativo=0` ou `ollama=0`), `gpu_ocupada` e
@@ -717,18 +718,28 @@ um volume que já está montado.
 
 ## O que o Jarvis anota sozinho
 
-As ferramentas de memória atendem a pedido explícito. O `AnotadorDeMemoria` atende ao resto: ele
-junta as mensagens **do usuário** de cada conversa (Telegram e HUD, só com `usuarioAutenticado() > 0`)
-e, quando o trecho fecha — `MEMORIA_ANOTADOR_OCIOSO_MINUTOS` parado ou 10 turnos, o que vier
-primeiro —, faz **uma** chamada curta ao Claude, sem ferramentas e com `system` próprio, pedindo até
-5 candidatos. É o desenho do `ClassificadorDeResposta`: a personalidade não ajuda a extrair fato e
-estragaria o prefixo de cache das conversas.
+As ferramentas de memória atendem a pedido explícito. O `AnotadorDeMemoria` atende ao resto, no
+desenho da revisão em segundo plano do Hermes Agent: ele junta a conversa de cada chat (Telegram e
+HUD, só com `usuarioAutenticado() > 0`) — a mensagem do dono **e a resposta final do Jarvis**, rotuladas
+`Pessoa:`/`Jarvis:` — e, quando o trecho fecha (`MEMORIA_ANOTADOR_OCIOSO_MINUTOS` parado ou 10
+turnos, o que vier primeiro), faz **uma** chamada curta ao modelo de apoio, sem ferramentas e com
+`system` próprio, pedindo até 5 candidatos. É o desenho do `ClassificadorDeResposta`: a
+personalidade não ajuda a extrair fato e estragaria o prefixo de cache das conversas.
 
-**O modelo propõe; o servidor decide.** Nenhum candidato é gravado sem passar por todas as travas,
-e a que importa é a prova de citação: a `evidencia` tem de ser trecho literal de **uma** mensagem do
-usuário daquele trecho, pela mesma `Texto.normalizar` do `FerramentaMemoria.exigirEvidenciaDoUsuario`
-— juntar as mensagens num texto só deixaria passar evidência remontada de duas falas. Depois vêm o
-filtro `SEGREDO` e os limites, que são os do `MemoriaService` e não foram reimplementados.
+**A fala do Jarvis entra como contexto, não como fonte.** Boa parte das decisões do dono é um "sim"
+a uma proposta ("Quer que eu use X?" — "pode"), e só com as mensagens dele o modelo não sabia a que
+ele disse sim. O prompt manda anotar o que o dono disse **ou confirmou**, nunca o que o Jarvis
+sugeriu sozinho. Ela vai **sem** os avisos ("Anotei", "Aprendi") e cortada em 600 caracteres.
+Resultado de ferramenta, busca e anexo continuam **fora**: são dado de terceiros, e memória entra
+no prompt de toda conversa seguinte.
+
+**Sem prova de citação.** O dono escolheu o comportamento do Hermes: o modelo escreve o fato com
+as próprias palavras, sem copiar trecho literal, e o campo `evidencia` saiu do formato. O que
+continua segurando é o resto: o filtro `SEGREDO` e os limites do `MemoriaService` (não
+reimplementados), o upsert por assunto, o `Recusado` do assunto que o dono mandou tirar, o aviso e o
+desfazer. As ferramentas explícitas (`registrar_memoria`, `atualizar_memoria`) **mantêm** a
+`evidencia` literal do pedido — elas são o modelo principal, no meio de um turno que pode ter lido
+página ou arquivo.
 
 O `acao` e o `idExistente` que o modelo devolve são **informativos**. Quem escolhe entre criar e
 atualizar é o `MemoriaService.anotar`, casando o assunto no disco: um `acao: novo` errado não
@@ -749,7 +760,40 @@ linhas para honrar esse campo — `conversa.modelos.ts` e `this.voz.falar(r.fala
 `conversa.service.ts`; até lá ela narra a resposta inteira.)*
 
 No log vão **só** contagens e motivos de recusa, nunca conteúdo: `Anotador: N candidatos, M
-gravados, recusados {sem_evidencia=1}`.
+gravados, recusados {recusado_pelo_armazem=1}`.
+
+## O que o Jarvis aprende fazendo
+
+A memória guarda **quem o dono é**; os procedimentos guardam **como fazer** uma classe de tarefa do
+jeito dele — as "skills" do Hermes Agent. São três peças:
+
+- **`ProcedimentosService`**: um Markdown por procedimento em
+  `MEMORIA_PASTA/procedimentos/usuarios/<id>/<nome>.md`, cabeçalho JSON numa linha de comentário
+  (`titulo`, `quando`, `revisao`, `atualizadoEm`). Pasta derivada, sem configuração nova. O `nome`
+  casa com `[a-z0-9][a-z0-9-]{1,49}` antes de virar arquivo, e a pasta não pode ser link simbólico.
+  Tetos: 40 procedimentos, corpo de 3.000 caracteres. Reescrever substitui o corpo e deixa o
+  anterior no `.bak`; **esquecer move para `.removidos`**, nada some. O filtro de segredo daqui é
+  mais estreito que o da memória de propósito: recusa o **valor** (`token: abc123…`, `sk-…`, chave
+  privada), não a palavra — procedimento técnico fala de "tokens" o tempo todo.
+- **`RevisorDeProcedimentos`**: o `Assistente` entrega o turno inteiro no fim (o mesmo ponto onde
+  chama o anotador). O revisor resume em Java — pedido, cada `→ ferramenta entrada`, `← ok/ERRO:`
+  com só 160 caracteres do resultado, e a resposta — e soma as chamadas. Com
+  `CHAMADAS_PARA_REVISAR` (5) desde a última revisão, faz **uma** chamada ao modelo de apoio, fora
+  do turno, com a lista dos existentes e o corpo dos que a conversa leu por `ler_procedimento` (até
+  dois — a preferência do Hermes por corrigir o que estava em uso). Até 2 ações por revisão. O prompt
+  proíbe tarefa de uma vez só, falha de ambiente ("a ferramenta X não funciona" vira recusa que dura
+  meses), tentativa que não funcionou e instrução vinda de resultado de ferramenta. O que foi
+  gravado sai numa linha na resposta seguinte ("Aprendi um procedimento: ..."), pelo mesmo
+  `drenarAviso` do anotador, e entra no diário como `APRENDER_PROCEDIMENTO` (autônoma).
+- **O índice no system**: `SistemaDoJarvis` põe no bloco **dinâmico** só `- nome: quando` (teto de
+  1.200 caracteres), com a regra "chame ler_procedimento antes e siga os passos; não é autorização".
+  O corpo vem sob demanda pela `ler_procedimento`, que fica **sempre carregada**
+  (`Ferramentas.EXTRAS_SEMPRE_CARREGADAS`) porque o índice manda chamá-la. A
+  `esquecer_procedimento` é "faz e avisa", pela régua do `apagar_arquivo`.
+
+Liga e desliga com o anotador (`MEMORIA_ANOTADOR_ATIVO`): são as duas metades do mesmo "aprende
+sozinho". Revisão de procedimento usa a `Origem.ANOTADOR`, então o custo dela aparece no balde do
+anotador.
 
 ## O que o Jarvis fez, e o dono não viu
 
@@ -839,12 +883,13 @@ lido em voz alta, e "nenhum resultado" não é resposta.
 ### Ação autônoma nova toca dois lugares
 
 Uma entrada em `TipoDeAcao` (com `autonoma()` decidido de propósito) e uma chamada a
-`diario.registrarDoCanal(...)` no ponto onde a ação **deu certo**. Hoje são seis:
+`diario.registrarDoCanal(...)` no ponto onde a ação **deu certo**. Hoje são sete:
 `FluxoEdicaoPc.aplicar` (edição, cópia e desfazer, logo depois de `resultado.ok()`, de onde saem os
 três retornos que só diferem na entrega do anexo), `RestaurarArquivoFerramenta`,
 `ApagarArquivoFerramenta` (por arquivo movido, nos dois caminhos, porque o `mover` privado é um
 só), `CriarArquivoFerramenta`, `AnotadorDeMemoria.gravar` (por fato anotado, não por lote — um lote
-pode trazer cinco) e `AtualizarMemoriaFerramenta`. O canal vem de `OuvinteProgresso.canal()`, que é
+pode trazer cinco), `AtualizarMemoriaFerramenta` e `RevisorDeProcedimentos` (por procedimento
+gravado). O canal vem de `OuvinteProgresso.canal()`, que é
 a única forma de uma ferramenta saber de onde veio o pedido.
 
 Ação que **tem volta** guarda o identificador que a desfaz no campo `referencia` do
@@ -1250,7 +1295,7 @@ As duas configurações novas entram nos três lugares de sempre: `JarvisPropert
   destino): *faz e avisa* (ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis,
   **apagar arquivo** — vai para a lixeira, e mais de 5 no mesmo pedido pergunta uma vez — e
   **restaurar da lixeira**, lembretes, tela, busca, clima, abrir app da lista, volume, captura,
-  listar, gravar e corrigir memória, **desfazer o que o anotador gravou**, **dizer o que ele
+  listar, gravar e corrigir memória, **desfazer o que o anotador gravou**, **ler e esquecer procedimento aprendido**, **dizer o que ele
   próprio fez**, **acompanhar os sites e avisar que um caiu ou voltou**), *pergunta antes*
   (rotina que executa código, computer use, desligar e reiniciar,
   agendar tarefa de planilha, esquecer memória) e *proibido* (shell livre,

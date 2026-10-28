@@ -26,6 +26,10 @@ public enum TipoDeAcao {
     CRIAR_ARQUIVO("criar_arquivo", "arquivo criado", "arquivos criados", true),
     ANOTAR_MEMORIA("anotar_memoria", "anotação na memória", "anotações na memória", true),
     ATUALIZAR_MEMORIA("atualizar_memoria", "memória corrigida", "memórias corrigidas", true),
+    // O revisor grava sozinho o jeito de fazer uma tarefa, e o dono só fica sabendo pelo aviso e
+    // por aqui. Esquecer um procedimento não entra: é o dono pedindo, e o arquivo não some.
+    APRENDER_PROCEDIMENTO("aprender_procedimento", "procedimento aprendido",
+            "procedimentos aprendidos", true),
 
     // ---- o que ele só faz depois de um "sim" ("pergunta antes")
     ROTINA("rotina", "rotina executada", "rotinas executadas", false),

@@ -84,14 +84,38 @@ class AnotadorDeMemoriaTest {
         }
     }
 
-    @Test void evidenciaForaDaMensagemNaoGrava() throws Exception {
+    @Test void gravaSemCitacaoLiteral() throws Exception {
         var memoria = memoria();
-        var anotador = anotador(memoria, candidatos(
-                candidato("perfil", "cidade", "Mora em São Paulo", "eu moro em São Paulo")));
-        conversar(anotador, "trabalho com Java");
+        // Sem a prova de citação, como no Hermes: o modelo escreve o fato com as próprias palavras.
+        var anotador = anotador(memoria, candidatos(json.createObjectNode()
+                .put("categoria", "projeto").put("projeto", "jarvis").put("assunto", "modelo local")
+                .put("conteudo", "Decidiu usar o Qwen3.5 9B como modelo local do Jarvis.")
+                .put("acao", "novo")));
+        conversar(anotador, "pode ser esse");
         assertTrue(anotador.aguardar(Duration.ofSeconds(5)), "a análise terminou");
-        assertTrue(memoria.assuntos(DONO).isEmpty(), "evidência que o usuário não escreveu não grava");
-        assertEquals("", anotador.drenarAviso(DONO));
+        assertEquals(1, memoria.assuntos(DONO).size(), "fato sem trecho literal grava");
+        assertEquals("Anotei: Decidiu usar o Qwen3.5 9B como modelo local do Jarvis.",
+                anotador.drenarAviso(DONO));
+    }
+
+    @Test void respostaDoJarvisVaiComoContexto() throws Exception {
+        var memoria = memoria();
+        ClaudeClient claude = mock(ClaudeClient.class);
+        var mensagens = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
+        when(claude.criarMensagem(any(Origem.class), any(ArrayNode.class), mensagens.capture(),
+                any(ArrayNode.class), anyInt(), any(Duration.class)))
+                .thenReturn(texto("{\"candidatos\":[]}"));
+        var anotador = new AnotadorDeMemoria(memoria, claude, json, props(), relogio);
+
+        anotador.registrarTurno(DONO, DONO, "telegram", "pode",
+                "Quer que eu use o Qwen3.5 9B como modelo local?");
+        for (int i = 1; i < 10; i++) anotador.registrarTurno(DONO, DONO, "telegram", "enchimento " + i, "");
+        assertTrue(anotador.aguardar(Duration.ofSeconds(5)), "a análise terminou");
+
+        String prompt = mensagens.getValue().toString();
+        assertTrue(prompt.contains("Pessoa: pode"), prompt);
+        assertTrue(prompt.contains("Jarvis: Quer que eu use o Qwen3.5 9B como modelo local?"), prompt);
+        assertEquals(1, prompt.split("Jarvis:", -1).length - 1, "turno sem resposta não vira fala vazia");
     }
 
     @Test void segredoERecusado() throws Exception {

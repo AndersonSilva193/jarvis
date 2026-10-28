@@ -34,9 +34,13 @@ import tools.jackson.databind.node.ObjectNode;
 public class Ferramentas {
 
     private static final Logger log = LoggerFactory.getLogger(Ferramentas.class);
-    /** Edição deve estar visível mesmo quando a configuração ainda contém a lista inicial de seis. */
+    /**
+     * Edição deve estar visível mesmo quando a configuração ainda contém a lista inicial de seis.
+     * O {@code ler_procedimento} também: o índice do system manda chamá-lo antes da tarefa, e ter
+     * de procurá-lo primeiro custaria uma ida a mais ao modelo justamente no caso que ele acelera.
+     */
     private static final Set<String> EXTRAS_SEMPRE_CARREGADAS = Set.of(
-            "editar_arquivo", "tarefa_no_pc");
+            "editar_arquivo", "tarefa_no_pc", "ler_procedimento");
 
     /**
      * Por nome, em <b>ordem alfabética</b> — e é a ordem que importa, não só a busca.

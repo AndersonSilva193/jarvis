@@ -25,6 +25,7 @@ import dev.jarvis.aprovacao.ClassificadorDeResposta;
 import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
 import dev.jarvis.memoria.AnotadorDeMemoria;
 import dev.jarvis.memoria.EsquecimentosDeMemoria;
+import dev.jarvis.memoria.RevisorDeProcedimentos;
 import dev.jarvis.ia.provedor.Bloco;
 import dev.jarvis.ia.provedor.FormatoNeutro;
 import dev.jarvis.ia.provedor.Mensagem;
@@ -65,6 +66,8 @@ public class Assistente {
     private final CompactadorDeHistorico compactador;
     /** Opcional: nulo nos construtores enxutos, como o resto das peças de borda desta classe. */
     private final AnotadorDeMemoria anotador;
+    /** Quem aprende procedimentos com os turnos de várias ferramentas. Nulo nos construtores enxutos. */
+    private final RevisorDeProcedimentos revisor;
     /** O recado de que o {@code esquecer_memoria} aprovado apagou algo fora deste turno. */
     private final EsquecimentosDeMemoria esquecimentos;
     /** O que terminou fora de um turno (a tarefa no PC) e precisa entrar no histórico. */
@@ -199,13 +202,25 @@ public class Assistente {
                 classificador, anotador, esquecimentos, compactador, tardios, null);
     }
 
-    @Autowired
+    /** A aridade de antes dos procedimentos: sem revisor, o Jarvis só não aprende jeito de fazer. */
     public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
             JsonMapper json, RegistroConversas conversas, AnexosService anexos,
             BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
             ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
             EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
             ResultadosTardios tardios, SeletorDeModelo seletor) {
+        this(modelo, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, anotador, esquecimentos, compactador, tardios, seletor, null);
+    }
+
+    @Autowired
+    public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
+            JsonMapper json, RegistroConversas conversas, AnexosService anexos,
+            BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
+            ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
+            EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
+            ResultadosTardios tardios, SeletorDeModelo seletor, RevisorDeProcedimentos revisor) {
+        this.revisor = revisor;
         this.seletor = seletor;
         this.tardios = tardios != null ? tardios : new ResultadosTardios();
         this.compactador = compactador;
@@ -459,10 +474,13 @@ public class Assistente {
             String fala = null;
             // Turno cortado não drena o aviso: ele fica na fila para a resposta seguinte, em vez de
             // sair pendurado numa frase de duas palavras.
-            if (anotador != null && !progresso.memoriaEsquecida() && !interrompido) {
-                String aviso = anotador.drenarAviso(chatId);
-                if (!aviso.isEmpty()) {
-                    fala = resposta;
+            if (!progresso.memoriaEsquecida() && !interrompido) {
+                // O que o revisor aprendeu sai pelo mesmo caminho e pelo mesmo motivo do "Anotei".
+                for (String aviso : new String[] {
+                        anotador == null ? "" : anotador.drenarAviso(chatId),
+                        revisor == null ? "" : revisor.drenarAviso(chatId) }) {
+                    if (aviso.isEmpty()) continue;
+                    if (fala == null) fala = resposta;
                     resposta = resposta + "\n" + aviso;
                 }
             }
@@ -499,9 +517,16 @@ public class Assistente {
                 // gravação em si sai numa thread virtual, fora do caminho da resposta.
                 arquivo.agendar(chatId, usuarioPorChat.getOrDefault(chatId, 0L),
                         historico.stream().map(this::paraDisco).toList(), conversas.trocas(chatId));
-                // O anotador recebe o texto do usuário, nunca a resposta nem saída de ferramenta.
+                // O anotador recebe o texto do usuário e a resposta final sem os avisos — nunca saída
+                // de ferramenta: ela é dado de terceiros, e memória entra no prompt de toda conversa.
                 if (anotador != null) {
-                    anotador.registrarTurno(chatId, progresso.usuarioAutenticado(), canal.nome(), texto);
+                    anotador.registrarTurno(chatId, progresso.usuarioAutenticado(), canal.nome(), texto,
+                            fala != null ? fala : resposta);
+                }
+                // O revisor recebe o turno inteiro, porque o que ele aprende é justamente a sequência
+                // de ferramentas; quem resume (e corta os resultados) é ele, em Java.
+                if (revisor != null) {
+                    revisor.registrarTurno(chatId, progresso.usuarioAutenticado(), canal.nome(), turno);
                 }
             }
             return publica;

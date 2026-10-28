@@ -10,6 +10,7 @@ import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.provedor.ConversorAnthropic;
 import dev.jarvis.ia.provedor.InstrucoesDeSistema;
 import dev.jarvis.memoria.MemoriaService;
+import dev.jarvis.memoria.ProcedimentosService;
 import dev.jarvis.tela.PresencaDaHud;
 import dev.jarvis.tela.TelaEstadoService;
 import tools.jackson.databind.json.JsonMapper;
@@ -30,6 +31,8 @@ public class SistemaDoJarvis {
     private final TelaEstadoService tela;
     private final PresencaDaHud hud;
     private final MemoriaService memoria;
+    /** O índice do que o Jarvis aprendeu fazendo. Nulo nos construtores de teste, como a memória. */
+    private final ProcedimentosService procedimentos;
 
     /** Sem HUD e sem memória: o que vale para teste e para quem chama de dentro do processo. */
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props) {
@@ -42,9 +45,16 @@ public class SistemaDoJarvis {
         this(personalidade, json, props, new TelaEstadoService(), PresencaDaHud.semTela(), memoria);
     }
 
-    @Autowired
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
             TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria) {
+        this(personalidade, json, props, tela, hud, memoria, null);
+    }
+
+    @Autowired
+    public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
+            TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
+            ProcedimentosService procedimentos) {
+        this.procedimentos = procedimentos;
         this.personalidade = personalidade;
         this.json = json;
         this.props = props;
@@ -91,9 +101,13 @@ public class SistemaDoJarvis {
         boolean podeLembrar = memoria != null && usuario > 0
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD);
         String sobreUsuario = podeLembrar ? memoria.resumoParaContexto(usuario, mensagem) : "";
+        // O índice vai no bloco dinâmico, como o resumo da memória: ele muda quando o revisor
+        // aprende algo, e no bloco fixo levaria o cache de prompt embora a cada procedimento novo.
+        String aprendidos = procedimentos != null && usuario > 0
+                && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? procedimentos.indice(usuario) : "";
         return PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
                 props.nomeUsuario(), ZonedDateTime.now(props.zona()), props.buscaWebAtiva(), naTela,
-                sobreUsuario);
+                sobreUsuario, aprendidos);
     }
 
     /**
