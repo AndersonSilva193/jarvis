@@ -12,6 +12,19 @@ import dev.jarvis.pc.ResultadoPc;
 import tools.jackson.databind.json.JsonMapper;
 
 class ConsultaArquivosPcTest {
+    private static final String ID = "a81517b3-bc2a-4857-882d-bb0fba2f9e6d";
+
+    @Test void nomeNoLugarDoIdVoltaAoModeloSemIrAoPc() throws Exception {
+        PcService pc = mock(PcService.class);
+        when(pc.online()).thenReturn(true);
+        var json = JsonMapper.builder().build();
+        String resposta = new LerArquivoFerramenta(pc, json).executar(json.createObjectNode()
+                .put("id", "gasto_jarvis_atualizado_2026-10-27.xlsx").put("aba", "Resumo"));
+        assertTrue(resposta.contains("não é um id do catálogo"), resposta);
+        assertTrue(resposta.contains("listar_arquivos"), resposta);
+        verify(pc, never()).enfileirar(any(), any(), anyLong());
+    }
+
     @Test void lerArquivoUsaPaginasDeAteSeisMilCaracteres() throws Exception {
         PcService pc = mock(PcService.class);
         var json = JsonMapper.builder().build();
@@ -26,9 +39,9 @@ class ConsultaArquivosPcTest {
         var ler = new LerArquivoFerramenta(pc, json);
         assertEquals(6000, ler.esquemaEntrada().path("properties")
                 .path("maximoCaracteres").path("maximum").intValue());
-        ler.executar(json.createObjectNode().put("id", "doc-1").put("maximoCaracteres", 12000));
+        ler.executar(json.createObjectNode().put("id", ID).put("maximoCaracteres", 12000));
         assertEquals(6000, enviado.get().dados().path("maximoCaracteres").intValue());
-        ler.executar(json.createObjectNode().put("id", "doc-1").put("inicio", 6000));
+        ler.executar(json.createObjectNode().put("id", ID).put("inicio", 6000));
         assertEquals(6000, enviado.get().dados().path("maximoCaracteres").intValue());
         assertEquals(6000, enviado.get().dados().path("inicio").intValue());
     }

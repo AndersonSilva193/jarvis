@@ -3,6 +3,7 @@ package dev.jarvis.ferramentas;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.ResultadoPc;
@@ -38,6 +39,12 @@ final class ConsultaArquivosPc {
         if (!pc.online()) return falta("O PC está offline; os arquivos originais locais estão indisponíveis.");
         if (entrada == null || !entrada.isObject() || entrada.toString().length() > 2000)
             return falta("Parâmetros de consulta inválidos.");
+        // O agente só aceita o UUID do catálogo, e o modelo às vezes manda o nome do arquivo no
+        // lugar dele. Lá a recusa sai genérica; aqui dá para dizer o que corrigir, sem ir ao PC.
+        JsonNode id = entrada.path("id");
+        if (id.isString() && !ID_DO_CATALOGO.matcher(id.stringValue()).matches())
+            return falta("'" + cortar(id.stringValue()) + "' não é um id do catálogo. Use o campo "
+                    + "id (36 caracteres) que listar_arquivos devolveu para este arquivo, não o nome.");
         ComandoPc comando = new ComandoPc(UUID.randomUUID().toString(), acao, "",
                 Instant.now().toString(), entrada.deepCopy());
         ResultadoPc resultado;
@@ -65,5 +72,12 @@ final class ConsultaArquivosPc {
 
     private static Resposta falta(String recado) {
         return new Resposta(null, recado);
+    }
+
+    /** O mesmo formato que o {@code CatalogoDeArquivos.porId} do agente exige. */
+    private static final Pattern ID_DO_CATALOGO = Pattern.compile("[0-9a-fA-F-]{36}");
+
+    private static String cortar(String texto) {
+        return texto.length() > 80 ? texto.substring(0, 80) + "…" : texto;
     }
 }
