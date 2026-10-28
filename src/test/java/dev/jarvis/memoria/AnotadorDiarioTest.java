@@ -124,11 +124,12 @@ class AnotadorDiarioTest {
     @DisplayName("candidato recusado não entra no diário: nada foi gravado")
     void candidatoRecusadoNaoEntraNoDiario() throws Exception {
         var memoria = memoria();
-        // Evidência que o usuário não escreveu: o MemoriaService recusa antes de gravar.
+        // Segredo: o filtro do MemoriaService recusa antes de gravar. (Era evidência que o usuário
+        // não escreveu, mas a prova de citação saiu do anotador e esse candidato hoje grava.)
         var anotador = anotador(memoria,
-                candidato("cidade", "Mora em São Paulo", "eu moro em São Paulo"));
+                candidato("roteador", "A senha do roteador é 1234", "a senha do roteador é 1234"));
 
-        conversar(anotador, "trabalho com Java");
+        conversar(anotador, "a senha do roteador é 1234");
         assertTrue(anotador.aguardar(Duration.ofSeconds(5)), "a análise terminou");
 
         assertTrue(memoria.assuntos(DONO).isEmpty(), "nada foi gravado");

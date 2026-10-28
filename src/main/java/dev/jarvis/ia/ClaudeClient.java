@@ -115,7 +115,7 @@ public class ClaudeClient {
             case CONVERSA, COMPUTER_USE -> PerfilDeEsforco.CONVERSA;
             case BRIEFING -> PerfilDeEsforco.BRIEFING;
             case INICIALIZACAO -> PerfilDeEsforco.INICIALIZACAO;
-            case ANOTADOR, CLASSIFICADOR -> PerfilDeEsforco.APOIO;
+            case ANOTADOR, CLASSIFICADOR, BUSCA -> PerfilDeEsforco.APOIO;
         };
     }
 

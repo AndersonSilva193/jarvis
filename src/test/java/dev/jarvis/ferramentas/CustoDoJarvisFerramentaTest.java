@@ -217,7 +217,8 @@ class CustoDoJarvisFerramentaTest {
                 Map.of("modelo-a", 6.00), List.of(), 0, 0));
 
         String texto = executar(null);
-        assertTrue(texto.contains("e mais 2"), texto);
+        // Quatro origens por extenso, o resto contado: a conta acompanha a Origem que entrar.
+        assertTrue(texto.contains("e mais " + (Origem.values().length - 4)), texto);
         assertTrue(texto.length() < MAX_CARACTERES);
     }
 

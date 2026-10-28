@@ -33,6 +33,12 @@ public class SistemaDoJarvis {
     private final MemoriaService memoria;
     /** O índice do que o Jarvis aprendeu fazendo. Nulo nos construtores de teste, como a memória. */
     private final ProcedimentosService procedimentos;
+    /**
+     * Se há busca nenhuma, a nativa ou a {@code buscar_na_web}: decidido na partida, como a lista de
+     * ferramentas, para as regras do prompt nunca prometerem uma busca que a lista não tem.
+     */
+    private final boolean buscaAtiva;
+    private final boolean buscaPorFerramenta;
 
     /** Sem HUD e sem memória: o que vale para teste e para quem chama de dentro do processo. */
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props) {
@@ -61,6 +67,8 @@ public class SistemaDoJarvis {
         this.tela = tela;
         this.hud = hud;
         this.memoria = memoria;
+        this.buscaAtiva = !props.provedoresDeBusca().isEmpty();
+        this.buscaPorFerramenta = props.ferramentaDeBuscaOferecida();
     }
 
     /**
@@ -106,8 +114,8 @@ public class SistemaDoJarvis {
         String aprendidos = procedimentos != null && usuario > 0
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? procedimentos.indice(usuario) : "";
         return PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
-                props.nomeUsuario(), ZonedDateTime.now(props.zona()), props.buscaWebAtiva(), naTela,
-                sobreUsuario, aprendidos);
+                props.nomeUsuario(), ZonedDateTime.now(props.zona()), buscaAtiva,
+                buscaPorFerramenta, naTela, sobreUsuario, aprendidos);
     }
 
     /**

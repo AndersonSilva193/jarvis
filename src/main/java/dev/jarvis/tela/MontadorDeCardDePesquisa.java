@@ -394,7 +394,7 @@ public final class MontadorDeCardDePesquisa {
      * Esta URL vai para a tela como link clicável, então um "javascript:" aqui seria script
      * rodando na HUD. Vazia é aceita — fonte sem link acontece.
      */
-    static String urlSegura(String url) {
+    public static String urlSegura(String url) {
         if (url == null || url.isBlank()) {
             return "";
         }

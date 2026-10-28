@@ -48,6 +48,14 @@ jarvis:
     tipo: ${BUSCA_WEB_TIPO:web_search_20250305}
     # Teto de buscas por pedido. Cada busca é cobrada à parte dos tokens.
     max-usos: ${BUSCA_WEB_MAX_USOS:3}
+    # Ordem de quem a buscar_na_web tenta. Sem chave ou sem URL, o provedor é pulado. Com
+    # "anthropic" em primeiro (ou sem nenhum outro configurado), fica só a busca nativa, como antes.
+    provedores: ${BUSCA_PROVEDORES:tavily,searxng,anthropic}
+    tavily-api-key: ${TAVILY_API_KEY:}
+    # Pode ser endereço interno da rede do Docker (http://searxng:8080). É configuração, não vem do modelo.
+    searxng-url: ${SEARXNG_URL:}
+    # Créditos do Tavily por mês: aviso em 80%, e em 100% o Tavily é pulado até a virada. 0 desliga.
+    cota-mensal-tavily: ${BUSCA_COTA_MENSAL_TAVILY:1000}
   clima:
     cidade: ${CLIMA_CIDADE:Curitiba}
     # Coordenadas da cidade (o "-" antes do número é o valor default, não um erro de sintaxe)

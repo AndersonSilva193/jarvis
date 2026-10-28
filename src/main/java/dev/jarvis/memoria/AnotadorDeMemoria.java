@@ -471,7 +471,11 @@ public class AnotadorDeMemoria {
         if (anotado == null || expirado(anotado, relogio.instant())) {
             return "";
         }
-        List<String> curtos = anotado.conteudos().stream().map(AnotadorDeMemoria::curto).toList();
+        // Sem o ponto final de cada fato: o modelo escreve com as próprias palavras e costuma
+        // terminar a frase, e o ponto do aviso faria "Jarvis..".
+        List<String> curtos = anotado.conteudos().stream().map(AnotadorDeMemoria::curto)
+                .map(c -> c.endsWith(".") && !c.endsWith("..") ? c.substring(0, c.length() - 1) : c)
+                .toList();
         if (curtos.size() == 1) {
             return "Anotei: " + curtos.getFirst() + ".";
         }

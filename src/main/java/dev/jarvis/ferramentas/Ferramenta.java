@@ -20,6 +20,13 @@ public interface Ferramenta {
     /** Se há um caminho comum que conclui o pedido com esta chamada. */
     default boolean simples() { return false; }
 
+    /**
+     * Se a ferramenta entra na lista enviada ao modelo. Tem de ser decidido <b>na partida</b> e
+     * nunca mudar depois: a lista é o começo do prefixo do cache de prompt. Quem precisa de estado
+     * volátil (PC fora, cota esgotada) recusa na execução, não aqui.
+     */
+    default boolean oferecida() { return true; }
+
     /** Explica ao modelo o que a ferramenta faz e quando usar. Quanto mais claro, melhor ele escolhe. */
     String descricao();
 
@@ -54,6 +61,8 @@ public interface Ferramenta {
             case "acoes_do_jarvis" -> "consultando o diário";
             case "tocar_youtube" -> "procurando no YouTube";
             case "abrir_pagina" -> "preparando a página";
+            case "buscar_na_web" -> "pesquisando na web";
+            case "ler_pagina_web" -> "lendo a página";
             case "mostrar_na_tela" -> "montando o card";
             case "grafico_de_dados" -> "montando o gráfico";
             case "controlar_tela" -> "ajustando a tela";

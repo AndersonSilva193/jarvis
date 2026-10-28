@@ -112,6 +112,9 @@ final class CicloDeFerramentas {
         int buscas = 0;
         AtomicInteger restante = new AtomicInteger(4_000);
         AtomicBoolean esqueceu = new AtomicBoolean();
+        // Pesquisa real no pedido: a nativa (contada pela API) ou uma buscar_na_web que achou algo.
+        // É o que libera o "pesquisaAtual" de criar_arquivo e criar_planilha_google.
+        AtomicBoolean pesquisou = new AtomicBoolean();
         Map<String, String> evidencias = new HashMap<>();
         String ultimoErroDeArquivo = "";
         String ultimaFalhaDeArquivo = "";
@@ -173,7 +176,7 @@ final class CicloDeFerramentas {
             List<Bloco> resultados = new ArrayList<>();
             String erroRepetidoDeArquivo = "";
             boolean substitutoRecusado = false;
-            boolean pesquisaFeita = buscas > 0;
+            if (buscas > 0) pesquisou.set(true);
             for (Bloco blocoDoModelo : conteudo) {
                 if (blocoDoModelo instanceof Bloco.Chamada bloco) {
                     String nomeFerramenta = bloco.nome();
@@ -237,7 +240,7 @@ final class CicloDeFerramentas {
                             return evidencias.entrySet().stream().filter(e -> e.getKey().contains(texto))
                                     .map(e -> "ferramenta:" + e.getValue()).findFirst().orElse("");
                         }
-                        @Override public boolean pesquisaFeita() { return pesquisaFeita; }
+                        @Override public boolean pesquisaFeita() { return pesquisou.get(); }
                         @Override public void ferramenta(String nome, String descricao, Integer atual, Integer total) {
                             OuvinteProgresso.avisar(() -> progresso.ferramenta(nome, descricao, atual, total));
                         }
@@ -257,6 +260,9 @@ final class CicloDeFerramentas {
                                         || !detalhados.getLast().artefatos().isEmpty());
                         falhaEdicao = preparada ? "" : textoIntegral;
                     }
+                    if ("buscar_na_web".equals(nomeFerramenta) && !resultado.erro()
+                            && textoIntegral.startsWith("Fonte: "))
+                        pesquisou.set(true);
                     if (List.of("verificar_site", "status_servidor", "clima").contains(nomeFerramenta)
                             && !resultado.erro())
                         evidencias.put(textoIntegral, nomeFerramenta);

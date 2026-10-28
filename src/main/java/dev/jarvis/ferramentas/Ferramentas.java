@@ -139,6 +139,7 @@ public class Ferramentas {
         List<DefinicaoDeFerramenta> lista = new ArrayList<>();
         Map<String, String> digitais = new LinkedHashMap<>();
         for (Ferramenta f : porNome.values()) {
+            if (!f.oferecida()) continue;
             if (canal == Canal.TELEGRAM && "ouvir_resposta".equals(f.nome())) continue;
             if (tarefaPlanilha && !List.of("listar_arquivos", "ler_arquivo", "editar_arquivo",
                     "verificar_site", "clima").contains(f.nome())) continue;

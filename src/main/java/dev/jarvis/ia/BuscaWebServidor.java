@@ -30,6 +30,12 @@ public class BuscaWebServidor {
 
     private final ObjectNode definicao;
     private final int maxUsos;
+    /**
+     * Se a conversa recebe a definição. Falso quando o primeiro provedor configurado da
+     * {@code buscar_na_web} não é a Anthropic: o modelo não pode ter dois jeitos de pesquisar. A
+     * definição continua montada mesmo assim, porque a reserva {@code AnthropicBusca} a usa.
+     */
+    private final boolean naConversa;
 
     /**
      * Anotado de propósito: a classe tem dois construtores, e entre vários o Spring escolhe o sem
@@ -46,6 +52,7 @@ public class BuscaWebServidor {
                             : "BUSCA_WEB_ATIVA=false");
             this.definicao = null;
             this.maxUsos = 0;
+            this.naConversa = false;
             return;
         }
         JarvisProperties.BuscaWeb config = props.buscaWeb();
@@ -64,12 +71,19 @@ public class BuscaWebServidor {
         onde.put("country", "BR");
         onde.put("timezone", props.zona().getId());
         this.definicao = def;
-        log.info("Busca na web: ligada (tipo={}, até {} busca(s) por pedido)", config.tipo(), maxUsos);
+        this.naConversa = props.buscaNativaNaConversa();
+        if (naConversa) {
+            log.info("Busca na web: ligada (tipo={}, até {} busca(s) por pedido)", config.tipo(), maxUsos);
+        } else {
+            log.info("Busca na web: a nativa saiu da conversa; o modelo pesquisa pela buscar_na_web "
+                    + "({})", String.join(" -> ", props.provedoresDeBusca()));
+        }
     }
 
     private BuscaWebServidor() {
         this.definicao = null;
         this.maxUsos = 0;
+        this.naConversa = false;
     }
 
     /** Instância desligada, para quem monta o Assistente à mão (testes e chamadas internas). */
@@ -77,11 +91,15 @@ public class BuscaWebServidor {
         return new BuscaWebServidor();
     }
 
+    /** Se a conversa recebe a busca nativa. Quem a reserva usa é {@link #definicao()}. */
     public boolean ativa() {
-        return definicao != null;
+        return definicao != null && naConversa;
     }
 
-    /** A definição pronta, ou {@code null} quando a busca está desligada. */
+    /**
+     * A definição pronta, ou {@code null} quando a busca está desligada. Existe também quando a
+     * nativa saiu da conversa: é a da reserva {@code AnthropicBusca}.
+     */
     public ObjectNode definicao() {
         return definicao;
     }

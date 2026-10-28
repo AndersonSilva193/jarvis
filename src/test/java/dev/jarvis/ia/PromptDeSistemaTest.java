@@ -261,4 +261,21 @@ class PromptDeSistemaTest {
         assertEquals("briefing", Canal.BRIEFING.nome());
         assertEquals("tarefa", Canal.TAREFA.nome());
     }
+
+    @Test
+    @DisplayName("com a busca configurável, as regras nomeiam buscar_na_web e mantêm a citação por canal")
+    void buscaPorFerramenta() {
+        String nativa = texto(PromptDeSistema.montar(JSON, PERSONALIDADE, false, "5m", Canal.TELEGRAM,
+                "Anderson", AGORA, true, false, List.of(), "", "").get(1));
+        String ferramenta = texto(PromptDeSistema.montar(JSON, PERSONALIDADE, false, "5m",
+                Canal.TELEGRAM, "Anderson", AGORA, true, true, List.of(), "", "").get(1));
+
+        assertFalse(nativa.contains("buscar_na_web"));
+        assertEquals(texto(montar(Canal.TELEGRAM, false, true).get(1)), nativa,
+                "sem a ferramenta, o texto é byte a byte o de antes");
+        assertTrue(ferramenta.contains("Pesquise com buscar_na_web"));
+        assertTrue(ferramenta.contains("ler_pagina_web"));
+        assertTrue(ferramenta.contains("<<<DADO_DA_WEB"));
+        assertTrue(ferramenta.contains("Termine com até 3 links das fontes"));
+    }
 }

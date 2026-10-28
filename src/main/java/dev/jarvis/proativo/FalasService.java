@@ -49,6 +49,11 @@ public class FalasService {
         // O modo LOCAL forçado caindo no Claude: uma vez por período de indisponibilidade.
         falas.put("ia_local_indisponivel",
                 "O PC não está disponível; estou usando o Claude por enquanto.");
+        // A cota mensal do Tavily na buscar_na_web. Os números saem do MedidorDeCusto.
+        falas.put("busca_cota_alta",
+                "A cota de buscas do Tavily está em {percentual}% este mês ({usadas} de {cota}).");
+        falas.put("busca_cota_esgotada", "A cota de buscas do Tavily acabou este mês. Até a "
+                + "virada, pesquiso pelas reservas.");
         return Map.copyOf(falas);
     }
 

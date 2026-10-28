@@ -18,6 +18,11 @@ public enum Origem {
     INICIALIZACAO("inicializacao"),
     ANOTADOR("anotador"),
     CLASSIFICADOR("classificador"),
+    /**
+     * A reserva da {@code buscar_na_web} que pesquisa pela busca nativa numa chamada curta. Não é
+     * {@link #CONVERSA}: esta ligaria o cache automático numa chamada que nunca se repete.
+     */
+    BUSCA("busca"),
     COMPUTER_USE("computer_use");
 
     private final String chave;

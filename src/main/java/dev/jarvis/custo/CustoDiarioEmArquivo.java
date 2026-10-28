@@ -132,6 +132,10 @@ class CustoDiarioEmArquivo {
             if (!entrada.getKey().isBlank() && vezes > 0) estado.reservas().put(entrada.getKey(), vezes);
         }
         estado.errosDeFormato = Math.max(0, Json.numero(raiz.path("errosDeFormato")));
+        for (Map.Entry<String, JsonNode> entrada : raiz.path("buscas").properties()) {
+            long vezes = Json.numero(entrada.getValue());
+            if (!entrada.getKey().isBlank() && vezes > 0) estado.buscasPorProvedor().put(entrada.getKey(), vezes);
+        }
 
         JsonNode avisos = raiz.path("avisos");
         estado.avisou80 = Json.booleano(avisos.path("oitenta"));
@@ -184,6 +188,10 @@ class CustoDiarioEmArquivo {
             estado.reservas().forEach(reservas::put);
         }
         if (estado.errosDeFormato > 0) raiz.put("errosDeFormato", estado.errosDeFormato);
+        if (!estado.buscasPorProvedor().isEmpty()) {
+            ObjectNode buscas = raiz.putObject("buscas");
+            estado.buscasPorProvedor().forEach(buscas::put);
+        }
 
         ArquivoAtomico.gravar(arquivoDe(estado.dia()), json.writeValueAsString(raiz));
     }

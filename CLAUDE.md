@@ -59,6 +59,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
+| `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
 | `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
@@ -121,9 +122,10 @@ algum filtro passar a depender de estado, que é exatamente o bug que este aviso
 
 ## O provedor de modelo
 
-**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são seis:
+**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são sete:
 `CicloDeFerramentas`, `NarradorDeBriefing`, `InicializacaoService`, `ClassificadorDeResposta`,
-`AnotadorDeMemoria` e `RevisorDeProcedimentos`. O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
+`AnotadorDeMemoria`, `RevisorDeProcedimentos` e `AnthropicBusca` (esta pede o `@Primary`: busca
+nativa é da Anthropic por construção). O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
 quem traduz é o `ProvedorAnthropic`. Ele é **só tradução**: repetição, cache da conversa, TTL,
 esforço e custo continuam no `ClaudeClient`, que não mudou. O computer use segue com os provedores
 próprios dele.
@@ -987,7 +989,8 @@ conversa e perdê-la seria susto, não privacidade.
 ### Diário de custo
 
 `ClaudeClient.criarMensagem` recebe uma `Origem` explícita em cada chamada: `CONVERSA`,
-`BRIEFING`, `INICIALIZACAO`, `ANOTADOR` ou `CLASSIFICADOR`. Os dois provedores de computer use
+`BRIEFING`, `INICIALIZACAO`, `ANOTADOR`, `CLASSIFICADOR` ou `BUSCA` (a reserva da `buscar_na_web`,
+que pensa no esforço de apoio e não liga o cache da conversa). Os dois provedores de computer use
 registram `COMPUTER_USE` ao receber uma resposta de sucesso; `TarefasComputerUse` usa os mesmos
 tokens só para o retrato da HUD. O registro de custo acontece uma vez por resposta, depois das
 tentativas HTTP. A ferramenta `custo_do_jarvis` consulta hoje, os últimos sete ou os últimos
@@ -1253,6 +1256,26 @@ a API cobrou, e é assim que se compara antes e depois junto do `MedidorDeCusto`
   Em PDF, CSV, JSON e XLSX, o resumo não inventa valores nem preserva um cursor que saltaria dados:
   recalcula o deslocamento quando há texto paginado e pede uma releitura menor quando omite itens.
   Não corte o `JsonNode` de origem.
+- **A busca na web tem provedor configurável.** `BUSCA_PROVEDORES` (padrão
+  `tavily,searxng,anthropic`) é a ordem da ferramenta `buscar_na_web`; provedor sem
+  `TAVILY_API_KEY` ou sem `SEARXNG_URL` sai da lista **na partida**, e falhou um, vai o próximo. A
+  `AnthropicBusca` é a última reserva: chamada curta (`Origem.BUSCA`, esforço `low`) só com a
+  nativa, `max_uses: 1`, e as fontes saem dos `web_search_tool_result`, nunca do texto do modelo.
+  Quando o primeiro **configurado** não é `anthropic`, a nativa sai do array `tools`
+  (`BuscaWebServidor.ativa()` falso) e entram `buscar_na_web`/`ler_pagina_web` — pelo
+  `Ferramenta.oferecida()`, que é de partida pela regra da lista estável; com `anthropic` em
+  primeiro, ou sem chave nenhuma, o corpo é o de antes. Resultado: título, URL https (a
+  `urlSegura` do `MontadorDeCardDePesquisa` mais o esquema), data e trecho de 600 caracteres, até
+  4.000 no total, entre `<<<DADO_DA_WEB`/`>>>FIM_DADO_DA_WEB` (os sinais `<<<`/`>>>` saem do
+  conteúdo, para página nenhuma fechar a caixa). Cache de 10 minutos por `Texto.normalizar` da
+  consulta, mais quantidade e recência. A `ler_pagina_web` corta em 6.000, abaixo do
+  `RESULTADO_MAX_CARACTERES`, para não ganhar um "peça a próxima parte" que não existe.
+- **A cota do Tavily é contada por mês, sem contador próprio.** `MedidorDeCusto.registrarBusca`
+  grava `"buscas": {"tavily": N}` no dia; `buscasDoMes` soma os dias do mês (os anteriores, uma vez
+  por dia). A `CotaDeBusca` avisa pelo `AvisosProativos` ao **cruzar** 80% e 100% de
+  `BUSCA_COTA_MENSAL_TAVILY` — cruzamento acontece uma vez por mês com ou sem restart, então não há
+  marcador em disco —, e em 100% o Tavily é pulado até a virada. A leitura de página conta um
+  crédito (o Tavily cobra um por cinco): a conta erra para o lado seguro.
 
 As duas configurações novas entram nos três lugares de sempre: `JarvisProperties`,
 `application.yml` e `.env.example`.
@@ -1309,6 +1332,10 @@ As duas configurações novas entram nos três lugares de sempre: `JarvisPropert
   3 redirecionamentos, cada um revalidado; 8 s, 1 MB, e nenhum cookie ou cabeçalho de
   autenticação. Resta a janela de DNS rebinding, porque o `HttpClient` do Java não tem gancho de
   resolução — por isso da página só voltam quatro metadados `og:`, nunca o HTML cru.
+- **A `ler_pagina_web` só abre URL que a `buscar_na_web` devolveu no mesmo pedido**
+  (`UrlsDaBusca`, um par de campos pelo motivo do orçamento da lixeira). E quem busca a página é o
+  Tavily, não a VPS — por isso não passa pelo `GuardaSsrf`. O `SEARXNG_URL` pode ser interno à rede
+  do Docker porque é configuração do dono; o modelo escolhe a consulta, nunca o destino.
 - As URLs das fontes do `mostrar_na_tela` também são validadas (`MontadorDeCardDePesquisa`):
   elas viram link clicável na HUD, e um `javascript:` ali seria script rodando na tela.
 - **O agente do PC nunca monta linha de shell.** Toda execução é `ProcessBuilder` com argumentos
@@ -1378,7 +1405,7 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   novas para avisar outra vez. O que **não** se perde é o histórico de disponibilidade, que está no
   volume `proativo`, nem o uso de voz e o período já avisado, que estão em `/data/voz/uso` — o aviso
   de cota é o único que não repete depois de um restart, porque o marcador dele é de disco.
-- O retrato da tela, o cache de buscas no YouTube, a fila de comandos do PC, a fila de mensagens do
+- O retrato da tela, o cache de buscas no YouTube e na web, a fila de comandos do PC, a fila de mensagens do
   Telegram e as confirmações pendentes são **em memória**: depois de um restart o Jarvis fica cego
   para a tela até a HUD repostar o estado, qualquer confirmação pendente se perde e o que estava
   esperando a vez na fila do Telegram morre com o processo. O que **não** se perde mais é o catálogo

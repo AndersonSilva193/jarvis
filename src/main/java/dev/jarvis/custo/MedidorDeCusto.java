@@ -81,6 +81,9 @@ public class MedidorDeCusto {
     private final Map<LocalDate, List<String>> avisosPendentes = new LinkedHashMap<>();
 
     private EstadoDoDia dia;
+    /** As buscas do mês até ontem, somadas do disco em {@link #mesSomadoEm}. */
+    private Map<String, Long> mesAteOntem;
+    private LocalDate mesSomadoEm;
 
     @Autowired
     public MedidorDeCusto(JarvisProperties props, TelegramClient telegram, JsonMapper json) {
@@ -188,6 +191,55 @@ public class MedidorDeCusto {
             pendentes.put(dia.dia(), dia.copia());
         }
         naFila(false, this::gravarPendentes);
+    }
+
+    /**
+     * Uma busca da {@code buscar_na_web} que de fato foi ao provedor — cache não conta. O nome é
+     * código ({@code tavily}, {@code searxng}, {@code anthropic}), nunca texto do modelo.
+     */
+    public void registrarBusca(String provedor) {
+        String chave = provedor == null || !provedor.matches("[a-z]{1,16}") ? "outro" : provedor;
+        synchronized (trava) {
+            virarSePrecisar(hojeLocal());
+            dia.registrarBusca(chave);
+            pendentes.put(dia.dia(), dia.copia());
+        }
+        naFila(false, this::gravarPendentes);
+    }
+
+    /**
+     * Quantas buscas o provedor fez no mês corrente, hoje incluído.
+     *
+     * <p>Sai dos dias gravados, e não de um contador próprio: o mês é a soma dos dias, e dois
+     * contadores do mesmo fato acabam discordando — é a regra do {@link EstadoDoDia}. Os dias
+     * anteriores do mês não mudam mais, então a soma deles é lida do disco uma vez por dia e
+     * guardada; só hoje vem da memória a cada pergunta.
+     */
+    public long buscasDoMes(String provedor) {
+        LocalDate hoje = hojeLocal();
+        Map<String, Long> anteriores;
+        synchronized (trava) {
+            anteriores = hoje.equals(mesSomadoEm) ? mesAteOntem : null;
+        }
+        if (anteriores == null) {
+            Map<String, Long> soma = new LinkedHashMap<>();
+            if (hoje.getDayOfMonth() > 1) {
+                for (EstadoDoDia estado : estadosDe(hoje.withDayOfMonth(1), hoje.minusDays(1))) {
+                    estado.buscasPorProvedor().forEach((nome, vezes) -> soma.merge(nome, vezes, Long::sum));
+                }
+            }
+            anteriores = Map.copyOf(soma);
+            synchronized (trava) {
+                mesAteOntem = anteriores;
+                mesSomadoEm = hoje;
+            }
+        }
+        long deHoje;
+        synchronized (trava) {
+            virarSePrecisar(hoje);
+            deHoje = dia.buscasPorProvedor().getOrDefault(provedor, 0L);
+        }
+        return anteriores.getOrDefault(provedor, 0L) + deHoje;
     }
 
     /** O que o modelo do PC fez hoje, e quantas vezes o Claude teve de assumir. */

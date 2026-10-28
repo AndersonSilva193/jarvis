@@ -51,7 +51,8 @@ no contexto só as ferramentas necessárias. `FERRAMENTAS_SEMPRE_CARREGADAS` def
 disponíveis de imediato:
 `clima,criar_lembrete,listar_lembretes,controlar_pc,controlar_tela,tocar_youtube` por padrão.
 `editar_arquivo` e `tarefa_no_pc` também ficam visíveis; `ouvir_resposta` fica visível na HUD.
-A busca web e o computer use continuam disponíveis. As demais ferramentas são encontradas pela busca quando o
+A busca web (a nativa ou a `buscar_na_web`, conforme `BUSCA_PROVEDORES`) e o computer use
+continuam disponíveis. As demais ferramentas são encontradas pela busca quando o
 pedido exigir. Alterar a lista fixa muda o prefixo do cache de prompt.
 
 `RESULTADO_MAX_CARACTERES` limita a 6.000 caracteres, por padrão, cada resultado textual que
@@ -176,9 +177,25 @@ devolva textos curtos e objetivos: tudo que a ferramenta retorna vira tokens (cu
 | (na HUD) uma pergunta que precisa da sua resposta | `ouvir_resposta` |
 
 Além disso, todo dia útil às 8h ele manda um resumo de bom dia (clima, lembretes, sites e notícias),
-no cron de `RESUMO_DIARIO_CRON`. A busca na web é uma ferramenta **do servidor da Anthropic**: o
-Jarvis só manda a definição (`BUSCA_WEB_ATIVA`, `BUSCA_WEB_TIPO`, `BUSCA_WEB_MAX_USOS`) e quem
-procura é a API.
+no cron de `RESUMO_DIARIO_CRON`.
+
+#### Busca na web
+
+A busca tem provedor configurável. `BUSCA_PROVEDORES` (padrão `tavily,searxng,anthropic`) é a
+ordem em que a ferramenta `buscar_na_web` tenta: o **Tavily** (`TAVILY_API_KEY`, 1 crédito por
+busca), um **SearXNG** próprio (`SEARXNG_URL`, com o formato `json` ligado) e, por último, a busca
+nativa da Anthropic numa chamada curta ao Claude. Provedor sem chave ou sem URL é pulado; falhou
+um, vai o próximo. Cada resultado traz título, URL (só https), data quando houver e um trecho de até
+600 caracteres, e a mesma consulta fica 10 minutos em cache para não gastar crédito repetido.
+`ler_pagina_web` lê o texto de uma página (até 6.000 caracteres) pela extração do Tavily, mas só de
+uma URL que a busca do mesmo pedido trouxe.
+
+Com `anthropic` em primeiro — ou sem chave do Tavily e sem SearXNG —, tudo fica como antes: a busca
+é a ferramenta **do servidor da Anthropic**, o Jarvis só manda a definição (`BUSCA_WEB_TIPO`,
+`BUSCA_WEB_MAX_USOS`) e quem procura é a API. `BUSCA_WEB_ATIVA=false` desliga as duas.
+
+`BUSCA_COTA_MENSAL_TAVILY` (padrão 1000) é a cota do mês: em 80% o Jarvis avisa no Telegram, e em
+100% pula o Tavily até a virada. As buscas por provedor ficam no diário de custo.
 
 ### Lembretes persistentes e recorrentes
 

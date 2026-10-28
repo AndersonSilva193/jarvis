@@ -34,6 +34,12 @@ class EstadoDoDia {
     private final Map<String, Long> reservas = new LinkedHashMap<>();
     /** Chamadas de ferramenta do local com argumento torto: o número que o escalonamento lê. */
     long errosDeFormato;
+    /**
+     * As buscas da {@code buscar_na_web} por provedor ({@code tavily}, {@code searxng},
+     * {@code anthropic}). Contagem, não dólar: é dela que sai a cota do mês do Tavily, e o custo da
+     * reserva Anthropic já entra pelos tokens e pelo {@code buscasWeb} do modelo.
+     */
+    private final Map<String, Long> buscasPorProvedor = new LinkedHashMap<>();
 
     boolean avisou80;
     boolean avisou100;
@@ -76,6 +82,14 @@ class EstadoDoDia {
         locais.computeIfAbsent(origem, o -> new Uso()).somar(1, entrada, saida, 0, 0, 0, 0, false);
     }
 
+    Map<String, Long> buscasPorProvedor() {
+        return buscasPorProvedor;
+    }
+
+    void registrarBusca(String provedor) {
+        buscasPorProvedor.merge(provedor, 1L, Long::sum);
+    }
+
     void registrarReserva(String motivo) {
         reservas.merge(motivo, 1L, Long::sum);
     }
@@ -99,7 +113,7 @@ class EstadoDoDia {
 
     boolean vazio() {
         return porModelo.isEmpty() && porFerramenta.isEmpty() && locais.isEmpty()
-                && reservas.isEmpty() && errosDeFormato == 0;
+                && reservas.isEmpty() && errosDeFormato == 0 && buscasPorProvedor.isEmpty();
     }
 
     /**
@@ -129,6 +143,7 @@ class EstadoDoDia {
         locais.forEach((origem, uso) -> copia.locais.put(origem, uso.copia()));
         copia.reservas.putAll(reservas);
         copia.errosDeFormato = errosDeFormato;
+        copia.buscasPorProvedor.putAll(buscasPorProvedor);
         copia.avisou80 = avisou80;
         copia.avisou100 = avisou100;
         copia.tetoGravado = tetoGravado;

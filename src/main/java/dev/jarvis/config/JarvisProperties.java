@@ -215,8 +215,27 @@ public record JarvisProperties(
      *                busca dentro do code execution e exige modelo com programmatic tool calling.
      *                Confira pelo Models API (capabilities.server_tools.web_search) antes de trocar.
      * @param maxUsos teto de buscas por pedido. Cada busca é cobrada à parte dos tokens.
+     * @param provedores ordem de quem a {@code buscar_na_web} tenta ({@code tavily,searxng,anthropic}).
+     *                   Crua, como os preços do {@link Custo}: quem a interpreta é
+     *                   {@link JarvisProperties#provedoresDeBusca()}, uma vez por chamada, e nome
+     *                   torto cai fora com WARN em vez de impedir o Jarvis de subir.
+     * @param tavilyApiKey chave do Tavily. Vazia, o Tavily é pulado. Nunca vai ao log.
+     * @param searxngUrl   endereço do SearXNG, que pode ser interno à rede do Docker. É
+     *                     configuração do dono, não vem do modelo. Vazio, o SearXNG é pulado.
+     * @param cotaMensalTavily créditos do Tavily por mês: aviso em 80%, e em 100% o Tavily é pulado
+     *                         até a virada. Zero desliga a conta.
      */
-    public record BuscaWeb(boolean ativa, String tipo, int maxUsos) {
+    public record BuscaWeb(boolean ativa, String tipo, int maxUsos, String provedores,
+            String tavilyApiKey, String searxngUrl, int cotaMensalTavily) {
+
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public BuscaWeb {
+        }
+
+        /** A aridade de antes da busca configurável, para os testes que montam este bloco. */
+        public BuscaWeb(boolean ativa, String tipo, int maxUsos) {
+            this(ativa, tipo, maxUsos, null, "", "", 1000);
+        }
     }
 
     /** Cidade do clima e suas coordenadas (a Open-Meteo trabalha com latitude/longitude). */
@@ -652,6 +671,83 @@ public record JarvisProperties(
      */
     public boolean buscaWebAtiva() {
         return buscaWeb != null && buscaWeb.ativa();
+    }
+
+    /** Os nomes que a busca configurável conhece, na grafia do {@code BUSCA_PROVEDORES}. */
+    public static final List<String> PROVEDORES_DE_BUSCA = List.of("tavily", "searxng", "anthropic");
+
+    /** A chave do Tavily, ou vazio. Nunca vai ao log. */
+    public String chaveDoTavily() {
+        return buscaWeb == null || buscaWeb.tavilyApiKey() == null ? "" : buscaWeb.tavilyApiKey().trim();
+    }
+
+    /** O endereço do SearXNG sem a barra do fim, ou vazio. */
+    public String urlDoSearxng() {
+        String url = buscaWeb == null || buscaWeb.searxngUrl() == null ? "" : buscaWeb.searxngUrl().trim();
+        while (url.endsWith("/")) {
+            url = url.substring(0, url.length() - 1);
+        }
+        return url;
+    }
+
+    /** Créditos do Tavily por mês. Zero ou negativo é "sem conta de cota". */
+    public int cotaMensalDoTavily() {
+        return buscaWeb == null ? 1000 : Math.max(0, buscaWeb.cotaMensalTavily());
+    }
+
+    /**
+     * A ordem dos provedores da busca, só com os que estão <b>configurados</b>: Tavily com chave,
+     * SearXNG com URL e a Anthropic com a busca nativa ligada. Vazia com {@code BUSCA_WEB_ATIVA=false}.
+     *
+     * <p>Filtrada aqui, e não na hora de buscar, porque é dela que sai a decisão de qual busca o
+     * Claude enxerga — e essa decisão entra no array {@code tools}, que não pode depender de nada
+     * que mude depois da partida. Cota esgotada, por isso, não tira ninguém daqui.
+     */
+    public List<String> provedoresDeBusca() {
+        if (!buscaWebAtiva()) {
+            return List.of();
+        }
+        String bruto = buscaWeb.provedores() == null || buscaWeb.provedores().isBlank()
+                ? String.join(",", PROVEDORES_DE_BUSCA) : buscaWeb.provedores();
+        List<String> ordem = new ArrayList<>();
+        for (String parte : bruto.split(",")) {
+            String nome = parte.trim().toLowerCase(java.util.Locale.ROOT);
+            if (nome.isEmpty() || ordem.contains(nome)) {
+                continue;
+            }
+            if (!PROVEDORES_DE_BUSCA.contains(nome)) {
+                log.warn("BUSCA_PROVEDORES: provedor desconhecido '{}' ignorado; conheço {}",
+                        nome, PROVEDORES_DE_BUSCA);
+                continue;
+            }
+            boolean configurado = switch (nome) {
+                case "tavily" -> !chaveDoTavily().isEmpty();
+                case "searxng" -> !urlDoSearxng().isEmpty();
+                default -> true;
+            };
+            if (configurado) {
+                ordem.add(nome);
+            }
+        }
+        return List.copyOf(ordem);
+    }
+
+    /**
+     * Se o Claude recebe a busca nativa na conversa: só quando o primeiro provedor configurado é a
+     * Anthropic. É o "tudo como hoje" — e o caso de quem não preencheu {@code TAVILY_API_KEY}.
+     */
+    public boolean buscaNativaNaConversa() {
+        List<String> ordem = provedoresDeBusca();
+        return !ordem.isEmpty() && "anthropic".equals(ordem.getFirst());
+    }
+
+    /**
+     * Se a {@code buscar_na_web} e a {@code ler_pagina_web} entram na lista de ferramentas: o
+     * contrário exato da nativa, para o modelo nunca ter dois jeitos de pesquisar.
+     */
+    public boolean ferramentaDeBuscaOferecida() {
+        List<String> ordem = provedoresDeBusca();
+        return !ordem.isEmpty() && !"anthropic".equals(ordem.getFirst());
     }
 
     /** Caminho do arquivo de personalidade. Dentro do container é o volume montado em /app/config. */
