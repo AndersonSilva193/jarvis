@@ -36,7 +36,9 @@ import dev.jarvis.ia.provedor.Mensagem;
 import dev.jarvis.ia.provedor.OpcoesDoPedido;
 import dev.jarvis.ia.provedor.PedidoAoModelo;
 import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeApoio;
 import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import org.springframework.beans.factory.annotation.Qualifier;
 import dev.jarvis.ia.provedor.RespostaDoModelo;
 import dev.jarvis.ia.SistemaDoJarvis;
 import dev.jarvis.lembretes.LembreteService;
@@ -108,11 +110,12 @@ public class InicializacaoService {
 
     private Guardada guardada;
 
-    // Com vários construtores e nenhum anotado o Spring procuraria um sem argumentos.
+    // Com vários construtores e nenhum anotado o Spring procuraria um sem argumentos. O provedor é
+    // o de apoio: o modelo do PC primeiro, com um prazo curto, porque há alguém olhando a tela.
     @Autowired
     public InicializacaoService(ClimaService clima, SitesService sites, ServidorService servidor,
-            LembreteService lembretes, ProvedorDeModelo modelo, SistemaDoJarvis sistema,
-            JsonMapper json, JarvisProperties props) {
+            LembreteService lembretes, @Qualifier(ProvedorDeApoio.QUALIFICADOR) ProvedorDeModelo modelo,
+            SistemaDoJarvis sistema, JsonMapper json, JarvisProperties props) {
         this(clima, sites, servidor, lembretes, modelo, sistema, json, props, Clock.systemUTC(),
                 PRAZO_DAS_FONTES);
     }
@@ -258,7 +261,8 @@ public class InicializacaoService {
                     SistemaDoJarvis.instrucoes(sistema.blocos(Canal.HUD)),
                     List.of(Mensagem.texto(Mensagem.Papel.USUARIO,
                             instrucao(agora, clima, deHoje, checagens, servidor, problemas))),
-                    ListaDeFerramentas.vazia(), OpcoesDoPedido.de(Origem.INICIALIZACAO)));
+                    ListaDeFerramentas.vazia(), OpcoesDoPedido.de(Origem.INICIALIZACAO)),
+                    r -> !extrairTexto(r.textos()).isBlank());
             String texto = extrairTexto(resposta.textos());
             if (!texto.isBlank()) {
                 return texto;

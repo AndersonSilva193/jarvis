@@ -122,6 +122,16 @@ class CustoDiarioEmArquivo {
             if (!entrada.getKey().isBlank() && chamadas > 0)
                 estado.porFerramenta().put(entrada.getKey(), chamadas);
         }
+        // Dia gravado antes da IA local não tem esses campos e volta com zero, sem migração.
+        for (Map.Entry<String, JsonNode> entrada : raiz.path("local").path("porOrigem").properties()) {
+            Origem origem = Origem.porChave(entrada.getKey());
+            if (origem != null) estado.locais().put(origem, lerUso(entrada.getValue()));
+        }
+        for (Map.Entry<String, JsonNode> entrada : raiz.path("reservas").properties()) {
+            long vezes = Json.numero(entrada.getValue());
+            if (!entrada.getKey().isBlank() && vezes > 0) estado.reservas().put(entrada.getKey(), vezes);
+        }
+        estado.errosDeFormato = Math.max(0, Json.numero(raiz.path("errosDeFormato")));
 
         JsonNode avisos = raiz.path("avisos");
         estado.avisou80 = Json.booleano(avisos.path("oitenta"));
@@ -162,6 +172,18 @@ class CustoDiarioEmArquivo {
         estado.porModelo().forEach((modelo, uso) -> escrever(porModelo.putObject(modelo), uso, true));
         ObjectNode porFerramenta = raiz.putObject("porFerramenta");
         estado.porFerramenta().forEach(porFerramenta::put);
+        // Só quando há o que gravar: o arquivo de quem não liga a IA local fica como sempre foi.
+        if (!estado.locais().isEmpty()) {
+            ObjectNode local = raiz.putObject("local").put("provedor", "local");
+            ObjectNode porOrigemLocal = local.putObject("porOrigem");
+            estado.locais().forEach((origem, uso) ->
+                    escrever(porOrigemLocal.putObject(origem.chave()), uso, false));
+        }
+        if (!estado.reservas().isEmpty()) {
+            ObjectNode reservas = raiz.putObject("reservas");
+            estado.reservas().forEach(reservas::put);
+        }
+        if (estado.errosDeFormato > 0) raiz.put("errosDeFormato", estado.errosDeFormato);
 
         ArquivoAtomico.gravar(arquivoDe(estado.dia()), json.writeValueAsString(raiz));
     }

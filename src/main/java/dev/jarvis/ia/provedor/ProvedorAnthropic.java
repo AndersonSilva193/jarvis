@@ -2,6 +2,7 @@ package dev.jarvis.ia.provedor;
 
 import java.io.IOException;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.ia.ClaudeClient;
@@ -25,8 +26,12 @@ import tools.jackson.databind.node.ArrayNode;
  * <p>O system e as ferramentas são renderizados uma vez por objeto neutro e devolvidos iguais nos
  * passos seguintes ({@link InstrucoesDeSistema#renderizada}): o mesmo prefixo, byte a byte e objeto
  * a objeto, em todas as idas e vindas do turno.
+ *
+ * <p>É o {@code @Primary}: quem pede um {@code ProvedorDeModelo} sem qualificador — a conversa e o
+ * laço de ferramentas — fala com o Claude. As tarefas de apoio pedem o {@link ProvedorDeApoio}.
  */
 @Component
+@Primary
 public class ProvedorAnthropic implements ProvedorDeModelo {
 
     private final ClaudeClient claude;

@@ -165,6 +165,61 @@ class PcE2HttpTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test void inferirAceitaCodigoDeErroEDadosGrandesSoNela() throws Exception {
+        var json = JsonMapper.builder().build();
+        Path diario = temporaria.resolve("operacoes.json");
+        var e2 = new OperacoesPcService(json, diario, Clock.systemUTC());
+        var pc = new PcService(e2);
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(pc,
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+
+        // A falha da inferência traz o codigoErro em dados, com estado "falhou".
+        var falha = new ComandoPc(java.util.UUID.randomUUID().toString(), "inferir", "",
+                Instant.now().toString(), json.createObjectNode().put("think", false));
+        e2.enfileirar(falha, Duration.ofMinutes(1), Duration.ofMinutes(1), "", 0);
+        iniciar(http, falha.id());
+        http.perform(post("/api/pc/v2/comandos/" + falha.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"estado\":\"falhou\",\"mensagem\":\"sem memória\",\"dados\":{\"codigoErro\":\"sem_memoria\"}}"))
+                .andExpect(status().isNoContent());
+        assertEquals("sem_memoria",
+                e2.resultado(falha.id()).orElseThrow().dados().path("codigoErro").asString());
+
+        // 100 KB de resposta passam no inferir e continuam recusados numa consulta de arquivo.
+        String grande = "{\"estado\":\"concluído\",\"mensagem\":\"ok\",\"dados\":{\"message\":{\"role\":"
+                + "\"assistant\",\"content\":\"" + "a".repeat(100_000) + "\"}}}";
+        var inferir = new ComandoPc(java.util.UUID.randomUUID().toString(), "inferir", "",
+                Instant.now().toString(), json.createObjectNode());
+        e2.enfileirar(inferir, Duration.ofMinutes(1), Duration.ofMinutes(1), "", 0);
+        iniciar(http, inferir.id());
+        http.perform(post("/api/pc/v2/comandos/" + inferir.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON).content(grande))
+                .andExpect(status().isNoContent());
+        var leitura = ComandoPc.nova("ler_arquivo", "", Instant.now());
+        e2.enfileirar(leitura, Duration.ofMinutes(1), Duration.ofMinutes(1), "", 0);
+        iniciar(http, leitura.id());
+        http.perform(post("/api/pc/v2/comandos/" + leitura.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON).content(grande))
+                .andExpect(status().isBadRequest());
+
+        // O prompt e a resposta da inferência não vão ao diário em disco.
+        String gravado = java.nio.file.Files.readString(diario);
+        assertTrue(gravado.contains(leitura.id()));
+        assertTrue(!gravado.contains(inferir.id()) && !gravado.contains("aaaa"),
+                "inferir não é gravado no operacoes.json");
+    }
+
+    @Test void cabecalhoIaChegaAoPcService() throws Exception {
+        var e2 = new OperacoesPcService(JsonMapper.builder().build(),
+                temporaria.resolve("operacoes.json"), Clock.systemUTC());
+        var pc = new PcService(e2);
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(pc,
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+        http.perform(get("/api/pc/v2/comandos").header("X-Pc-Ia", "ativo=1;ollama=1\u0007;carregado=1"))
+                .andExpect(status().isNoContent());
+        assertEquals("ativo=1;ollama=1;carregado=1", pc.estadoIa().orElseThrow().cabecalho());
+    }
+
     private static void iniciar(MockMvc http, String id) throws Exception {
         http.perform(get("/api/pc/v2/comandos")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.comando.id").value(id));

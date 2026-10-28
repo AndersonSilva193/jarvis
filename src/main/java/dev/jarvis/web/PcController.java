@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.ArquivosPcService;
+import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.tela.FalaDaTela;
@@ -90,9 +91,10 @@ public class PcController {
     }
 
     @GetMapping("/v2/comandos")
-    public ResponseEntity<?> comandosE2(@RequestHeader(value = "X-Pc-Apps", required = false) String apps)
+    public ResponseEntity<?> comandosE2(@RequestHeader(value = "X-Pc-Apps", required = false) String apps,
+            @RequestHeader(value = "X-Pc-Ia", required = false) String ia)
             throws InterruptedException {
-        pc.proximoComando(Duration.ZERO, apps);
+        pc.proximoComando(Duration.ZERO, apps, ia);
         return e2.proximo(espera).<ResponseEntity<?>>map(entrega -> ResponseEntity.ok(Map.of(
                 "versao", OperacoesPcService.VERSAO, "comando", PcDto.de(entrega.comando()),
                 "prazoInicio", entrega.prazoInicio(), "prazoExecucao", entrega.prazoExecucao())))
@@ -123,21 +125,25 @@ public class PcController {
         // "falhou": exigir "concluído" aqui recusaria para sempre o único resultado que o agente
         // tem a dar, e o replay dele é a primeira coisa do laço — um 400 permanente ali trava o
         // agente inteiro. Arquivo e imagem continuam valendo só em sucesso.
+        // O mesmo vale para a inferência: o codigoErro de uma falha vem em 'dados', e é ele que
+        // diz à VPS se cai no Claude por timeout, por falta de memória ou por fila cheia.
         boolean etapaDeEdicao = List.of("preparar_edicao", "aplicar_edicao", "preparar_desfazer",
                 "aplicar_desfazer").contains(acao);
+        boolean inferencia = ComandoPc.INFERENCIA.contains(acao);
         if (((arquivo || imagem) && !"concluído".equals(corpo.estado()))
-                || (dados && !"concluído".equals(corpo.estado()) && !etapaDeEdicao)
+                || (dados && !"concluído".equals(corpo.estado()) && !etapaDeEdicao && !inferencia)
                 || (arquivo && !List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer")
                         .contains(acao))
                 || (imagem && !List.of("captura_tela", "computer_acao").contains(acao))
                 || (dados && !List.of("listar_arquivos", "ler_arquivo", "computer_acao",
                         "preparar_edicao", "aplicar_edicao", "preparar_desfazer", "aplicar_desfazer")
                         .contains(acao)
-                        && !dev.jarvis.pc.ComandoPc.LIXEIRA.contains(acao)))
+                        && !ComandoPc.LIXEIRA.contains(acao) && !inferencia))
             return ResponseEntity.badRequest().build();
         var dto = new PcDto.Resultado(id, "concluído".equals(corpo.estado()),
                 corpo.mensagem(), corpo.imagemBase64(), arquivo, corpo.dados());
-        if (!dto.erros().isEmpty()) return ResponseEntity.badRequest().build();
+        if (!dto.erros(inferencia ? PcDto.MAX_DADOS_INFERENCIA : PcDto.MAX_DADOS).isEmpty())
+            return ResponseEntity.badRequest().build();
         if (arquivo && !operacao.orElseThrow().estado().equals("concluído")
                 && (arquivos == null || arquivos.obter(id).isEmpty()))
             return ResponseEntity.status(409).build();
@@ -169,11 +175,14 @@ public class PcController {
      *
      * @param apps o {@code X-Pc-Apps} com os nomes que o agente aceita em {@code abrir_app};
      *             ausente mantém a lista anterior, presente e vazio zera
+     * @param ia   o {@code X-Pc-Ia}, o estado do Ollama do PC; quem o lê é a
+     *             {@code DisponibilidadeLocal}
      */
     @GetMapping("/comandos")
     public ResponseEntity<?> comandos(
-            @RequestHeader(value = "X-Pc-Apps", required = false) String apps) {
-        return pc.proximoComando(espera, apps)
+            @RequestHeader(value = "X-Pc-Apps", required = false) String apps,
+            @RequestHeader(value = "X-Pc-Ia", required = false) String ia) {
+        return pc.proximoComando(espera, apps, ia)
                 .<ResponseEntity<?>>map(comando -> ResponseEntity.ok(PcDto.de(comando)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }

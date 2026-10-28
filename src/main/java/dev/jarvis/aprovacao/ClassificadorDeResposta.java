@@ -19,7 +19,9 @@ import dev.jarvis.ia.provedor.Mensagem;
 import dev.jarvis.ia.provedor.OpcoesDoPedido;
 import dev.jarvis.ia.provedor.PedidoAoModelo;
 import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeApoio;
 import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import org.springframework.beans.factory.annotation.Qualifier;
 import dev.jarvis.ia.provedor.RespostaDoModelo;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -35,7 +37,8 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>São dois caminhos. O primeiro é de graça: texto normalizado (sem acento, minúsculo, sem
  * pontuação final) e comparado com duas listas amplas de "sim" e "não". Só mensagens curtas (até
  * {@link #MAX_PALAVRAS_DA_LISTA} palavras) decidem por ali — "pode" é sim, mas "pode, mas só a
- * pasta src" é outra conversa. O segundo caminho é uma chamada curta ao Claude: sem ferramentas,
+ * pasta src" é outra conversa. O segundo caminho é uma chamada curta ao modelo de apoio (o do PC
+ * quando ele pode, com o Claude de reserva — {@code ProvedorDeApoio}): sem ferramentas,
  * {@link #MAX_TOKENS} tokens de resposta e {@link #PRAZO} de prazo, com um system mínimo montado
  * aqui. O {@code SistemaDoJarvis} ficaria de fora de propósito: personalidade e regras de canal
  * não ajudam a dizer "sim ou não", e o prefixo cacheado da conversa não serve a um prompt deste
@@ -98,8 +101,9 @@ public class ClassificadorDeResposta {
         this(ProvedorAnthropic.sobre(claude, json));
     }
 
+    /** O de apoio: o modelo do PC primeiro, o Claude se ele não puder ou responder torto. */
     @org.springframework.beans.factory.annotation.Autowired
-    public ClassificadorDeResposta(ProvedorDeModelo modelo) {
+    public ClassificadorDeResposta(@Qualifier(ProvedorDeApoio.QUALIFICADOR) ProvedorDeModelo modelo) {
         this.modelo = modelo;
     }
 
@@ -131,12 +135,16 @@ public class ClassificadorDeResposta {
         try {
             String mensagem = "Pergunta do assistente: " + (pergunta == null ? "" : pergunta)
                     + "\nResposta da pessoa: " + (resposta == null ? "" : resposta);
+            // Resposta sem decisão legível manda o local para a reserva; "duvida" escrito é uma
+            // decisão e vale de qualquer um dos dois.
             RespostaDoModelo raiz = modelo.responder(new PedidoAoModelo(
                     InstrucoesDeSistema.de(new BlocoDeSistema(SISTEMA, null)),
                     List.of(Mensagem.texto(Mensagem.Papel.USUARIO, mensagem)),
                     ListaDeFerramentas.vazia(),
-                    OpcoesDoPedido.curta(Origem.CLASSIFICADOR, MAX_TOKENS, PRAZO)));
-            return deTexto(String.join("", raiz.textos()));
+                    OpcoesDoPedido.curta(Origem.CLASSIFICADOR, MAX_TOKENS, PRAZO)),
+                    r -> lerDecisao(String.join("", r.textos())) != null);
+            Decisao decisao = lerDecisao(String.join("", raiz.textos()));
+            return decisao == null ? Decisao.DUVIDA : decisao;
         } catch (InterruptedException e) {
             // Quem interrompeu quer o turno encerrado, não uma decisão a mais.
             Thread.currentThread().interrupt();
@@ -148,17 +156,22 @@ public class ClassificadorDeResposta {
         }
     }
 
-    /** O JSON pode vir cercado de texto; o que importa é o valor de "decisao". */
-    private Decisao deTexto(String texto) {
+    /**
+     * O JSON pode vir cercado de texto; o que importa é o valor de "decisao". Nulo quando não há
+     * decisão legível — sem a chave, ou com um valor fora das cinco —, que é o que reprova a
+     * resposta do modelo local. Quem decide pela {@code DUVIDA} nesse caso é quem chamou.
+     */
+    private static Decisao lerDecisao(String texto) {
         var achado = java.util.regex.Pattern
                 .compile("\"decisao\"\\s*:\\s*\"([a-z_]+)\"").matcher(texto.toLowerCase(Locale.ROOT));
-        if (!achado.find()) return Decisao.DUVIDA;
+        if (!achado.find()) return null;
         return switch (achado.group(1)) {
             case "sim" -> Decisao.SIM;
             case "nao" -> Decisao.NAO;
             case "ajuste" -> Decisao.AJUSTE;
             case "outro_assunto" -> Decisao.OUTRO_ASSUNTO;
-            default -> Decisao.DUVIDA;
+            case "duvida" -> Decisao.DUVIDA;
+            default -> null;
         };
     }
 

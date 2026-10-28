@@ -67,6 +67,17 @@ public class PcService {
     private final ConcurrentMap<String, Pendente> emAberto = new ConcurrentHashMap<>();
 
     private volatile Instant ultimoContato;
+    /** O último {@code X-Pc-Ia}, cru, e quando chegou. Quem interpreta é a {@code DisponibilidadeLocal}. */
+    private volatile EstadoIa estadoIa;
+
+    /**
+     * O cabeçalho {@code X-Pc-Ia} como chegou e o instante. Guardado cru porque aqui ninguém o lê:
+     * a regra de "o local pode atender agora?" mora num lugar só, a {@code DisponibilidadeLocal}.
+     */
+    public record EstadoIa(String cabecalho, Instant recebidoEm) { }
+
+    /** Teto do cabeçalho guardado: o agente manda até 512, e nada além disso tem uso. */
+    private static final int MAX_CABECALHO_IA = 512;
 
     private final Clock relogio;
     private final OperacoesPcService e2;
@@ -130,16 +141,45 @@ public class PcService {
     }
 
     /**
+     * Manda um {@code inferir} ao Ollama do PC e devolve o futuro do resultado.
+     *
+     * <p>Só pelo E2: o agente só conhece a ação lá, e um comando no caminho antigo ficaria na fila
+     * até vencer. Sem E2 no ar, o futuro já nasce falho — quem chama cai no Claude na hora, em vez
+     * de esperar um prazo inteiro por nada.
+     *
+     * @param prazo vale para o início e para a execução: passou disso, ninguém espera mais
+     */
+    public CompletableFuture<ResultadoPc> inferir(ComandoPc comando, Duration prazo) {
+        if (!ComandoPc.INFERENCIA.contains(comando.acao())) {
+            throw new IllegalArgumentException("não é uma inferência: " + comando.acao());
+        }
+        if (e2 == null || !e2.online()) {
+            return CompletableFuture.completedFuture(new ResultadoPc(comando.id(), false,
+                    "agente E2 fora do ar", null, null));
+        }
+        return e2.enfileirar(comando, prazo, prazo, "", 0);
+    }
+
+    /**
      * O próximo comando para o agente, esperando até {@code espera} por um — é o long poll.
      *
      * @param espera       quanto segurar a requisição antes de devolver vazio (204)
      * @param headerApps   o {@code X-Pc-Apps} da requisição, ou nulo quando não veio
      */
     public Optional<ComandoPc> proximoComando(Duration espera, String headerApps) {
+        return proximoComando(espera, headerApps, null);
+    }
+
+    /**
+     * @param headerIa o {@code X-Pc-Ia} da requisição, ou nulo quando não veio. Ausente mantém o
+     *                 anterior, como o {@code X-Pc-Apps}: quem decide se ele ficou velho é a idade
+     */
+    public Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa) {
         // No começo, não no fim: a prova de vida é a chegada da requisição. Marcar depois do
         // poll atrasaria o "último contato" em até 25 segundos.
         registrarContato();
         registrarApps(headerApps);
+        registrarIa(headerIa);
 
         long restante = espera.toNanos();
         while (restante > 0) {
@@ -182,7 +222,8 @@ public class PcService {
         }
         if (resultado.dados() != null && !List.of("listar_arquivos", "ler_arquivo")
                 .contains(pendente.comando().acao())
-                && !ComandoPc.LIXEIRA.contains(pendente.comando().acao())) {
+                && !ComandoPc.LIXEIRA.contains(pendente.comando().acao())
+                && !ComandoPc.INFERENCIA.contains(pendente.comando().acao())) {
             pendente.resposta().complete(new ResultadoPc(resultado.comandoId(), false,
                     "dados inesperados para esta ação", null, null));
             return false;
@@ -263,8 +304,23 @@ public class PcService {
         return catalogo.apps();
     }
 
+    /** O último {@code X-Pc-Ia}, ou vazio se o agente nunca mandou um. */
+    public Optional<EstadoIa> estadoIa() {
+        return Optional.ofNullable(estadoIa);
+    }
+
     private void registrarContato() {
         this.ultimoContato = relogio.instant();
+    }
+
+    /** Sem caractere de controle e com teto: o cabeçalho vem de fora da VPS. */
+    private void registrarIa(String headerIa) {
+        if (headerIa == null) {
+            return;
+        }
+        String limpo = headerIa.replaceAll("\\p{Cntrl}", "").trim();
+        if (limpo.length() > MAX_CABECALHO_IA) limpo = limpo.substring(0, MAX_CABECALHO_IA);
+        estadoIa = new EstadoIa(limpo, relogio.instant());
     }
 
     /**

@@ -19,7 +19,9 @@ import dev.jarvis.ia.provedor.Mensagem;
 import dev.jarvis.ia.provedor.OpcoesDoPedido;
 import dev.jarvis.ia.provedor.PedidoAoModelo;
 import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeApoio;
 import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import org.springframework.beans.factory.annotation.Qualifier;
 import dev.jarvis.ia.provedor.RespostaDoModelo;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
@@ -58,8 +60,10 @@ public class NarradorDeBriefing {
         this(ProvedorAnthropic.sobre(claude, json), sistema);
     }
 
+    /** O de apoio: o modelo do PC primeiro, o Claude se ele não puder ou errar as marcas. */
     @Autowired
-    public NarradorDeBriefing(ProvedorDeModelo modelo, SistemaDoJarvis sistema) {
+    public NarradorDeBriefing(@Qualifier(ProvedorDeApoio.QUALIFICADOR) ProvedorDeModelo modelo,
+            SistemaDoJarvis sistema) {
         this.modelo = modelo;
         this.sistema = sistema;
     }
@@ -77,12 +81,15 @@ public class NarradorDeBriefing {
         }
         try {
             // Sem ferramenta nenhuma, de propósito: é o que impede o modelo de chamar o
-            // briefing_do_dia no meio da narração do próprio briefing.
+            // briefing_do_dia no meio da narração do próprio briefing. As marcas fora de ordem ou
+            // de contagem reprovam o modelo local, e aí o Claude narra.
+            int esperados = secoes.size() + 2;
             RespostaDoModelo resposta = modelo.responder(new PedidoAoModelo(
                     SistemaDoJarvis.instrucoes(sistema.blocos(Canal.BRIEFING)),
                     List.of(Mensagem.texto(Mensagem.Papel.USUARIO, instrucao(nomeUsuario, secoes))),
-                    ListaDeFerramentas.vazia(), OpcoesDoPedido.de(Origem.BRIEFING)));
-            List<String> falas = separar(extrairTexto(resposta.textos()), secoes.size() + 2);
+                    ListaDeFerramentas.vazia(), OpcoesDoPedido.de(Origem.BRIEFING)),
+                    r -> !separar(extrairTexto(r.textos()), esperados).isEmpty());
+            List<String> falas = separar(extrairTexto(resposta.textos()), esperados);
 
             if (falas.isEmpty()) {
                 log.warn("A narração do briefing voltou fora do formato esperado; fica o texto montado em Java.");

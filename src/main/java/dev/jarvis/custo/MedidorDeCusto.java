@@ -151,6 +151,54 @@ public class MedidorDeCusto {
     }
 
     /**
+     * Uma resposta do modelo do PC: tokens e contagem, custo zero.
+     *
+     * <p>Fora do caminho de {@link #registrar}: não há preço a procurar (o WARN de "sem preço" seria
+     * mentira), nem teto a avaliar — o local não gasta dólar.
+     */
+    public void registrarLocal(Origem origem, long entrada, long saida) {
+        Origem deOnde = origem == null ? Origem.CONVERSA : origem;
+        synchronized (trava) {
+            virarSePrecisar(hojeLocal());
+            dia.somarLocal(deOnde, Math.max(0, entrada), Math.max(0, saida));
+            pendentes.put(dia.dia(), dia.copia());
+        }
+        naFila(false, this::gravarPendentes);
+    }
+
+    /**
+     * Uma tarefa que podia ir ao local e foi ao Claude, com o motivo — {@code pc_offline},
+     * {@code timeout}, {@code reprovado}... O motivo é código, nunca texto do modelo.
+     */
+    public void registrarReserva(String motivo) {
+        String chave = motivo == null || !motivo.matches("[a-z_]{1,32}") ? "outro" : motivo;
+        synchronized (trava) {
+            virarSePrecisar(hojeLocal());
+            dia.registrarReserva(chave);
+            pendentes.put(dia.dia(), dia.copia());
+        }
+        naFila(false, this::gravarPendentes);
+    }
+
+    /** Uma chamada de ferramenta do local que veio com argumento torto. */
+    public void registrarErroDeFormato() {
+        synchronized (trava) {
+            virarSePrecisar(hojeLocal());
+            dia.errosDeFormato++;
+            pendentes.put(dia.dia(), dia.copia());
+        }
+        naFila(false, this::gravarPendentes);
+    }
+
+    /** O que o modelo do PC fez hoje, e quantas vezes o Claude teve de assumir. */
+    public UsoLocal localDeHoje() {
+        synchronized (trava) {
+            virarSePrecisar(hojeLocal());
+            return UsoLocal.de(dia);
+        }
+    }
+
+    /**
      * Troca o acumulador quando a data local mudou. O retrato anterior continua na fila, mesmo
      * se uma gravação falhar e o relógio já estiver no dia seguinte.
      */
@@ -507,6 +555,11 @@ public class MedidorDeCusto {
         if (!media.isBlank()) {
             log.info("Saída média por chamada em {}: {}", estado.dia(), media);
         }
+        UsoLocal local = UsoLocal.de(estado);
+        if (local.totalDeChamadas() > 0 || !local.reservas().isEmpty()) {
+            log.info("IA local em {}: {} chamada(s), reservas no Claude {}, {} erro(s) de formato",
+                    estado.dia(), local.totalDeChamadas(), local.reservas(), local.errosDeFormato());
+        }
     }
 
     /**
@@ -561,6 +614,37 @@ public class MedidorDeCusto {
      * @param percentualDoTeto só faz sentido num relatório de um dia só; vem 0 nos demais, porque
      *                         o teto é diário e comparar uma semana com ele seria enganoso.
      */
+    /**
+     * O modelo do PC num dia.
+     *
+     * @param chamadas por origem; o custo não aparece porque é sempre zero
+     * @param reservas por motivo, as vezes em que a tarefa foi ao Claude
+     */
+    public record UsoLocal(Map<Origem, Long> chamadas, long entrada, long saida,
+            Map<String, Long> reservas, long errosDeFormato) {
+
+        public UsoLocal {
+            chamadas = Map.copyOf(chamadas);
+            reservas = Map.copyOf(reservas);
+        }
+
+        static UsoLocal de(EstadoDoDia estado) {
+            Map<Origem, Long> chamadas = new LinkedHashMap<>();
+            long entrada = 0;
+            long saida = 0;
+            for (var item : estado.locais().entrySet()) {
+                chamadas.put(item.getKey(), item.getValue().chamadas);
+                entrada += item.getValue().entrada;
+                saida += item.getValue().saida;
+            }
+            return new UsoLocal(chamadas, entrada, saida, estado.reservas(), estado.errosDeFormato);
+        }
+
+        public long totalDeChamadas() {
+            return chamadas.values().stream().mapToLong(Long::longValue).sum();
+        }
+    }
+
     public record Relatorio(LocalDate de, LocalDate ate, double totalUsd, long buscasWeb,
             Map<Origem, Double> porOrigem, Map<String, Double> porModelo,
             List<String> modelosSemPreco, double tetoUsd, int percentualDoTeto,

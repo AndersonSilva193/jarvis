@@ -31,7 +31,7 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
             "modo_repouso", "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo",
             "rodar_rotina", "computer_acao", "preparar_edicao", "aplicar_edicao",
             "preparar_desfazer", "aplicar_desfazer",
-            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira");
+            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira", "inferir");
 
     /**
      * As três da lixeira: levam o pedido todo em {@code dados} e respondem em {@code dados}.
@@ -44,6 +44,13 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
      */
     public static final Set<String> LIXEIRA = Set.of("mover_para_lixeira", "restaurar_da_lixeira",
             "listar_lixeira");
+
+    /**
+     * A chamada ao Ollama do PC, que só o {@code ProvedorLocal} enfileira. Responde em
+     * {@code dados} também quando falha: o {@code codigoErro} é o que decide a reserva no Claude.
+     * Nunca aparece ao modelo — ele não escolhe falar com outro modelo.
+     */
+    public static final Set<String> INFERENCIA = Set.of("inferir");
 
     /** As irreversíveis, que exigem aprovação {@code CRITICO} em nova mensagem autenticada. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

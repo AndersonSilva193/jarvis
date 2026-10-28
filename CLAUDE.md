@@ -48,7 +48,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 |---|---|
 | `dev.jarvis.telegram` | `TelegramClient` (Bot API) e `TelegramPoller` (leitura + filtro de usuário numa thread, fila e um trabalhador na outra) |
 | `dev.jarvis.ia` | `Assistente` (histórico, aprovações e anexos), `CicloDeFerramentas` (o laço de ferramentas de um pedido), `ClaudeClient`, `CompactadorDeHistorico` (encolhe o turno que saiu da janela de turnos completos), `PersonalidadeService` (lê e recarrega o arquivo), `SistemaDoJarvis` (monta o `system` de qualquer chamada), `PromptDeSistema`, `Canal`, `ComandoDeRepouso`, `PedidoDeParada` (a frase curta que corta o pedido em andamento), `ErroDaApiDoModelo` e `BuscaWebServidor` (a definição da busca na web, que a Anthropic executa) |
-| `dev.jarvis.ia.provedor` | `ProvedorDeModelo` (como conversar com um modelo, sem dizer qual), o formato neutro (`PedidoAoModelo`, `Mensagem`, `Bloco`, `RespostaDoModelo`, `OpcoesDoPedido`, `InstrucoesDeSistema`, `ListaDeFerramentas`), `ProvedorAnthropic`/`ConversorAnthropic` e `FormatoNeutro` (o histórico em disco) |
+| `dev.jarvis.ia.provedor` | `ProvedorDeModelo` (como conversar com um modelo, sem dizer qual), o formato neutro (`PedidoAoModelo`, `Mensagem`, `Bloco`, `RespostaDoModelo`, `OpcoesDoPedido`, `InstrucoesDeSistema`, `ListaDeFerramentas`), `ProvedorAnthropic`/`ConversorAnthropic`, `FormatoNeutro` (o histórico em disco) e a IA local: `ProvedorLocal`/`ConversorOllama` (o Ollama do PC pelo `inferir`), `DisponibilidadeLocal` (o `X-Pc-Ia` lido), `ProvedorDeApoio` (local primeiro, Claude de reserva) e `FalhaLocal` |
 | `dev.jarvis.ferramentas` | A interface `Ferramenta`, o registro `Ferramentas` e cada ferramenta |
 | `dev.jarvis.briefing` | `BriefingService` (junta as fontes e monta o texto do dia) e `NarradorDeBriefing` (lê o briefing pronto com a personalidade) |
 | `dev.jarvis.inicializacao` | `InicializacaoService` e `Introducao`: a abertura falada da HUD quando a tela acende |
@@ -68,7 +68,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `CatalogoDoPc` (os apps e as rotinas que o PC anunciou, em disco), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
-| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`) e `Texto` |
+| `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`), `ValidadorDeEsquema` (o subconjunto de JSON Schema que os `esquemaEntrada()` usam) e `Texto` |
 
 ### A mesma ferramenta, a mesma entrada, de novo
 
@@ -155,8 +155,62 @@ lista de chaves, para valer nas duas formas.
 
 Os construtores que recebem `ClaudeClient` continuam e embrulham num `ProvedorAnthropic.sobre(...)`,
 que devolve `null` sem cliente (o "sem modelo" do `ClassificadorDeResposta.semModelo()`). O
-`@Autowired` mora no construtor que recebe `ProvedorDeModelo`. Provedor novo implementa a
-interface e precisa de um `@Primary`, ou de quem escolha entre os dois.
+`@Autowired` mora no construtor que recebe `ProvedorDeModelo`. São três implementações: o
+`ProvedorAnthropic` é o **`@Primary`** (conversa e laço de ferramentas), e os quatro chamadores de
+apoio pedem o `ProvedorDeApoio` com `@Qualifier(ProvedorDeApoio.QUALIFICADOR)` — ver a seção
+seguinte. Provedor novo implementa a interface e decide onde entra entre esses dois.
+
+## A IA local nas tarefas de apoio
+
+O agente do PC sabe a ação `inferir` (um `/api/chat` no Ollama de lá) e manda o estado dela no
+cabeçalho `X-Pc-Ia` de toda consulta. A VPS usa isso nas quatro tarefas de apoio —
+`ClassificadorDeResposta`, `AnotadorDeMemoria`, `NarradorDeBriefing` e `InicializacaoService` —,
+sempre com o Claude de reserva. Desligado (`IA_LOCAL_ATIVA=false`, o padrão), nada muda: o
+`ProvedorDeApoio` vai direto ao Claude e o corpo enviado é o de sempre.
+
+```
+chamador ──► ProvedorDeApoio ──► DisponibilidadeLocal ── não ──► reserva(motivo) ──► Claude
+                  │ pode                                                 ▲
+                  ▼                                                      │
+             ProvedorLocal ──► PcService.inferir ──► E2 ──► agente ──► Ollama
+                  │ FalhaLocal(motivo) / validador reprovou ─────────────┘
+```
+
+- **O validador é o que já existia, passado como predicado** (`responder(pedido, aceita)`, um
+  `default` da interface que provedor único ignora). Classificador: o JSON tem uma decisão legível
+  — `"duvida"` escrito é decisão e vale; texto sem decisão reprova. Anotador: o JSON tem
+  `candidatos` e **toda** evidência é literal — mais estrito que o `gravar`, porque evidência
+  inventada é o sinal de que o resto também pode ser. Briefing: as marcas do `separar`. Introdução:
+  texto não vazio. Quem chama continua conferindo o que volta do Claude como sempre conferiu.
+- **A disponibilidade é decidida antes de mandar**, na ordem `pc_offline` (`PcService.online()`),
+  `ollama_offline` (sem `X-Pc-Ia` dos últimos 90 s, `ativo=0` ou `ollama=0`), `gpu_ocupada` e
+  `sem_vram`. Este último só reprova o modelo **fora** da memória: com `carregado=1` a VRAM livre é
+  baixa por causa dele mesmo. Sem leitura da GPU (`gpu=0`) só passa o que já está carregado.
+- **O prazo é de quem espera**: o classificador usa o próprio (5 s), a introdução 10 s
+  (`ProvedorLocal.PRAZO_COM_ALGUEM_ESPERANDO`), anotador e briefing o `IA_LOCAL_TIMEOUT_SEGUNDOS`.
+  Nunca acima deste. Estourou, o `inferir` é cancelado na fila e o Claude assume — no pior caso o
+  classificador leva os 5 s do local mais os 5 do Claude.
+- **Erro de formato nunca vira execução.** Toda chamada de ferramenta do local é conferida contra
+  a lista do pedido e o esquema (`ValidadorDeEsquema`): nome que não foi oferecido, argumento que
+  não é JSON ou fora do esquema volta ao próprio modelo como mensagem `tool` de erro, numa volta de
+  correção (`CORRECOES = 1`), e cada uma soma em `errosDeFormato` no medidor — é o número que o
+  escalonamento lê. Persistindo, `FalhaLocal("erro_de_formato")` e reserva.
+- **O conversor perde de propósito**: `Opaco` e o `original` de texto e chamada não vão ao Ollama,
+  o system vira a primeira mensagem, o resultado vira `{"role":"tool","tool_name":...}` com o erro
+  escrito no conteúdo (o Ollama não tem `is_error`), e `think` só é `true` na `CONVERSA`.
+
+**No medidor o local tem balde próprio** (`EstadoDoDia.locais`, `"local"` no JSON do dia, custo
+zero), e não uma linha em `porModelo`: o relatório falado soma dólares dali, e o `Cache: X% lido.`
+divide pelo prompt inteiro — tokens sem cache do local baixariam a taxa do Claude sem o Claude ter
+mudado nada. As reservas são contadas por motivo (`reservas`), e os três campos só entram no arquivo
+quando existem. Leitura em `MedidorDeCusto.localDeHoje()` e numa linha de log ao lado da saída média.
+
+**O `inferir` não vai ao `operacoes.json`.** O `dados` é o prompt, com mensagens do dono, e ninguém
+espera por ele depois de um restart; o resultado de um id que sumiu recebe 404, que o agente trata
+como definitivo. Retenção de 5 minutos, como o `computer_acao`. No `PcController` ele aceita
+`dados` também em `falhou` (é lá que vem o `codigoErro`) e até `PcDto.MAX_DADOS_INFERENCIA`
+(256 KiB, o padrão do agente) em vez dos 32 KB das consultas. Fica fora do enum da `controlar_pc`
+(`ComandoPc.INFERENCIA`): o modelo não escolhe falar com outro modelo.
 
 ## Personalidade e canais
 
@@ -389,7 +443,7 @@ filtro do enum em `ControlarPcFerramenta.esquemaEntrada` (senão ela aparece dua
 e os dois portões de `dados` — `PcController` no caminho E2 e `PcService.concluir` no antigo. Fora
 de um dos portões, o resultado estruturado volta 400 para sempre; como o replay do resultado é a
 primeira coisa do laço do agente, ele travaria inteiro. É o que o conjunto `ComandoPc.LIXEIRA`
-existe para não deixar acontecer de novo.
+existe para não deixar acontecer de novo — e o `ComandoPc.INFERENCIA`, pelo mesmo motivo.
 
 O PC roda um agente (projeto irmão `../jarvis-agente-pc`: Java 21, sem Spring, um jar) que
 **busca** comandos na VPS por long polling — `GET /api/pc/comandos` segura a requisição por 25 s.
@@ -914,6 +968,17 @@ O intervalo é o único número que o `@Scheduled` lê direto do yml
 (`fixedDelayString = "${jarvis.proativo.sites-intervalo-minutos:5}"`, em minutos), como o
 `jarvis.resumo-diario.cron` já faz. O acessor `intervaloDeChecagemDeSites()` existe para quem
 monta as properties à mão, com piso de 1 minuto.
+
+### A IA local
+
+`IA_LOCAL_ATIVA` (padrão `false`), `IA_LOCAL_APOIO` (vazio acompanha a ativa; `false` mantém o
+apoio no Claude), `IA_LOCAL_TIMEOUT_SEGUNDOS` (60) e `IA_LOCAL_VRAM_MINIMA_MB` (6000) entraram
+**esticando o bloco `Pc`** com um sub-record `IaLocal` como sexto componente, e um construtor de
+compatibilidade de cinco argumentos dentro do próprio `Pc` — nenhuma linha de teste precisou
+mudar. O `apoio` é `String` crua pelo motivo do `Esforcos`: vazio tem de significar "o mesmo que
+`ativa`", o que um `boolean` não sabe dizer. Os acessores (`apoioLocal()`, `prazoDaIaLocal()`,
+`vramMinimaDaIaLocal()`) moram no `JarvisProperties`, com os padrões repetidos lá para quem monta as
+properties à mão.
 
 ### O TTL do cache de prompt
 

@@ -22,6 +22,18 @@ class EstadoDoDia {
     private final Map<Origem, Uso> porOrigem = new EnumMap<>(Origem.class);
     private final Map<String, Uso> porModelo = new LinkedHashMap<>();
     private final Map<String, Long> porFerramenta = new LinkedHashMap<>();
+    /**
+     * As chamadas ao modelo do PC, por origem: tokens e contagem, custo sempre zero.
+     *
+     * <p>Balde separado, e não uma entrada a mais em {@link #porModelo}: o relatório falado soma
+     * dólares e tokens dali, e o {@code Cache: X% lido.} divide pelo prompt inteiro. Tokens locais
+     * lá dentro baixariam a taxa de cache do Claude sem o Claude ter mudado nada.
+     */
+    private final Map<Origem, Uso> locais = new EnumMap<>(Origem.class);
+    /** Quantas vezes uma tarefa que podia ir ao local foi ao Claude, por motivo. */
+    private final Map<String, Long> reservas = new LinkedHashMap<>();
+    /** Chamadas de ferramenta do local com argumento torto: o número que o escalonamento lê. */
+    long errosDeFormato;
 
     boolean avisou80;
     boolean avisou100;
@@ -52,6 +64,22 @@ class EstadoDoDia {
         porFerramenta.merge(nome, 1L, Long::sum);
     }
 
+    Map<Origem, Uso> locais() {
+        return locais;
+    }
+
+    Map<String, Long> reservas() {
+        return reservas;
+    }
+
+    void somarLocal(Origem origem, long entrada, long saida) {
+        locais.computeIfAbsent(origem, o -> new Uso()).somar(1, entrada, saida, 0, 0, 0, 0, false);
+    }
+
+    void registrarReserva(String motivo) {
+        reservas.merge(motivo, 1L, Long::sum);
+    }
+
     void somar(Origem origem, String modelo, long entrada, long saida, long cacheEscrito,
             long cacheLido, long buscasWeb, double custoUsd, boolean semPreco) {
         // Uma soma é uma resposta do modelo: o 1 é a contagem de chamadas dos dois baldes.
@@ -70,7 +98,8 @@ class EstadoDoDia {
     }
 
     boolean vazio() {
-        return porModelo.isEmpty() && porFerramenta.isEmpty();
+        return porModelo.isEmpty() && porFerramenta.isEmpty() && locais.isEmpty()
+                && reservas.isEmpty() && errosDeFormato == 0;
     }
 
     /**
@@ -97,6 +126,9 @@ class EstadoDoDia {
         porOrigem.forEach((origem, uso) -> copia.porOrigem.put(origem, uso.copia()));
         porModelo.forEach((modelo, uso) -> copia.porModelo.put(modelo, uso.copia()));
         copia.porFerramenta.putAll(porFerramenta);
+        locais.forEach((origem, uso) -> copia.locais.put(origem, uso.copia()));
+        copia.reservas.putAll(reservas);
+        copia.errosDeFormato = errosDeFormato;
         copia.avisou80 = avisou80;
         copia.avisou100 = avisou100;
         copia.tetoGravado = tetoGravado;

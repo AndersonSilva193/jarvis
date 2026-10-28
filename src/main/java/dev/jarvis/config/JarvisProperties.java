@@ -275,13 +275,26 @@ public record JarvisProperties(
      * única fonte de verdade, no PC.
      */
     public record Pc(String token, String operacoesPasta, int edicaoMaxBytes,
-            int edicaoMaxOperacoes, int edicaoMaxBytesResultado) {
+            int edicaoMaxOperacoes, int edicaoMaxBytesResultado, IaLocal iaLocal) {
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Pc { }
+        public Pc(String token, String operacoesPasta, int edicaoMaxBytes,
+                int edicaoMaxOperacoes, int edicaoMaxBytesResultado) {
+            this(token, operacoesPasta, edicaoMaxBytes, edicaoMaxOperacoes,
+                    edicaoMaxBytesResultado, null);
+        }
         public Pc(String token, String operacoesPasta) {
             this(token, operacoesPasta, 1024 * 1024, 10, 1024 * 1024);
         }
         public Pc(String token) { this(token, "/data/pc/operacoes.json"); }
+
+        /**
+         * O Ollama do PC, falado pela ação {@code inferir} do agente.
+         *
+         * @param apoio crua, e não {@code Boolean}: vazia quer dizer "o mesmo que {@code ativa}", e
+         *              é isso que deixa ligar a IA local com uma variável só
+         */
+        public record IaLocal(boolean ativa, String apoio, int timeoutSegundos, int vramMinimaMb) { }
     }
 
     /** Credenciais OAuth da integração opcional com uma conta Google. */
@@ -403,6 +416,34 @@ public record JarvisProperties(
     /** Se o controle do PC está configurado. Sem token, a rota do agente recusa tudo. */
     public boolean pcConfigurado() {
         return !tokenDoPc().isBlank();
+    }
+
+    /** Se a VPS pode mandar {@code inferir} ao PC. Null-safe: properties à mão ficam sem IA local. */
+    public boolean iaLocalAtiva() {
+        return pc != null && pc.iaLocal() != null && pc.iaLocal().ativa();
+    }
+
+    /**
+     * Se as tarefas de apoio tentam o local antes do Claude. Vazio acompanha {@link #iaLocalAtiva()};
+     * qualquer coisa que não seja {@code false} também — e com a IA local desligada é sempre falso.
+     */
+    public boolean apoioLocal() {
+        if (!iaLocalAtiva()) return false;
+        String apoio = pc.iaLocal().apoio();
+        return apoio == null || !apoio.trim().equalsIgnoreCase("false");
+    }
+
+    /** Quanto o local tem para responder, com 60 s de padrão e piso de 1 s. */
+    public java.time.Duration prazoDaIaLocal() {
+        int segundos = pc == null || pc.iaLocal() == null || pc.iaLocal().timeoutSegundos() <= 0
+                ? 60 : pc.iaLocal().timeoutSegundos();
+        return java.time.Duration.ofSeconds(segundos);
+    }
+
+    /** VRAM livre exigida para carregar o modelo, com 6000 MB de padrão. */
+    public int vramMinimaDaIaLocal() {
+        return pc == null || pc.iaLocal() == null || pc.iaLocal().vramMinimaMb() <= 0
+                ? 6000 : pc.iaLocal().vramMinimaMb();
     }
 
     /** Caminho do arquivo de lembretes. Dentro do container é o volume montado em /data/jarvis. */

@@ -341,6 +341,7 @@ public class OperacoesPcService {
             }
             if (o.finalizada()) {
                 Duration retencao = "computer_acao".equals(o.comando.acao())
+                        || ComandoPc.INFERENCIA.contains(o.comando.acao())
                         ? Duration.ofMinutes(5) : RETENCAO;
                 if (agora.isAfter(o.atualizado.plus(retencao))) {
                     operacoes.remove(o.comando.id());
@@ -405,6 +406,11 @@ public class OperacoesPcService {
             Files.createDirectories(arquivo.getParent());
             ArrayNode lista = json.createArrayNode();
             for (Operacao o : operacoes.values()) {
+                // A inferência não vai ao disco: o pedido é o prompt, com mensagens do dono, e
+                // ninguém espera por ela depois de um restart. Gravar 256 KiB a cada mudança de
+                // estado de qualquer operação seria disco gasto para guardar o que não tem dono.
+                // O resultado que o agente postar para um id que sumiu recebe 404, e ele desiste.
+                if (ComandoPc.INFERENCIA.contains(o.comando.acao())) continue;
                 ObjectNode n = lista.addObject().put("id", o.comando.id()).put("acao", o.comando.acao())
                         .put("argumento", o.comando.argumento()).put("criadoEm", o.comando.criadoEm())
                         .put("inicio", o.inicio.toString()).put("execucao", o.execucao.toString())

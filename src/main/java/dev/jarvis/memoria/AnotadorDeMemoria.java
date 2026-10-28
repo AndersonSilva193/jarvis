@@ -34,7 +34,9 @@ import dev.jarvis.ia.provedor.Mensagem;
 import dev.jarvis.ia.provedor.OpcoesDoPedido;
 import dev.jarvis.ia.provedor.PedidoAoModelo;
 import dev.jarvis.ia.provedor.ProvedorAnthropic;
+import dev.jarvis.ia.provedor.ProvedorDeApoio;
 import dev.jarvis.ia.provedor.ProvedorDeModelo;
+import org.springframework.beans.factory.annotation.Qualifier;
 import dev.jarvis.ia.provedor.RespostaDoModelo;
 import dev.jarvis.util.Json;
 import dev.jarvis.util.Texto;
@@ -158,9 +160,11 @@ public class AnotadorDeMemoria {
         this(memoria, claude, json, props, Clock.systemUTC(), diario);
     }
 
+    /** O de apoio: o modelo do PC primeiro, o Claude se ele não puder ou não provar o que diz. */
     @Autowired
-    public AnotadorDeMemoria(MemoriaService memoria, ProvedorDeModelo modelo, JsonMapper json,
-                             JarvisProperties props, DiarioDeAcoes diario) {
+    public AnotadorDeMemoria(MemoriaService memoria,
+                             @Qualifier(ProvedorDeApoio.QUALIFICADOR) ProvedorDeModelo modelo,
+                             JsonMapper json, JarvisProperties props, DiarioDeAcoes diario) {
         this(memoria, modelo, json, props, Clock.systemUTC(), diario);
     }
 
@@ -299,7 +303,8 @@ public class AnotadorDeMemoria {
         RespostaDoModelo raiz = modelo.responder(new PedidoAoModelo(
                 InstrucoesDeSistema.de(new BlocoDeSistema(SISTEMA, null)),
                 List.of(Mensagem.texto(Mensagem.Papel.USUARIO, instrucao(mensagens, gravados))),
-                ListaDeFerramentas.vazia(), OpcoesDoPedido.curta(Origem.ANOTADOR, MAX_TOKENS, PRAZO)));
+                ListaDeFerramentas.vazia(), OpcoesDoPedido.curta(Origem.ANOTADOR, MAX_TOKENS, PRAZO)),
+                r -> provada(r, mensagens));
         List<JsonNode> candidatos = candidatos(raiz);
 
         Map<String, Integer> motivos = new LinkedHashMap<>();
@@ -381,19 +386,47 @@ public class AnotadorDeMemoria {
         return false;
     }
 
-    /** Resposta que não é o JSON combinado não grava nada: o anotador erra para o lado de não anotar. */
-    private List<JsonNode> candidatos(RespostaDoModelo raiz) {
-        List<JsonNode> lista = new ArrayList<>();
+    /**
+     * Se a resposta serve: o JSON combinado, com a lista de candidatos, e cada evidência literal.
+     *
+     * <p>É o validador do modelo local, que reprovado passa a vez ao Claude. Mais estrito que o
+     * {@link #gravar}, que recusa só o candidato sem prova: uma evidência inventada é sinal de
+     * que o resto da resposta também pode ser, e um modelo menor erra justamente aí.
+     * {@code {"candidatos":[]}} serve — nada a anotar é uma resposta boa.
+     */
+    private boolean provada(RespostaDoModelo raiz, List<String> mensagens) {
+        JsonNode arvore = arvore(raiz);
+        if (arvore == null || !arvore.path("candidatos").isArray()) {
+            return false;
+        }
+        for (JsonNode candidato : candidatos(raiz)) {
+            if (!consta(Json.texto(candidato.path("evidencia")).trim(), mensagens)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** O objeto JSON da resposta, mesmo cercado de texto, ou nulo. */
+    private JsonNode arvore(RespostaDoModelo raiz) {
         String bruto = String.join("", raiz.textos());
         int abre = bruto.indexOf('{');
         int fecha = bruto.lastIndexOf('}');
         if (abre < 0 || fecha <= abre) {
-            return lista;
+            return null;
         }
-        JsonNode arvore;
         try {
-            arvore = json.readTree(bruto.substring(abre, fecha + 1));
+            return json.readTree(bruto.substring(abre, fecha + 1));
         } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Resposta que não é o JSON combinado não grava nada: o anotador erra para o lado de não anotar. */
+    private List<JsonNode> candidatos(RespostaDoModelo raiz) {
+        List<JsonNode> lista = new ArrayList<>();
+        JsonNode arvore = arvore(raiz);
+        if (arvore == null) {
             return lista;
         }
         for (JsonNode candidato : arvore.path("candidatos")) {

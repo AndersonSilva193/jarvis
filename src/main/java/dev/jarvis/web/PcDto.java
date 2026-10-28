@@ -21,6 +21,14 @@ public final class PcDto {
     static final int MAX_IMAGEM = 8 * 1024 * 1024;
     private static final int MAX_ID = 64;
     private static final int MAX_MENSAGEM = 1000;
+    /** Teto de {@code dados} das consultas de arquivo, da lixeira e da edição. */
+    static final int MAX_DADOS = 32_000;
+    /**
+     * Teto de {@code dados} do {@code inferir}: texto de modelo e tool_calls. É o padrão do
+     * {@code inferencia.maxKib} do agente — um agente configurado acima disso recebe 400 em vez
+     * de empurrar meio megabyte de resposta para dentro do prompt.
+     */
+    static final int MAX_DADOS_INFERENCIA = 256 * 1024;
 
     private PcDto() {
     }
@@ -72,6 +80,11 @@ public final class PcDto {
          * declarado chegaria à HUD como imagem e SVG é scriptável.
          */
         public List<String> erros() {
+            return erros(MAX_DADOS);
+        }
+
+        /** Os mesmos problemas, com o teto de {@code dados} que a ação do comando permite. */
+        public List<String> erros(int maxDados) {
             List<String> erros = new ArrayList<>();
             if (comandoId == null || comandoId.isBlank() || comandoId.length() > MAX_ID) {
                 erros.add("comandoId ausente ou longo demais");
@@ -83,8 +96,8 @@ public final class PcDto {
                 erros.add("mensagem acima de " + MAX_MENSAGEM + " caracteres");
             }
             if (dados != null && (!dados.isObject()
-                    || dados.toString().getBytes(StandardCharsets.UTF_8).length > 32_000)) {
-                erros.add("dados estruturados inválidos ou acima de 32.000 bytes");
+                    || dados.toString().getBytes(StandardCharsets.UTF_8).length > maxDados)) {
+                erros.add("dados estruturados inválidos ou acima de " + maxDados + " bytes");
             }
             if (imagemBase64 != null && !imagemBase64.isBlank()) {
                 byte[] bytes;
