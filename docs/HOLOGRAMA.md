@@ -228,8 +228,9 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
   holograma, eventos `holograma.*` no SSE geral, `GET /api/holograma/{id}` para recuperação.
 - [ ] **Fase 4 — Interação com as peças.** Vista explodida pelo `e`, destaque por grupo, nome da
   peça ao passar/selecionar, teclado e `prefers-reduced-motion`.
-- [ ] **Fase 5 — Gestos pela webcam.** MediaPipe Hand Landmarker no navegador, arquivos
-  servidos pela própria HUD, liga/desliga explícito, gestos → as mesmas ações do mouse.
+- [x] **Fase 5 — Gestos pela webcam e toque.** MediaPipe Hand Landmarker no navegador, arquivos
+  servidos pela própria HUD, liga/desliga explícito, motor de gestos em TS puro, toque no celular,
+  perfil leve, ajustes e gravação de landmarks. Só HUD. Detalhes na seção 10.
 - [ ] **Fase 6 — Controle por voz/conversa.** Ações novas de tela para o holograma (girar,
   explodir, montar, fechar), estado do holograma no `POST /api/tela/estado`, frases do servidor.
 - [x] **Galeria (backend + HUD).** Objeto completo guardado em disco, cache pelo pedido
@@ -620,3 +621,88 @@ A miniatura: com a fase `pronto` e um `fim` `salvo` sem `miniatura`, a view espe
 peça acender e a câmera chegar), chama `CenaHolograma.miniatura(256)` — um `render` e a leitura na
 mesma tarefa, porque o WebGL não preserva o buffer — com o quadrado central da tela, e manda o
 `toDataURL('image/png')`. A imagem entra na lista na hora; trocar de objeto antes dos 1,5 s desarma.
+
+---
+
+## 10. Gestos e toque (Fase 5, só HUD)
+
+### Peças
+
+| Onde (em `jarvis-hud/src/app`) | O quê |
+|---|---|
+| `gestos/` | **TS puro, sem Angular nem Three.js** (a Fase 5B reaproveita): `MotorDeGestos` (landmarks → eventos), `FiltroUmEuro`, `geometria-da-mao`, modelos e o leitor de gravação |
+| `nucleo/rastreio-de-mao.service.ts` | Câmera + Hand Landmarker. Botão "Gestos" (`ativo`), `status`, `aviso`, `delegate`, `gravar()` |
+| `nucleo/perfil-do-aparelho.service.ts` | `pc` ou `leve` por `(pointer: coarse)` + menor lado da tela ≤ 1024 px; a escolha manual passa por cima |
+| `nucleo/ajustes-de-gestos.service.ts` | Perfil, sensibilidades (0,25–3), inverter eixos, preview — `localStorage` `jarvis-hud.gestos.v1` |
+| `componentes/holograma/controle-por-gestos.ts` | Único ponto que conhece motor e cena |
+| `componentes/holograma/controle-de-toque.ts` | `ReconhecedorDeToque` (puro) + a casca de pointer events |
+| `preview-gestos`, `botoes-gestos`, `ajustes-gestos` | Canto da câmera, botões Gestos/Ajustes com o aviso, `<dialog>` de ajustes |
+
+### MediaPipe sem CDN
+
+`@mediapipe/tasks-vision` 1.1.1 (versão fixa). O `angular.json` copia `vision_wasm_internal.*` e
+`vision_wasm_nosimd_internal.*` do pacote para `mediapipe/wasm/`; o modelo `hand_landmarker.task`
+(float16, 7,8 MB) mora em `public/mediapipe/`. O JS do MediaPipe é `import()` dinâmico — chunk
+próprio de ~155 kB que só baixa ao ligar os gestos. Delegate `GPU`, e `CPU` se a criação falhar.
+
+### Câmera
+
+Só com o holograma aberto **e** "Gestos" ligado; fechar o holograma desliga e solta o botão.
+`facingMode: 'user'`, `<video>` com `playsinline` e `muted` (iPhone). Detecção por
+`requestVideoFrameCallback` (ou rAF) a no máximo 30/s (PC) ou 15/s (leve), fora da detecção de
+mudanças: os quadros vão por callback, e signals só mudam com o estado. Desliga sozinha após 2 min
+sem mão; aba oculta solta a câmera e a volta religa sem perguntar. Sem HTTPS, sem câmera, permissão
+negada ou câmera ocupada → frase curta acima da barra de controles, botão solto, toque e mouse
+seguem. Nenhuma imagem é copiada nem enviada; a gravação guarda só pontos.
+
+| Perfil | Câmera | Detecções/s | Mãos | Bloom | pixelRatio | Segmentos |
+|---|---|---|---|---|---|---|
+| PC | 640×480 | 30 | 2 | completo | ≤ 1,5 | ×1 |
+| Leve | 480×360 | 15 | 1 | meia resolução, força menor | 1 | ×0,5 (com piso) |
+
+### A máquina de estados do motor
+
+Antes da máquina, a cada quadro: a mão é seguida pelo `lado` do MediaPipe (ou pelo pulso, se o
+rótulo trocar), cada ponto passa pelo One Euro (minCutoff 1, beta 5 — o 0,007 do artigo é para
+pixels), e toda distância é dividida pelo **comprimento da mão** (pulso → ponta do médio somando os
+ossos, que não muda quando os dedos dobram). Pinça com histerese: entra < 0,05, sai > 0,08 (pontas
+encostadas dão ≈ 0,03). Pose por prioridade punho > pinça > apontar > aberta > outra, e só vale
+depois de 150 ms igual.
+
+```
+SEM_MÃO ──mão──► OCIOSO
+  └ 3 s sem mão → autoRotacao (uma vez)
+OCIOSO
+  pinça (PC) ─────────► GIRANDO ── soltou (histerese) → soltarGiro(v)  ─┐
+  pinça nas 2 mãos (PC) ► ZOOM_2_MÃOS ── uma soltou ────────────────────┤
+  pinça (leve) ───────► PINÇA_DECIDINDO: andou 0,03 → GIRANDO;           │
+                         |Δln tamanho| 0,12 → ZOOM_PROFUNDIDADE ────────┤
+  aberta + parada 0,6 s ► EXPLOSÃO: abertura → fator 0..1;               │
+                         punho → trava o fator de 300 ms antes do punho  │
+                         começar → PUNHO_SEGURO; sem mão 1 s trava o último
+  apontar ────────────► APONTANDO: cursor; parado 0,8 s → apontarParado │
+  punho ──────────────► PUNHO_ARMANDO: 1,2 s → resetar → PUNHO_SEGURO   │
+PUNHO_SEGURO ── pose ≠ punho ───────────────────────────────────────────► OCIOSO
+qualquer estado ── sem mão 200 ms ── fecha o gesto (soltarGiro, cursorFim, explosaoFim) ─► SEM_MÃO
+```
+
+O motor não conhece a cena: `apontarParado` só diz onde o dedo parou, e quem faz o raycast e
+seleciona o grupo é o `ControlePorGestos`. Mão presente segura a rotação automática.
+
+### Toque
+
+Escutado na **captura** do host da cena e parado ali: o OrbitControls fica só com mouse e caneta
+(pan desligado). 1 dedo gira (inércia ao soltar); 2 dedos decidem uma vez — distância mudando
+(|ln d/d₀| > 0,08) é zoom, os dois subindo/descendo juntos (4% da altura) explodem/montam — e ficam
+nisso até soltar; toque duplo (< 250 ms cada, < 300 ms entre eles, < 30 px) sobre peça seleciona o
+grupo, no vazio reseta.
+
+### Gravações e testes
+
+"Gravar 5 s" nos ajustes baixa `gestos-<data>.json` (`GravacaoDeGestos`: `versao`, `perfil`,
+`deteccoesPorSegundo`, `quadros` com os landmarks crus). Para virar teste: salve em
+`src/app/gestos/fixtures/`, importe no `motor-de-gestos.spec.ts` e acrescente uma linha em
+`GRAVACOES` com a sequência de eventos esperada. Hoje só há uma gravação **sintética**
+(`pinca-arrastar-direita.sintetico.json`); as poses de teste vêm de `sintetizar-mao.ts`.
+Os limiares (pinça, parada, decisões) foram calibrados na mão sintética e devem ser conferidos
+nas primeiras gravações reais.
