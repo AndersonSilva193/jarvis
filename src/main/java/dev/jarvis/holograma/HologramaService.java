@@ -73,14 +73,26 @@ public class HologramaService {
     static final String TEXTO_FALHA = "Falha ao gerar o holograma.";
     static final String TEXTO_SUBSTITUIDO = "A geração foi substituída por outra.";
 
+    /** Quanto o Haiku pode ficar mudo antes de a geração passar ao local (só se o local puder). */
+    public static final Duration PRIMEIRA_RESPOSTA = Duration.ofSeconds(15);
+
+    static final String SEM_RESPOSTA = "sem_resposta";
+
+    static final String AVISO_HAIKU_MUDO = "O Haiku não respondeu em 15 s; troquei para o gerador local.";
+    static final String AVISO_HAIKU_FALHOU = "O Haiku falhou; troquei para o gerador local.";
+    static final String AVISO_LOCAL_FALHOU = "O gerador local falhou; troquei para o Haiku.";
+    static final String AVISO_LOCAL_FORA = "O gerador local não está disponível; usei o Haiku.";
+
     private final ProvedorDeModelo anthropic;
     private final ProvedorDeModelo local;
     private final Supplier<DisponibilidadeLocal.Situacao> disponibilidade;
+    private final Supplier<String> modeloLocal;
     private final JarvisProperties props;
     private final PromptDeHolograma prompt;
     private final HologramaLineParser parser;
     private final Duration prazo;
     private final Duration ping;
+    private final Duration primeiraResposta;
     /** O provedor configurado, resolvido uma vez: o WARN de valor torto sai na subida. */
     private final String provedorConfigurado;
 
@@ -94,30 +106,56 @@ public class HologramaService {
     public HologramaService(ProvedorAnthropic anthropic, ProvedorLocal local,
             DisponibilidadeLocal disponibilidade, JarvisProperties props, PromptDeHolograma prompt,
             HologramaLineParser parser) {
-        this(anthropic, local, disponibilidade::agora, props, prompt, parser, PRAZO, PING);
+        this(anthropic, local, disponibilidade::agora, () -> disponibilidade.modeloAnunciado().orElse(""),
+                props, prompt, parser, PRAZO, PING, PRIMEIRA_RESPOSTA);
     }
 
     /** Para teste: provedores de mentira e relógios curtos. Público porque o teste HTTP mora em {@code web}. */
     public HologramaService(ProvedorDeModelo anthropic, ProvedorDeModelo local,
             Supplier<DisponibilidadeLocal.Situacao> disponibilidade, JarvisProperties props,
             PromptDeHolograma prompt, HologramaLineParser parser, Duration prazo, Duration ping) {
+        this(anthropic, local, disponibilidade, () -> "", props, prompt, parser, prazo, ping,
+                PRIMEIRA_RESPOSTA);
+    }
+
+    public HologramaService(ProvedorDeModelo anthropic, ProvedorDeModelo local,
+            Supplier<DisponibilidadeLocal.Situacao> disponibilidade, Supplier<String> modeloLocal,
+            JarvisProperties props, PromptDeHolograma prompt, HologramaLineParser parser,
+            Duration prazo, Duration ping, Duration primeiraResposta) {
         this.anthropic = anthropic;
         this.local = local;
         this.disponibilidade = disponibilidade;
+        this.modeloLocal = modeloLocal;
         this.props = props;
         this.prompt = prompt;
         this.parser = parser;
         this.prazo = prazo;
         this.ping = ping;
+        this.primeiraResposta = primeiraResposta;
         this.provedorConfigurado = resolverProvedor(props.provedorDoHolograma());
     }
 
+    /** O provedor configurado (HOLOGRAMA_PROVEDOR): local ou anthropic, e anthropic no valor torto. */
     private static String resolverProvedor(String bruto) {
         String chave = bruto.toLowerCase(Locale.ROOT);
-        if (chave.isEmpty() || chave.equals(LOCAL)) return LOCAL;
-        if (chave.equals(ANTHROPIC)) return ANTHROPIC;
-        log.warn("HOLOGRAMA_PROVEDOR: '{}' não é local nem anthropic; seguindo com local", bruto);
-        return LOCAL;
+        if (chave.isEmpty() || chave.equals(ANTHROPIC)) return ANTHROPIC;
+        if (chave.equals(LOCAL)) return LOCAL;
+        log.warn("HOLOGRAMA_PROVEDOR: '{}' não é local nem anthropic; seguindo com anthropic", bruto);
+        return ANTHROPIC;
+    }
+
+    /**
+     * O gerador pedido na URL: {@code haiku} (ou {@code anthropic}) e {@code local}. Ausente ou em
+     * branco é vazio dentro do {@code Optional} — vale o configurado —; valor desconhecido é
+     * {@code Optional.empty()}, que o controlador transforma em 400.
+     */
+    public static java.util.Optional<String> provedorDoPedido(String bruto) {
+        if (bruto == null || bruto.isBlank()) return java.util.Optional.of("");
+        return switch (bruto.trim().toLowerCase(Locale.ROOT)) {
+            case "haiku", ANTHROPIC -> java.util.Optional.of(ANTHROPIC);
+            case LOCAL -> java.util.Optional.of(LOCAL);
+            default -> java.util.Optional.empty();
+        };
     }
 
     /**
@@ -127,7 +165,16 @@ public class HologramaService {
      * @param objeto já higienizado por {@link PromptDeHolograma#higienizar}
      */
     public void gerar(String objeto, DetalheHolograma detalhe, SseEmitter emitter) {
-        Geracao geracao = new Geracao(objeto, detalhe, emitter);
+        gerar(objeto, detalhe, "", emitter);
+    }
+
+    /**
+     * @param provedor o de {@link #provedorDoPedido}: {@code local}, {@code anthropic} ou vazio para
+     *                 o configurado
+     */
+    public void gerar(String objeto, DetalheHolograma detalhe, String provedor, SseEmitter emitter) {
+        Geracao geracao = new Geracao(objeto, detalhe,
+                provedor == null || provedor.isEmpty() ? provedorConfigurado : provedor, emitter);
         Geracao anterior = atual.getAndSet(geracao);
         if (anterior != null) {
             anterior.cancelamento.cancelar(SUBSTITUIDO);
@@ -158,6 +205,8 @@ public class HologramaService {
     private final class Geracao {
         private final String objeto;
         private final DetalheHolograma detalhe;
+        /** {@code local} ou {@code anthropic}: o do pedido, ou o configurado. */
+        private final String provedorEscolhido;
         private final SseEmitter emitter;
         private final Cancelamento cancelamento = new Cancelamento();
         private final MontagemDeHolograma montagem = new MontagemDeHolograma(parser);
@@ -169,13 +218,38 @@ public class HologramaService {
         private final long inicio = System.nanoTime();
         private volatile long primeiraPeca = -1;
         private volatile boolean clienteFora;
-        private String provedorUsado = "";
-        private String modeloUsado = "";
+        private volatile String provedorUsado = "";
+        private volatile String modeloUsado = "";
+        /** Os tokens que a API informou; {@code null} enquanto não informou (stream cortado, local). */
+        private volatile Long tokensEntrada;
+        private volatile Long tokensSaida;
+        /** Chegou algum texto nesta tentativa? É o que o prazo de primeira resposta confere. */
+        private volatile boolean textoRecebido;
+        private volatile String ultimaFalha = "";
 
-        Geracao(String objeto, DetalheHolograma detalhe, SseEmitter emitter) {
+        Geracao(String objeto, DetalheHolograma detalhe, String provedorEscolhido, SseEmitter emitter) {
             this.objeto = objeto;
             this.detalhe = detalhe;
+            this.provedorEscolhido = provedorEscolhido;
             this.emitter = emitter;
+        }
+
+        /** Um aviso fixo, em Java, de que o gerador trocou. Não conta nos avisos da montagem. */
+        private void avisar(String texto) {
+            enviar(List.of(new SaidaHolograma.Aviso(texto, true)));
+        }
+
+        /** O gasto desta geração. Custo só para a Anthropic: o local não cobra da API. */
+        private SaidaHolograma.Resumo resumo() {
+            Long entrada = tokensEntrada;
+            Long saida = tokensSaida;
+            Double custo = null;
+            if (ANTHROPIC.equals(provedorUsado) && entrada != null && saida != null) {
+                custo = custoEstimado(entrada, saida);
+            }
+            return new SaidaHolograma.Resumo(provedorUsado, modeloUsado,
+                    LOCAL.equals(provedorUsado) ? null : entrada, LOCAL.equals(provedorUsado) ? null : saida,
+                    custo);
         }
 
         void rodar() {
@@ -207,88 +281,171 @@ public class HologramaService {
             registrar(fim);
         }
 
-        /** O provedor configurado, e o Claude quando o local não pode ou cai antes de qualquer peça. */
+        /**
+         * O gerador escolhido e o outro de reserva, que só assume enquanto <b>nenhuma peça</b> saiu.
+         * Anthropic escolhida → o local é a reserva (se a chave mestra e a disponibilidade deixarem);
+         * local escolhido → o Claude é a reserva. Cada troca sai como {@code aviso} para a HUD.
+         */
         private String gerarComReserva() throws InterruptedException {
-            boolean usarLocal = false;
-            String motivo = "";
-            if (LOCAL.equals(provedorConfigurado)) {
-                if (!props.iaLocalAtiva()) {
-                    motivo = "ia_local_desligada";
+            DisponibilidadeLocal.Situacao situacao = situacaoDoLocal();
+            if (LOCAL.equals(provedorEscolhido)) {
+                if (situacao.pode()) {
+                    String fim = tentarLocal();
+                    if (fim != null) return fim;
+                    avisar(AVISO_LOCAL_FALHOU);
                 } else {
-                    DisponibilidadeLocal.Situacao situacao = disponibilidade.get();
-                    usarLocal = situacao.pode();
-                    motivo = situacao.motivo();
+                    log.info("Holograma: local → anthropic: {}", situacao.motivo());
+                    avisar(AVISO_LOCAL_FORA);
                 }
-                if (!usarLocal) {
-                    log.info("Holograma: local → anthropic: {}", motivo);
-                }
+                String fim = tentarAnthropic(false);
+                return fim != null ? fim : encerrarComErro(TEXTO_FALHA);
             }
-            if (usarLocal) {
-                provedorUsado = LOCAL;
-                modeloUsado = "";
-                try {
-                    return transmitir(local, opcoes(true));
-                } catch (IOException e) {
-                    if (cancelamento.cancelado()) {
-                        return porCorte();
-                    }
-                    String porque = e instanceof FalhaLocal f ? f.motivo() : e.getClass().getSimpleName();
-                    synchronized (montando) {
-                        if (montagem.pecas() > 0) {
-                            log.info("Holograma: o local falhou depois de {} peça(s) ({}); sem reserva",
-                                    montagem.pecas(), porque);
-                            return encerrarComErro(TEXTO_FALHA);
-                        }
-                        // O que o local deixou pela metade não é linha de ninguém.
-                        buffer.resto();
-                    }
-                    log.info("Holograma: local → anthropic: {}", porque);
-                }
+            String fim = tentarAnthropic(situacao.pode());
+            if (fim != null) return fim;
+            if (!situacao.pode()) {
+                log.warn("Holograma: a Anthropic falhou e o local não pode ({})", situacao.motivo());
+                return encerrarComErro(TEXTO_FALHA);
             }
+            avisar(SEM_RESPOSTA.equals(ultimaFalha) ? AVISO_HAIKU_MUDO : AVISO_HAIKU_FALHOU);
+            fim = tentarLocal();
+            return fim != null ? fim : encerrarComErro(TEXTO_FALHA);
+        }
+
+        private DisponibilidadeLocal.Situacao situacaoDoLocal() {
+            if (!props.iaLocalAtiva()) {
+                return new DisponibilidadeLocal.Situacao(false, "ia_local_desligada");
+            }
+            return disponibilidade.get();
+        }
+
+        /** O fim da geração, ou {@code null} se o local caiu antes de qualquer peça e há reserva. */
+        private String tentarLocal() throws InterruptedException {
+            provedorUsado = LOCAL;
+            modeloUsado = modeloLocal.get();
+            try {
+                return transmitir(local, opcoes(true, false));
+            } catch (IOException e) {
+                return aposFalha(e, "local");
+            }
+        }
+
+        /**
+         * @param comReserva há o local para assumir; é o que liga o prazo de {@link #primeiraResposta}
+         *                   (sem reserva, cortar um Haiku lento só trocaria demora por erro)
+         * @return o fim da geração, ou {@code null} se caiu antes de qualquer peça
+         */
+        private String tentarAnthropic(boolean comReserva) throws InterruptedException {
             provedorUsado = ANTHROPIC;
             modeloUsado = !props.modeloDoHolograma().isEmpty() ? props.modeloDoHolograma()
                     : props.anthropic() == null ? "" : props.anthropic().modelo();
             try {
-                return transmitir(anthropic, opcoes(false));
+                return transmitir(anthropic, opcoes(false, comReserva), comReserva ? primeiraResposta : null);
             } catch (IOException e) {
-                if (cancelamento.cancelado()) {
-                    return porCorte();
-                }
-                log.warn("Holograma: a Anthropic falhou: {}", e.getMessage());
-                return encerrarComErro(TEXTO_FALHA);
+                return aposFalha(e, "anthropic");
             }
         }
 
-        private OpcoesDoPedido opcoes(boolean doLocal) {
+        /**
+         * O que fazer com um provedor que caiu: corte de fora fecha pelo motivo; peça já na tela não
+         * tem reserva (outro modelo desenharia outro objeto por cima) e fecha com erro; antes da
+         * primeira peça volta {@code null} para quem chama tentar o outro.
+         */
+        private String aposFalha(IOException e, String quem) {
+            if (cancelamento.cancelado()) {
+                return porCorte();
+            }
+            if (e instanceof java.net.http.HttpTimeoutException) {
+                // Os cabeçalhos nem chegaram no prazo curto: é o mesmo mutismo, só que antes do stream.
+                ultimaFalha = SEM_RESPOSTA;
+            }
+            String porque = e instanceof FalhaLocal f ? f.motivo()
+                    : SEM_RESPOSTA.equals(ultimaFalha) ? SEM_RESPOSTA : e.getClass().getSimpleName();
+            synchronized (montando) {
+                if (montagem.pecas() > 0) {
+                    log.info("Holograma: {} falhou depois de {} peça(s) ({}); sem reserva",
+                            quem, montagem.pecas(), porque);
+                    return encerrarComErro(TEXTO_FALHA);
+                }
+                // O que o provedor deixou pela metade não é linha de ninguém.
+                buffer.resto();
+            }
+            log.info("Holograma: {} falhou antes da primeira peça: {}", quem, porque);
+            return null;
+        }
+
+        private OpcoesDoPedido opcoes(boolean doLocal, boolean comPrazoCurto) {
             long restante = Math.max(1_000, prazo.toMillis() - decorrido().toMillis());
-            OpcoesDoPedido opcoes = OpcoesDoPedido.curta(Origem.HOLOGRAMA, detalhe.maxTokens(),
+            if (comPrazoCurto) {
+                // Até os cabeçalhos chegarem: um Haiku que nem abre a resposta cai antes dos 15 s.
+                restante = Math.min(restante, primeiraResposta.toMillis());
+            }
+            int teto = Math.min(detalhe.maxTokens(), props.maxTokensDoHolograma());
+            OpcoesDoPedido opcoes = OpcoesDoPedido.curta(Origem.HOLOGRAMA, teto,
                     Duration.ofMillis(restante));
             return doLocal ? opcoes.comTemperatura(props.temperaturaDoHolograma())
                     : opcoes.comModelo(props.modeloDoHolograma());
         }
 
-        /** Uma tentativa num provedor. Volta o motivo do fim; corte de fora vira exceção ou corte. */
         private String transmitir(ProvedorDeModelo provedor, OpcoesDoPedido opcoes)
+                throws IOException, InterruptedException {
+            return transmitir(provedor, opcoes, null);
+        }
+
+        /**
+         * Uma tentativa num provedor. Volta o motivo do fim; corte de fora vira exceção ou corte.
+         *
+         * @param silencio quanto o provedor pode ficar sem entregar texto; {@code null} não limita
+         */
+        private String transmitir(ProvedorDeModelo provedor, OpcoesDoPedido opcoes, Duration silencio)
                 throws IOException, InterruptedException {
             PedidoAoModelo pedido = new PedidoAoModelo(
                     InstrucoesDeSistema.de(new BlocoDeSistema(prompt.sistema(objeto, detalhe), null)),
                     List.of(Mensagem.texto(Mensagem.Papel.USUARIO, "Gere: " + objeto)), null, opcoes);
-            RespostaDoModelo resposta = provedor.transmitir(pedido, this::aoTexto, cancelamento);
+            // Um corte só desta tentativa (o silêncio), que não pode contaminar a geração inteira: a
+            // reserva ainda vai usar o cancelamento geral. O geral desce para a tentativa.
+            Cancelamento tentativa = new Cancelamento();
+            cancelamento.aoCancelar(() -> tentativa.cancelar(cancelamento.motivo()));
+            textoRecebido = false;
+            ultimaFalha = "";
+            ScheduledFuture<?> mudez = silencio == null ? null : relogio.schedule(() -> {
+                if (!textoRecebido && !tentativa.cancelado()) {
+                    ultimaFalha = SEM_RESPOSTA;
+                    tentativa.cancelar(SEM_RESPOSTA);
+                }
+            }, silencio.toMillis(), TimeUnit.MILLISECONDS);
+            RespostaDoModelo resposta;
+            try {
+                resposta = provedor.transmitir(pedido, this::aoTexto, tentativa);
+            } finally {
+                if (mudez != null) mudez.cancel(false);
+            }
             if (cancelamento.cancelado()) {
                 return porCorte();
             }
+            if (tentativa.cancelado()) {
+                throw new IOException(tentativa.motivo());
+            }
+            anotarUso(resposta.uso());
             synchronized (montando) {
                 enviar(montagem.processar(buffer.resto()));
                 if (resposta.motivo() == RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS) {
-                    log.info("Holograma: o modelo bateu no teto de {} tokens", detalhe.maxTokens());
+                    log.info("Holograma: o modelo bateu no teto de {} tokens", opcoes.maxTokens());
                 }
                 enviar(montagem.terminar());
             }
             return "modelo";
         }
 
+        private void anotarUso(RespostaDoModelo.Uso uso) {
+            if (uso.entrada() <= 0 && uso.saida() <= 0) return;
+            // Prompt inteiro: o que a API cobra como entrada mais o cache, se houver.
+            tokensEntrada = uso.entrada() + uso.cacheEscrito() + uso.cacheLido();
+            tokensSaida = uso.saida();
+        }
+
         /** Cada delta: as linhas que fecharam vão para a tela na hora. */
         private void aoTexto(String delta) {
+            textoRecebido = true;
             synchronized (montando) {
                 if (cancelamento.cancelado()) {
                     return;
@@ -325,10 +482,13 @@ public class HologramaService {
         }
 
         private void enviar(List<SaidaHolograma> saidas) {
-            for (SaidaHolograma saida : saidas) {
+            for (SaidaHolograma original : saidas) {
                 if (clienteFora) {
                     return;
                 }
+                // O fim carrega o gasto: quem sabe o provedor e os tokens é esta geração, não a montagem.
+                SaidaHolograma saida = original instanceof SaidaHolograma.Fim fim && fim.resumo() == null
+                        ? fim.comResumo(resumo()) : original;
                 escrita.lock();
                 try {
                     emitter.send(SseEmitter.event().name(saida.evento())
@@ -371,14 +531,23 @@ public class HologramaService {
         private void registrar(String fim) {
             String primeira = primeiraPeca < 0 ? "-"
                     : segundos(Duration.ofNanos(primeiraPeca - inicio));
+            SaidaHolograma.Resumo resumo = resumo();
             log.info("Holograma '{}' ({}): provedor={}{} 1ª peça em {}, {} peças, {} linhas descartadas, "
-                    + "{} avisos, total {}, fim={}",
+                    + "{} avisos, tokens={}, custo estimado={}, total {}, fim={}",
                     objeto.length() > 40 ? objeto.substring(0, 40) + "…" : objeto, detalhe.chave(),
                     provedorUsado.isEmpty() ? "-" : provedorUsado,
                     modeloUsado.isEmpty() ? "" : " modelo=" + modeloUsado,
                     primeira, montagem.pecas(), montagem.descartadas(), montagem.avisos(),
+                    resumo.tokensEntrada() == null ? "?" : resumo.tokensEntrada() + "/" + resumo.tokensSaida(),
+                    resumo.custoUsd() == null ? "-" : String.format(Locale.ROOT, "US$ %.4f", resumo.custoUsd()),
                     segundos(decorrido()), fim);
         }
+    }
+
+    /** US$ pela tabela configurada (por milhão de tokens), em seis casas: a conta é de centésimos de centavo. */
+    double custoEstimado(long entrada, long saida) {
+        double custo = (entrada * props.precoEntradaDoHolograma() + saida * props.precoSaidaDoHolograma()) / 1_000_000.0;
+        return Math.round(custo * 1_000_000.0) / 1_000_000.0;
     }
 
     private static String segundos(Duration duracao) {

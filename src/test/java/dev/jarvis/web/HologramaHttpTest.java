@@ -77,7 +77,20 @@ class HologramaHttpTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/holograma/gerar").param("objeto", "motor").param("detalhe", "maximo")
                 .header("Authorization", token)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/holograma/gerar").param("objeto", "motor").param("provedor", "gpt")
+                .header("Authorization", token)).andExpect(status().isBadRequest());
         mvc.perform(get("/api/holograma/gerar").param("objeto", "motor")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void gerarAceitaOProvedorDoPedido() throws Exception {
+        var resultado = mvc.perform(get("/api/holograma/gerar").param("objeto", "cubo").param("provedor", "haiku")
+                .header("Authorization", "Bearer token-de-teste"))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        String corpo = ateOFim(resultado);
+        assertTrue(corpo.contains("\"provedor\":\"anthropic\""), corpo);
     }
 
     @Test

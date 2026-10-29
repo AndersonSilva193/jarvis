@@ -429,15 +429,31 @@ perfil de apoio) e `max_tokens` por nível (4 mil, 8 mil, 16 mil).
 
 ### Quem gera
 
-`HOLOGRAMA_PROVEDOR=local` (o padrão) tenta o Ollama do PC se `IA_LOCAL_ATIVA` estiver ligada e a
-`DisponibilidadeLocal` disser que pode. O Claude assume quando o local não pode e quando ele falha
-**antes de qualquer peça**. Depois da primeira não há reserva: outro modelo desenharia outro objeto
-por cima do que já está na tela, então sai `erro` e as peças ficam. `anthropic` vai direto ao
-Claude. O seletor de modo (`AUTO`/`LOCAL`/`CLAUDE`) não entra aqui: quem escolhe é a configuração.
+`HOLOGRAMA_PROVEDOR=anthropic` (o padrão) usa o Haiku (`HOLOGRAMA_MODELO=claude-haiku-5-5`) e tem o
+Ollama do PC de reserva; `local` faz o inverso. O pedido sobrescreve o padrão com
+`?provedor=haiku|local` (outro valor → 400), e é o que o seletor "Gerador" da HUD manda.
 
-`HOLOGRAMA_MODELO` é o modelo **da Anthropic** (vazio = `ANTHROPIC_MODELO`); no local quem escolhe é
-o `ollama.modelo` do PC, como sempre. `HOLOGRAMA_TEMPERATURA` (0,4) só vai ao local, preso em 0..1
+A reserva só assume **antes de qualquer peça**: erro da API (sem crédito, 429/5xx), cabeçalhos que
+não chegam em 15 s ou nenhum texto em 15 s (`HologramaService.PRIMEIRA_RESPOSTA`, só enquanto há local
+para assumir — sem reserva, cortar um Haiku lento só trocaria demora por erro). A troca sai como
+`aviso` com `"troca":true`. Depois da primeira peça não há reserva: outro modelo desenharia outro
+objeto por cima do que já está na tela, então sai `erro` e as peças ficam. O seletor de modo
+(`AUTO`/`LOCAL`/`CLAUDE`) não entra aqui.
+
+`HOLOGRAMA_MODELO` é o modelo **da Anthropic** e não toca a conversa; no local quem escolhe é o
+`ollama.modelo` do PC, como sempre. `HOLOGRAMA_TEMPERATURA` (0,4) só vai ao local, preso em 0..1
 pelo agente: os modelos atuais da Anthropic recusam `temperature` com HTTP 400.
+`HOLOGRAMA_MAX_TOKENS` (8000) prende o teto de cada nível (o `detalhado` de 16000 cai para 8000).
+
+### O gasto no `fim` e no log
+
+O `fim` ganha `provedor`, `modelo`, `tokensEntrada`, `tokensSaida` e `custoUsd` — os tokens vêm do
+`usage` da API e o custo é `HOLOGRAMA_PRECO_ENTRADA_USD`/`HOLOGRAMA_PRECO_SAIDA_USD` (0,10 e 0,50
+por milhão). Campo que não se sabe **fica de fora**: stream cortado (limite de 250 peças, prazo,
+cliente) não recebe o `usage`, e o local não cobra da API. A HUD mostra o selo "Haiku · 86 peças ·
+US$0,002" com isso. O custo real continua no `MedidorDeCusto` (`Origem.HOLOGRAMA`); este é só a
+estimativa por geração. *(Guardar o gasto no item salvo depende da biblioteca da Fase 7, que ainda
+não existe.)*
 
 ### Quem para
 

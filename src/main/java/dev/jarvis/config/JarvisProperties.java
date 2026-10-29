@@ -153,8 +153,18 @@ public record JarvisProperties(
      * @param modelo      o modelo da Anthropic para o holograma; vazio é o {@code ANTHROPIC_MODELO}.
      *                    No local quem escolhe é o {@code ollama.modelo} do PC
      * @param temperatura só vai ao local; os modelos atuais da Anthropic recusam o campo
+     * @param maxTokens   teto de saída, que prende o de cada nível de detalhe (nunca o aumenta)
+     * @param precoEntradaUsd dólares por milhão de tokens de entrada, só para a estimativa do selo
+     * @param precoSaidaUsd   dólares por milhão de tokens de saída
      */
-    public record Holograma(String provedor, String modelo, Double temperatura) { }
+    public record Holograma(String provedor, String modelo, Double temperatura, Integer maxTokens,
+            Double precoEntradaUsd, Double precoSaidaUsd) {
+
+        /** A aridade de antes do teto e dos preços: os testes que informam o holograma não mudam. */
+        public Holograma(String provedor, String modelo, Double temperatura) {
+            this(provedor, modelo, temperatura, null, null, null);
+        }
+    }
 
     public List<String> ferramentasSempreCarregadas() {
         String nomes = ferramentas == null || ferramentas.sempreCarregadas() == null
@@ -509,6 +519,26 @@ public record JarvisProperties(
     /** O modelo da Anthropic para o holograma, ou vazio para o {@code ANTHROPIC_MODELO}. */
     public String modeloDoHolograma() {
         return holograma == null || holograma.modelo() == null ? "" : holograma.modelo().trim();
+    }
+
+    /** O teto de saída do holograma: 8000 de padrão. Valor não positivo cai no padrão. */
+    public int maxTokensDoHolograma() {
+        Integer t = holograma == null ? null : holograma.maxTokens();
+        return t == null || t <= 0 ? 8_000 : t;
+    }
+
+    /** US$ por milhão de tokens de entrada na estimativa do holograma (0,10 de padrão). */
+    public double precoEntradaDoHolograma() {
+        return precoValido(holograma == null ? null : holograma.precoEntradaUsd(), 0.10);
+    }
+
+    /** US$ por milhão de tokens de saída na estimativa do holograma (0,50 de padrão). */
+    public double precoSaidaDoHolograma() {
+        return precoValido(holograma == null ? null : holograma.precoSaidaUsd(), 0.50);
+    }
+
+    private static double precoValido(Double preco, double padrao) {
+        return preco == null || !Double.isFinite(preco) || preco < 0 ? padrao : preco;
     }
 
     /** A temperatura do holograma no local, com 0,4 de padrão e presa entre 0 e 1. */

@@ -20,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.ia.ErroDaApiDoModelo;
 import dev.jarvis.ia.provedor.Bloco;
 import dev.jarvis.ia.provedor.Cancelamento;
 import dev.jarvis.ia.provedor.DisponibilidadeLocal;
@@ -75,7 +76,8 @@ class HologramaServiceTest {
 
         var opcoes = anthropic.ultimo.opcoes();
         assertEquals("modelo-holograma", opcoes.modelo());
-        assertEquals(DetalheHolograma.DETALHADO.maxTokens(), opcoes.maxTokens());
+        // O teto configurado (8000 de padrão) prende o do nível detalhado (16000).
+        assertEquals(8_000, opcoes.maxTokens());
         assertEquals(null, opcoes.temperatura());
         assertEquals("Gere: cubo", anthropic.ultimo.mensagens().get(0).texto());
         assertTrue(anthropic.ultimo.sistema().blocos().get(0).texto().contains("OBJETO: cubo"));
@@ -192,6 +194,191 @@ class HologramaServiceTest {
         assertTrue(primeiro.corpo().contains(HologramaService.TEXTO_SUBSTITUIDO), primeiro.corpo());
     }
 
+    // ---- gerador por pedido e reserva ---------------------------------------------------------
+
+    @Test
+    void oPedidoEscolheOGeradorSobrescrevendoOConfigurado() throws Exception {
+        Falso anthropic = new Falso(List.of(META, PECA, FIM));
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", true);
+
+        Emissor paraLocal = new Emissor();
+        servico.gerar("cubo", DetalheHolograma.NORMAL, "local", paraLocal);
+        paraLocal.esperar();
+        assertEquals(1, local.chamadas);
+        assertEquals(0, anthropic.chamadas);
+
+        Emissor paraHaiku = new Emissor();
+        servico.gerar("cubo", DetalheHolograma.NORMAL, "anthropic", paraHaiku);
+        paraHaiku.esperar();
+        assertEquals(1, local.chamadas);
+        assertEquals(1, anthropic.chamadas);
+    }
+
+    @Test
+    void semPedidoValeOConfigurado() throws Exception {
+        Falso anthropic = new Falso(List.of(META, PECA, FIM));
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "local", true);
+
+        Emissor emissor = new Emissor();
+        servico.gerar("cubo", DetalheHolograma.NORMAL, "", emissor);
+        emissor.esperar();
+
+        assertEquals(1, local.chamadas);
+        assertEquals(0, anthropic.chamadas);
+    }
+
+    @Test
+    void oValorDoPedidoSeLeComoHaikuLocalOuVazio() {
+        assertEquals(java.util.Optional.of(""), HologramaService.provedorDoPedido(null));
+        assertEquals(java.util.Optional.of(""), HologramaService.provedorDoPedido("  "));
+        assertEquals(java.util.Optional.of("anthropic"), HologramaService.provedorDoPedido("Haiku"));
+        assertEquals(java.util.Optional.of("anthropic"), HologramaService.provedorDoPedido("anthropic"));
+        assertEquals(java.util.Optional.of("local"), HologramaService.provedorDoPedido(" LOCAL "));
+        assertTrue(HologramaService.provedorDoPedido("gpt").isEmpty());
+    }
+
+    @Test
+    void erroDaApiAntesDaPrimeiraPecaPassaAoLocalComAviso() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        anthropic.falha = new ErroDaApiDoModelo(402, "sem crédito");
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(1, anthropic.chamadas);
+        assertEquals(1, local.chamadas);
+        assertEquals(List.of("aviso", "meta", "peca", "fim"), emissor.eventos());
+        assertTrue(emissor.corpo().contains(HologramaService.AVISO_HAIKU_FALHOU), emissor.corpo());
+        // Quem terminou foi o local: o fim diz isso, sem tokens nem custo da API.
+        assertTrue(emissor.corpo().contains("\"provedor\":\"local\""), emissor.corpo());
+        assertFalse(emissor.corpo().contains("custoUsd"), emissor.corpo());
+    }
+
+    @Test
+    void haikuMudoPorQuinzeSegundosPassaAoLocal() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        anthropic.esperarCorte = true;
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", true, Duration.ofSeconds(10),
+                Duration.ofSeconds(10), Duration.ofMillis(100));
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertTrue(anthropic.cortado, "o stream do Haiku não foi fechado");
+        assertEquals(1, local.chamadas);
+        assertTrue(emissor.corpo().contains(HologramaService.AVISO_HAIKU_MUDO), emissor.corpo());
+        assertTrue(emissor.eventos().contains("peca"));
+        assertFalse(emissor.eventos().contains("erro"));
+    }
+
+    @Test
+    void haikuQueEscreveNaoEhCortadoPeloPrazoDePrimeiraResposta() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of(META, PECA, FIM));
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", true, Duration.ofSeconds(10),
+                Duration.ofSeconds(10), Duration.ofMillis(100));
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(0, local.chamadas);
+        assertFalse(emissor.corpo().contains("troquei"), emissor.corpo());
+    }
+
+    @Test
+    void haikuQueCaiNoMeioMantemAsPecasEAvisaSemTrocarDeModelo() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of(META, PECA));
+        anthropic.falha = new ErroDaApiDoModelo(529, "sobrecarregada");
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(0, local.chamadas);
+        assertEquals(List.of("meta", "peca", "erro", "fim"), emissor.eventos());
+        assertTrue(emissor.corpo().contains(HologramaService.TEXTO_FALHA), emissor.corpo());
+    }
+
+    @Test
+    void haikuQueFalhaComOLocalForaDeAlcanceTerminaComErro() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        anthropic.falha = new ErroDaApiDoModelo(500, "erro");
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", false);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(0, local.chamadas);
+        assertEquals(List.of("meta", "erro", "fim"), emissor.eventos());
+    }
+
+    @Test
+    void localEscolhidoEForaDeAlcanceUsaOHaikuComAviso() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, new Falso(List.of()), "local", false);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(1, anthropic.chamadas);
+        assertTrue(emissor.corpo().contains(HologramaService.AVISO_LOCAL_FORA), emissor.corpo());
+    }
+
+    @Test
+    void oFimTraziProvedorModeloTokensECustoEstimado() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of(META, PECA, FIM));
+        anthropic.uso = new RespostaDoModelo.Uso(1_000, 2_000, 0, 0, 0);
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        String corpo = emissor.corpo();
+        assertTrue(corpo.contains("\"provedor\":\"anthropic\""), corpo);
+        assertTrue(corpo.contains("\"modelo\":\"modelo-holograma\""), corpo);
+        assertTrue(corpo.contains("\"tokensEntrada\":1000"), corpo);
+        assertTrue(corpo.contains("\"tokensSaida\":2000"), corpo);
+        // (1000 × 0,10 + 2000 × 0,50) / 1 milhão
+        assertTrue(corpo.contains("\"custoUsd\":0.0011"), corpo);
+    }
+
+    @Test
+    void streamCortadoNaoInventaTokensNemCusto() throws Exception {
+        Emissor emissor = new Emissor();
+        String sessenta = "{\"t\":\"p\",\"id\":\"dente\",\"f\":\"box\",\"rep\":{\"n\":60,\"d\":[0.01,0,0]}}\n";
+        Falso anthropic = new Falso(List.of(META, sessenta, sessenta, sessenta, sessenta, sessenta));
+        anthropic.esperarCorte = true;
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
+
+        servico.gerar("engrenagem", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertTrue(emissor.corpo().contains("\"provedor\":\"anthropic\""), emissor.corpo());
+        assertFalse(emissor.corpo().contains("tokensEntrada"), emissor.corpo());
+        assertFalse(emissor.corpo().contains("custoUsd"), emissor.corpo());
+    }
+
+    @Test
+    void custoEstimadoUsaATabelaConfigurada() {
+        servico = servico(new Falso(List.of()), new Falso(List.of()), "anthropic", true);
+        assertEquals(0.0011, servico.custoEstimado(1_000, 2_000), 1e-9);
+        assertEquals(0.0, servico.custoEstimado(0, 0), 0);
+    }
+
     // ---- montagem ---------------------------------------------------------------------------
 
     private HologramaService servico(Falso anthropic, Falso local, String provedor, boolean localPode) {
@@ -200,6 +387,11 @@ class HologramaServiceTest {
 
     private HologramaService servico(Falso anthropic, Falso local, String provedor, boolean localPode,
             Duration prazo, Duration ping) {
+        return servico(anthropic, local, provedor, localPode, prazo, ping, HologramaService.PRIMEIRA_RESPOSTA);
+    }
+
+    private HologramaService servico(Falso anthropic, Falso local, String provedor, boolean localPode,
+            Duration prazo, Duration ping, Duration primeiraResposta) {
         JarvisProperties props = new JarvisProperties("Anderson", "America/Sao_Paulo", "", null,
                 new JarvisProperties.Anthropic("chave", "modelo-a", 1024, 512), null, null, null,
                 null, null, null, null,
@@ -209,13 +401,15 @@ class HologramaServiceTest {
                 new JarvisProperties.Holograma(provedor, "modelo-holograma", 0.4));
         return new HologramaService(anthropic, local,
                 () -> new DisponibilidadeLocal.Situacao(localPode, localPode ? "" : "pc_offline"),
-                props, new PromptDeHolograma(), new HologramaLineParser(JSON), prazo, ping);
+                () -> "qwen-teste", props, new PromptDeHolograma(), new HologramaLineParser(JSON), prazo,
+                ping, primeiraResposta);
     }
 
     /** Um provedor que transmite os pedaços dados, e reage ao corte como um stream fechado. */
     private static final class Falso implements ProvedorDeModelo {
         private final List<String> deltas;
         IOException falha;
+        RespostaDoModelo.Uso uso;
         boolean esperarCorte;
         Consumer<Integer> depoisDoDelta = i -> { };
         volatile boolean cortado;
@@ -254,7 +448,7 @@ class HologramaServiceTest {
             }
             if (falha != null) throw falha;
             return new RespostaDoModelo(List.of(new Bloco.Texto(String.join("", deltas))),
-                    RespostaDoModelo.MotivoDeParada.FIM, null);
+                    RespostaDoModelo.MotivoDeParada.FIM, uso);
         }
     }
 

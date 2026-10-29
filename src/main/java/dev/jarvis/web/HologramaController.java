@@ -86,17 +86,21 @@ public class HologramaController {
      *
      * @param objeto  o que desenhar, até {@value PromptDeHolograma#MAX_OBJETO} caracteres
      * @param detalhe {@code rapido}, {@code normal} (o padrão) ou {@code detalhado}
+     * @param provedor {@code haiku} ou {@code local}; ausente vale o {@code HOLOGRAMA_PROVEDOR}
      */
     @GetMapping(path = "/api/holograma/gerar", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> gerar(@RequestParam(required = false) String objeto,
-            @RequestParam(required = false) String detalhe) {
+            @RequestParam(required = false) String detalhe,
+            @RequestParam(required = false) String provedor) {
         String limpo = PromptDeHolograma.higienizar(objeto);
         Optional<DetalheHolograma> nivel = DetalheHolograma.porChave(detalhe);
-        if (limpo.isEmpty() || objeto.strip().length() > PromptDeHolograma.MAX_OBJETO || nivel.isEmpty()) {
+        Optional<String> gerador = HologramaService.provedorDoPedido(provedor);
+        if (limpo.isEmpty() || objeto.strip().length() > PromptDeHolograma.MAX_OBJETO || nivel.isEmpty()
+                || gerador.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
         SseEmitter emissor = new SseEmitter(PRAZO_DA_GERACAO.toMillis());
-        geracao.gerar(limpo, nivel.get(), emissor);
+        geracao.gerar(limpo, nivel.get(), gerador.get(), emissor);
         return semBuffer(emissor);
     }
 

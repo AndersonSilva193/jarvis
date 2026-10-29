@@ -168,13 +168,18 @@ jarvis:
     # Formato: nome_do_site=nome_da_rotina  (a rotina tem de existir no agente do PC)
     sites-acoes: ${SITES_ACOES:}
   holograma:
-    # Quem gera o holograma: local (o Ollama do PC, com o Claude de reserva enquanto nenhuma peça
-    # saiu) ou anthropic.
-    provedor: ${HOLOGRAMA_PROVEDOR:local}
+    # Quem gera o holograma: anthropic (Haiku, com o local de reserva enquanto nenhuma peça saiu) ou
+    # local (o Ollama do PC, com o Claude de reserva). O pedido pode trocar com ?provedor=haiku|local.
+    provedor: ${HOLOGRAMA_PROVEDOR:anthropic}
     # Modelo da Anthropic para o holograma; vazio usa o ANTHROPIC_MODELO. No local quem escolhe é o PC.
-    modelo: ${HOLOGRAMA_MODELO:}
+    modelo: ${HOLOGRAMA_MODELO:claude-haiku-5-5}
     # Só vale para o local (0 a 1). A Anthropic recusa temperature nos modelos atuais.
     temperatura: ${HOLOGRAMA_TEMPERATURA:0.4}
+    # Teto de tokens de saída; prende o de cada nível (rápido 4000, normal 8000, detalhado 16000).
+    max-tokens: ${HOLOGRAMA_MAX_TOKENS:8000}
+    # US$ por milhão de tokens, só para a estimativa do selo e do log.
+    preco-entrada-usd: ${HOLOGRAMA_PRECO_ENTRADA_USD:0.10}
+    preco-saida-usd: ${HOLOGRAMA_PRECO_SAIDA_USD:0.50}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}
