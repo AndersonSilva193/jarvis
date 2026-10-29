@@ -1,0 +1,14 @@
+{"t":"meta","nome":"Átomo de carbono","cat":"ciencia","desc":"Átomo de carbono no modelo de Bohr estilizado: seis prótons e seis nêutrons no núcleo, seis elétrons em três órbitas."}
+{"t":"p","id":"feixe_projetor","n":"Feixe do projetor","g":"base","f":"cone","p":[0,-1.0,0],"r":[180,0,0],"s":[0.9,2.0],"c":"#22d3ee","e":[0,-1,0],"o":0.08,"ct":false}
+{"t":"p","id":"pedestal","n":"Pedestal do projetor","g":"base","f":"cyl","p":[0,-2.1,0],"r":[0,0,0],"s":[1.2,1.3,0.1],"c":"#38bdf8","e":[0,-1,0],"o":0.25}
+{"t":"p","id":"anel_pedestal","n":"Anel do pedestal","g":"base","f":"tor","p":[0,-2.04,0],"r":[90,0,0],"s":[1.3,0.02],"c":"#38bdf8","e":[0,-1,0]}
+{"t":"p","id":"orbita","n":"Órbita","g":"orbitas","f":"tor","p":[0,0.3,0],"r":[30,0,0],"s":[2.2,0.022],"c":"#22d3ee","e":[0,1,0],"rad":{"n":3,"r":0,"ax":"y","a":0}}
+{"t":"p","id":"rastro_orbita","n":"Rastro da órbita","g":"orbitas","f":"tor","p":[0,0.3,0],"r":[30,0,0],"s":[2.2,0.07],"c":"#22d3ee","e":[0,1,0],"o":0.15,"ct":false,"rad":{"n":3,"r":0,"ax":"y","a":0}}
+{"t":"p","id":"nuvem_nucleo","n":"Campo do núcleo","g":"nucleo","f":"sph","p":[0,0.3,0],"r":[0,0,0],"s":[0.55],"c":"#38bdf8","e":[0,1,0],"o":0.15,"ct":false}
+{"t":"p","id":"proton_superior","n":"Próton","g":"protons","f":"sph","p":[0,0.46,0],"r":[0,0,0],"s":[0.12],"c":"#f87171","e":[0,1,0],"rad":{"n":3,"r":0.2,"ax":"y","a":0}}
+{"t":"p","id":"neutron_superior","n":"Nêutron","g":"neutrons","f":"sph","p":[0,0.46,0],"r":[0,0,0],"s":[0.12],"c":"#a78bfa","e":[0,-1,0],"rad":{"n":3,"r":0.2,"ax":"y","a":60}}
+{"t":"p","id":"proton_inferior","n":"Próton","g":"protons","f":"sph","p":[0,0.14,0],"r":[0,0,0],"s":[0.12],"c":"#f87171","e":[0,1,0],"rad":{"n":3,"r":0.2,"ax":"y","a":60}}
+{"t":"p","id":"neutron_inferior","n":"Nêutron","g":"neutrons","f":"sph","p":[0,0.14,0],"r":[0,0,0],"s":[0.12],"c":"#a78bfa","e":[0,-1,0],"rad":{"n":3,"r":0.2,"ax":"y","a":0}}
+{"t":"p","id":"eletron_a","n":"Elétron","g":"eletrons","f":"sph","p":[0,0.3,0],"r":[0,0,0],"s":[0.13],"c":"#fbbf24","e":[1,0,0],"rad":{"n":3,"r":2.2,"ax":"y","a":0}}
+{"t":"p","id":"eletron_b","n":"Elétron","g":"eletrons","f":"sph","p":[0,0.3,0],"r":[0,0,0],"s":[0.13],"c":"#fbbf24","e":[1,0,0],"rad":{"n":3,"r":2.2,"ax":"y","a":180}}
+{"t":"fim"}

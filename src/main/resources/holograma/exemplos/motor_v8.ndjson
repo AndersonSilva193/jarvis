@@ -1,0 +1,63 @@
+{"t":"meta","nome":"Motor V8","cat":"mecanica","desc":"Motor V8 em corte esquemático, com as duas bancadas a 90 graus, virabrequim, admissão, escape e distribuição."}
+{"t":"p","id":"bloco_inferior","n":"Bloco do motor","g":"bloco","f":"box","p":[0,-0.9,0],"r":[0,0,0],"s":[3.9,1.0,1.9],"c":"#38bdf8","e":[0,-1,0],"o":0.25}
+{"t":"p","id":"bancada_esquerda","n":"Bancada esquerda","g":"bloco","f":"box","p":[0,-0.05,-0.85],"r":[-45,0,0],"s":[3.9,1.6,1.0],"c":"#38bdf8","e":[0,0.3,-1],"o":0.25}
+{"t":"p","id":"bancada_direita","n":"Bancada direita","g":"bloco","f":"box","p":[0,-0.05,0.85],"r":[45,0,0],"s":[3.9,1.6,1.0],"c":"#38bdf8","e":[0,0.3,1],"o":0.25}
+{"t":"p","id":"carter","n":"Cárter","g":"bloco","f":"box","p":[0,-1.7,0],"r":[0,0,0],"s":[3.6,0.55,1.5],"c":"#38bdf8","e":[0,-1,0],"o":0.25}
+{"t":"p","id":"junta_carter","n":"Junta do cárter","g":"bloco","f":"box","p":[0,-1.41,0],"r":[0,0,0],"s":[3.7,0.04,1.6],"c":"#38bdf8","e":[0,-1,0],"o":0.5}
+{"t":"p","id":"cabecote_e","n":"Cabeçote esquerdo","g":"cabecotes","f":"box","p":[0,0.62,-1.52],"r":[-45,0,0],"s":[3.9,0.5,1.1],"c":"#34d399","e":[0,0.6,-1],"o":0.25}
+{"t":"p","id":"cabecote_d","n":"Cabeçote direito","g":"cabecotes","f":"box","p":[0,0.62,1.52],"r":[45,0,0],"s":[3.9,0.5,1.1],"c":"#34d399","e":[0,0.6,1],"o":0.25}
+{"t":"p","id":"tampa_valvulas_e","n":"Tampa de válvulas esquerda","g":"cabecotes","f":"box","p":[0,0.903,-1.803],"r":[-45,0,0],"s":[3.6,0.3,0.9],"c":"#34d399","e":[0,0.6,-1],"o":0.35}
+{"t":"p","id":"tampa_valvulas_d","n":"Tampa de válvulas direita","g":"cabecotes","f":"box","p":[0,0.903,1.803],"r":[45,0,0],"s":[3.6,0.3,0.9],"c":"#34d399","e":[0,0.6,1],"o":0.35}
+{"t":"p","id":"coletor_admissao","n":"Coletor de admissão","g":"admissao","f":"box","p":[0,0.7,0],"r":[0,0,0],"s":[3.2,0.4,1.1],"c":"#22d3ee","e":[0,1,0],"o":0.3}
+{"t":"p","id":"plenum","n":"Plenum","g":"admissao","f":"cyl","p":[0,1.4,0],"r":[0,0,90],"s":[0.42,0.42,3.0],"c":"#22d3ee","e":[0,1,0],"o":0.3}
+{"t":"p","id":"eixo_virabrequim","n":"Virabrequim","g":"virabrequim","f":"cyl","p":[0,-0.9,0],"r":[0,0,90],"s":[0.12,0.12,4.6],"c":"#a78bfa","e":[0,-1,0]}
+{"t":"p","id":"volante","n":"Volante","g":"volante","f":"cyl","p":[2.45,-0.9,0],"r":[0,0,90],"s":[0.95,0.95,0.12],"c":"#f87171","e":[1,0,0]}
+{"t":"p","id":"polia_virabrequim","n":"Polia do virabrequim","g":"distribuicao","f":"cyl","p":[-2.45,-0.9,0],"r":[0,0,90],"s":[0.45,0.45,0.18],"c":"#34d399","e":[-1,0,0]}
+{"t":"p","id":"camisa_e","n":"Cilindro esquerdo","g":"cilindros","f":"cyl","p":[-1.35,-0.05,-0.85],"r":[-45,0,0],"s":[0.34,0.34,1.4],"c":"#22d3ee","e":[0,0.5,-1],"o":0.3,"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"camisa_d","n":"Cilindro direito","g":"cilindros","f":"cyl","p":[-1.2,-0.05,0.85],"r":[45,0,0],"s":[0.34,0.34,1.4],"c":"#22d3ee","e":[0,0.5,1],"o":0.3,"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"pistao_e","n":"Pistão esquerdo","g":"pistoes","f":"cyl","p":[-1.35,-0.158,-0.742],"r":[-45,0,0],"s":[0.31,0.31,0.36],"c":"#f472b6","e":[0,1,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"pistao_d","n":"Pistão direito","g":"pistoes","f":"cyl","p":[-1.2,-0.158,0.742],"r":[45,0,0],"s":[0.31,0.31,0.36],"c":"#f472b6","e":[0,1,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"anel_pistao_e","n":"Anel do pistão esquerdo","g":"pistoes","f":"cyl","p":[-1.35,-0.073,-0.827],"r":[-45,0,0],"s":[0.318,0.318,0.04],"c":"#f472b6","e":[0,1,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"anel_pistao_d","n":"Anel do pistão direito","g":"pistoes","f":"cyl","p":[-1.2,-0.073,0.827],"r":[45,0,0],"s":[0.318,0.318,0.04],"c":"#f472b6","e":[0,1,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"pino_pistao_e","n":"Pino do pistão esquerdo","g":"pistoes","f":"cyl","p":[-1.35,-0.2,-0.7],"r":[0,0,90],"s":[0.07,0.07,0.34],"c":"#f472b6","e":[0,1,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"pino_pistao_d","n":"Pino do pistão direito","g":"pistoes","f":"cyl","p":[-1.2,-0.2,0.7],"r":[0,0,90],"s":[0.07,0.07,0.34],"c":"#f472b6","e":[0,1,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"biela_e","n":"Biela esquerda","g":"bielas","f":"box","p":[-1.35,-0.462,-0.438],"r":[-45,0,0],"s":[0.09,0.85,0.14],"c":"#fbbf24","e":[0,0.6,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"biela_d","n":"Biela direita","g":"bielas","f":"box","p":[-1.2,-0.462,0.438],"r":[45,0,0],"s":[0.09,0.85,0.14],"c":"#fbbf24","e":[0,0.6,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"capa_biela_e","n":"Capa da biela esquerda","g":"bielas","f":"cyl","p":[-1.35,-1.05,0],"r":[0,0,90],"s":[0.14,0.14,0.1],"c":"#fbbf24","e":[0,0.6,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"capa_biela_d","n":"Capa da biela direita","g":"bielas","f":"cyl","p":[-1.2,-1.05,0],"r":[0,0,90],"s":[0.14,0.14,0.1],"c":"#fbbf24","e":[0,0.6,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"contrapeso","n":"Contrapeso","g":"virabrequim","f":"cyl","p":[-1.7,-0.9,0],"r":[0,0,90],"s":[0.42,0.42,0.1],"c":"#a78bfa","e":[0,-1,0],"rep":{"n":5,"d":[0.85,0,0]}}
+{"t":"p","id":"moente","n":"Moente","g":"virabrequim","f":"cyl","p":[-1.275,-1.05,0],"r":[0,0,90],"s":[0.11,0.11,0.3],"c":"#a78bfa","e":[0,-1,0],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"capa_mancal","n":"Capa de mancal","g":"virabrequim","f":"box","p":[-1.7,-1.15,0],"r":[0,0,0],"s":[0.18,0.3,0.5],"c":"#a78bfa","e":[0,-1,0],"rep":{"n":5,"d":[0.85,0,0]}}
+{"t":"p","id":"coroa_volante","n":"Cremalheira do volante","g":"volante","f":"tor","p":[2.52,-0.9,0],"r":[0,90,0],"s":[0.95,0.05],"c":"#f87171","e":[1,0,0]}
+{"t":"p","id":"junta_cabecote_e","n":"Junta do cabeçote esquerdo","g":"cabecotes","f":"box","p":[0,0.443,-1.343],"r":[-45,0,0],"s":[3.9,0.04,1.05],"c":"#34d399","e":[0,0.6,-1],"o":0.5}
+{"t":"p","id":"junta_cabecote_d","n":"Junta do cabeçote direito","g":"cabecotes","f":"box","p":[0,0.443,1.343],"r":[45,0,0],"s":[3.9,0.04,1.05],"c":"#34d399","e":[0,0.6,1],"o":0.5}
+{"t":"p","id":"comando_e","n":"Comando de válvulas esquerdo","g":"valvulas","f":"cyl","p":[0,0.797,-1.697],"r":[0,0,90],"s":[0.07,0.07,3.7],"c":"#fbbf24","e":[0,0.6,-1]}
+{"t":"p","id":"comando_d","n":"Comando de válvulas direito","g":"valvulas","f":"cyl","p":[0,0.797,1.697],"r":[0,0,90],"s":[0.07,0.07,3.7],"c":"#fbbf24","e":[0,0.6,1]}
+{"t":"p","id":"valvula_e","n":"Válvula esquerda","g":"valvulas","f":"cyl","p":[-1.49,0.62,-1.52],"r":[-45,0,0],"s":[0.04,0.04,0.45],"c":"#fbbf24","e":[0,0.6,-1],"rep":{"n":8,"d":[0.425,0,0]}}
+{"t":"p","id":"valvula_d","n":"Válvula direita","g":"valvulas","f":"cyl","p":[-1.34,0.62,1.52],"r":[45,0,0],"s":[0.04,0.04,0.45],"c":"#fbbf24","e":[0,0.6,1],"rep":{"n":8,"d":[0.425,0,0]}}
+{"t":"p","id":"mola_e","n":"Mola de válvula esquerda","g":"valvulas","f":"helix","p":[-1.49,0.726,-1.626],"r":[-45,0,0],"s":[0.07,0.25,5,0.012],"c":"#fbbf24","e":[0,0.6,-1],"rep":{"n":8,"d":[0.425,0,0]}}
+{"t":"p","id":"mola_d","n":"Mola de válvula direita","g":"valvulas","f":"helix","p":[-1.34,0.726,1.626],"r":[45,0,0],"s":[0.07,0.25,5,0.012],"c":"#fbbf24","e":[0,0.6,1],"rep":{"n":8,"d":[0.425,0,0]}}
+{"t":"p","id":"dutos_admissao_e","n":"Duto de admissão esquerdo","g":"admissao","f":"cyl","p":[-1.35,1.07,-0.5],"r":[-114,0,0],"s":[0.09,0.09,1.1],"c":"#22d3ee","e":[0,1,-0.3],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"dutos_admissao_d","n":"Duto de admissão direito","g":"admissao","f":"cyl","p":[-1.2,1.07,0.5],"r":[114,0,0],"s":[0.09,0.09,1.1],"c":"#22d3ee","e":[0,1,0.3],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"corpo_borboleta","n":"Corpo de borboleta","g":"admissao","f":"cyl","p":[-1.75,1.4,0],"r":[0,0,90],"s":[0.3,0.3,0.45],"c":"#22d3ee","e":[-1,1,0]}
+{"t":"p","id":"filtro_ar","n":"Filtro de ar","g":"admissao","f":"cyl","p":[-2.2,1.4,0],"r":[0,0,90],"s":[0.55,0.55,0.35],"c":"#22d3ee","e":[-1,1,0],"o":0.4}
+{"t":"p","id":"primario_escape_e","n":"Primário do escape esquerdo","g":"escape","f":"cyl","p":[-1.35,-0.016,-1.52],"r":[-135,0,0],"s":[0.08,0.08,0.45],"c":"#f87171","e":[0,-0.4,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"primario_escape_d","n":"Primário do escape direito","g":"escape","f":"cyl","p":[-1.2,-0.016,1.52],"r":[135,0,0],"s":[0.08,0.08,0.45],"c":"#f87171","e":[0,-0.4,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"coletor_escape_e","n":"Coletor de escape esquerdo","g":"escape","f":"tube","p":[0,-0.299,-1.803],"r":[0,0,0],"s":[0.1],"pts":[[-1.6,0,0],[-0.5,0,0],[0.5,0,0],[1.4,0,0],[1.9,-0.4,0],[1.9,-1.2,0]],"c":"#f87171","e":[0,-0.4,-1]}
+{"t":"p","id":"coletor_escape_d","n":"Coletor de escape direito","g":"escape","f":"tube","p":[0,-0.299,1.803],"r":[0,0,0],"s":[0.1],"pts":[[-1.6,0,0],[-0.5,0,0],[0.5,0,0],[1.4,0,0],[1.9,-0.4,0],[1.9,-1.2,0]],"c":"#f87171","e":[0,-0.4,1]}
+{"t":"p","id":"polia_comando","n":"Polia do comando","g":"distribuicao","f":"cyl","p":[-2.45,0.797,-1.697],"r":[0,0,90],"s":[0.32,0.32,0.12],"c":"#34d399","e":[-1,0,0],"rep":{"n":2,"d":[0,0,3.394]}}
+{"t":"p","id":"correia_distribuicao","n":"Correia dentada","g":"distribuicao","f":"tube","p":[-2.45,0,0],"r":[0,0,0],"s":[0.035],"pts":[[0,-1.35,0],[0,-0.9,-0.45],[0,0.797,-2.017],[0,1.117,-1.697],[0,1.117,1.697],[0,0.797,2.017],[0,-0.9,0.45],[0,-1.35,0]],"c":"#34d399","e":[-1,0,0]}
+{"t":"p","id":"tensor_correia","n":"Tensor da correia","g":"distribuicao","f":"cyl","p":[-2.45,1.25,0],"r":[0,0,90],"s":[0.13,0.13,0.1],"c":"#34d399","e":[-1,0.3,0]}
+{"t":"p","id":"vela_e","n":"Vela de ignição esquerda","g":"ignicao","f":"cyl","p":[-1.35,0.338,-1.874],"r":[-135,0,0],"s":[0.05,0.05,0.35],"c":"#f87171","e":[0,-0.3,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"vela_d","n":"Vela de ignição direita","g":"ignicao","f":"cyl","p":[-1.2,0.338,1.874],"r":[135,0,0],"s":[0.05,0.05,0.35],"c":"#f87171","e":[0,-0.3,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"bobina_e","n":"Bobina esquerda","g":"ignicao","f":"box","p":[-1.35,1.115,-2.015],"r":[-45,0,0],"s":[0.18,0.3,0.18],"c":"#f87171","e":[0,0.6,-1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"bobina_d","n":"Bobina direita","g":"ignicao","f":"box","p":[-1.2,1.115,2.015],"r":[45,0,0],"s":[0.18,0.3,0.18],"c":"#f87171","e":[0,0.6,1],"rep":{"n":4,"d":[0.85,0,0]}}
+{"t":"p","id":"bomba_agua","n":"Bomba d'água","g":"acessorios","f":"cyl","p":[-2.3,-0.2,0],"r":[0,0,90],"s":[0.25,0.25,0.3],"c":"#a78bfa","e":[-1,0,0]}
+{"t":"p","id":"alternador","n":"Alternador","g":"acessorios","f":"cyl","p":[-2.15,-0.55,1.25],"r":[0,0,90],"s":[0.3,0.3,0.5],"c":"#a78bfa","e":[-1,0,1]}
+{"t":"p","id":"motor_arranque","n":"Motor de arranque","g":"acessorios","f":"cyl","p":[1.8,-1.3,1.05],"r":[0,0,90],"s":[0.2,0.2,0.65],"c":"#a78bfa","e":[1,-0.5,1]}
+{"t":"p","id":"filtro_oleo","n":"Filtro de óleo","g":"acessorios","f":"cyl","p":[0.8,-1.3,1.15],"r":[90,0,0],"s":[0.2,0.2,0.4],"c":"#a78bfa","e":[0,-0.5,1]}
+{"t":"p","id":"bocal_oleo","n":"Bocal de óleo","g":"cabecotes","f":"cyl","p":[1.2,1.08,-1.98],"r":[-45,0,0],"s":[0.12,0.12,0.2],"c":"#34d399","e":[0,0.6,-1]}
+{"t":"p","id":"vareta_oleo","n":"Vareta de óleo","g":"acessorios","f":"line","p":[1.7,-1.0,-0.95],"r":[0,0,0],"pts":[[0,0,0],[0,1.3,-0.35]],"c":"#a78bfa","e":[0,0.5,-1]}
+{"t":"p","id":"parafusos_carter_frente","n":"Parafuso do cárter","g":"bloco","f":"sph","p":[-1.6,-1.42,0.82],"r":[0,0,0],"s":[0.05],"c":"#38bdf8","e":[0,-1,0.3],"rep":{"n":5,"d":[0.8,0,0]}}
+{"t":"p","id":"parafusos_carter_tras","n":"Parafuso do cárter","g":"bloco","f":"sph","p":[-1.6,-1.42,-0.82],"r":[0,0,0],"s":[0.05],"c":"#38bdf8","e":[0,-1,-0.3],"rep":{"n":5,"d":[0.8,0,0]}}
+{"t":"fim"}

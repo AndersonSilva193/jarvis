@@ -1,0 +1,12 @@
+{"t":"meta","nome":"DNA","cat":"biologia","desc":"Trecho de dupla hélice de DNA, com os pares de bases A-T e G-C ligando as duas fitas."}
+{"t":"p","id":"pedestal","n":"Pedestal do projetor","g":"base","f":"cyl","p":[0,-2.15,0],"r":[0,0,0],"s":[1.5,1.6,0.12],"c":"#38bdf8","e":[0,-1,0],"o":0.25}
+{"t":"p","id":"anel_pedestal","n":"Anel do pedestal","g":"base","f":"tor","p":[0,-2.08,0],"r":[90,0,0],"s":[1.55,0.025],"c":"#38bdf8","e":[0,-1,0]}
+{"t":"p","id":"eixo_helice","n":"Eixo da hélice","g":"base","f":"line","p":[0,0,0],"r":[0,0,0],"pts":[[0,-2.0,0],[0,3.5,0]],"c":"#38bdf8","e":[0,-1,0],"o":0.3}
+{"t":"p","id":"fita_1","n":"Fita 5' para 3'","g":"fita_1","f":"helix","p":[0,0.75,0],"r":[0,0,0],"s":[1.0,5.5,2.5,0.06],"c":"#22d3ee","e":[1,0,0.3]}
+{"t":"p","id":"fita_2","n":"Fita 3' para 5'","g":"fita_2","f":"helix","p":[0,0.75,0],"r":[0,180,0],"s":[1.0,5.5,2.5,0.06],"c":"#a78bfa","e":[-1,0,-0.3]}
+{"t":"p","id":"fosfato_1","n":"Fosfato da fita 1","g":"fita_1","f":"sph","p":[0,-2.0,0],"r":[0,0,0],"s":[0.1],"c":"#22d3ee","e":[1,0,0],"rep":{"n":25,"d":[0,0.22,0]},"rad":{"n":10,"r":1.0,"ax":"y","a":0}}
+{"t":"p","id":"fosfato_2","n":"Fosfato da fita 2","g":"fita_2","f":"sph","p":[0,-2.0,0],"r":[0,0,0],"s":[0.1],"c":"#a78bfa","e":[1,0,0],"rep":{"n":25,"d":[0,0.22,0]},"rad":{"n":10,"r":1.0,"ax":"y","a":180}}
+{"t":"p","id":"par_at","n":"Par adenina-timina","g":"pares_at","f":"cyl","p":[0,-2.0,0],"r":[0,0,90],"s":[0.045,0.045,1.9],"c":"#f472b6","e":[0,0,1],"rep":{"n":13,"d":[0,0.44,0]},"rad":{"n":5,"r":0,"ax":"y","a":0}}
+{"t":"p","id":"par_gc","n":"Par guanina-citosina","g":"pares_gc","f":"cyl","p":[0,-1.78,0],"r":[0,0,90],"s":[0.045,0.045,1.9],"c":"#34d399","e":[0,0,1],"rep":{"n":12,"d":[0,0.44,0]},"rad":{"n":5,"r":0,"ax":"y","a":36}}
+{"t":"p","id":"ponte_hidrogenio","n":"Pontes de hidrogênio","g":"pontes","f":"sph","p":[0,-2.0,0],"r":[0,0,0],"s":[0.06],"c":"#fbbf24","e":[0,1,0],"rep":{"n":25,"d":[0,0.22,0]}}
+{"t":"fim"}
