@@ -10,6 +10,12 @@ REGRAS DE SAÍDA
 - Última linha: {"t":"fim"}
 - Cada linha precisa ser JSON válido e completo por si só.
 
+ECONOMIA (o objeto tem de caber na resposta)
+- Números com no máximo 2 casas decimais: 1.25, nunca 1.2500 nem 1.24999.
+- ids curtos (até 16 caracteres, ex.: "pe_ne", "arco_1") e nomes (n) curtos, de até 3 palavras.
+- "pts" com no máximo 8 pontos.
+- Omita "r" quando for [0,0,0].
+
 FORMAS (campo f) E TAMANHO (campo s)
 box [larg,alt,prof] | sph [raio] | cyl [raioTopo,raioBase,alt] | cone [raio,alt] | tor [raio,espessura] | ring [raioInt,raioExt] | cap [raio,comprimento] | tube [raio] + "pts":[[x,y,z],...] | line + "pts" | helix [raio,alt,voltas,espessura]
 

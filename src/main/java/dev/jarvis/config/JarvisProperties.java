@@ -153,16 +153,20 @@ public record JarvisProperties(
      * @param modelo      o modelo da Anthropic para o holograma; vazio é o {@code ANTHROPIC_MODELO}.
      *                    No local quem escolhe é o {@code ollama.modelo} do PC
      * @param temperatura só vai ao local; os modelos atuais da Anthropic recusam o campo
-     * @param maxTokens   teto de saída, que prende o de cada nível de detalhe (nunca o aumenta)
+     * @param maxTokensRapido    teto de saída do nível {@code rapido} (4000 de padrão)
+     * @param maxTokensNormal    do {@code normal} (8000)
+     * @param maxTokensDetalhado do {@code detalhado} (16000). Era um teto só, que prendia os três, e
+     *                           com 8000 o detalhado saía cortado sempre
      * @param precoEntradaUsd dólares por milhão de tokens de entrada, só para a estimativa do selo
      * @param precoSaidaUsd   dólares por milhão de tokens de saída
      */
-    public record Holograma(String provedor, String modelo, Double temperatura, Integer maxTokens,
-            Double precoEntradaUsd, Double precoSaidaUsd) {
+    public record Holograma(String provedor, String modelo, Double temperatura, Integer maxTokensRapido,
+            Integer maxTokensNormal, Integer maxTokensDetalhado, Double precoEntradaUsd,
+            Double precoSaidaUsd) {
 
-        /** A aridade de antes do teto e dos preços: os testes que informam o holograma não mudam. */
+        /** A aridade de antes dos tetos e dos preços: os testes que informam o holograma não mudam. */
         public Holograma(String provedor, String modelo, Double temperatura) {
-            this(provedor, modelo, temperatura, null, null, null);
+            this(provedor, modelo, temperatura, null, null, null, null, null);
         }
     }
 
@@ -521,10 +525,28 @@ public record JarvisProperties(
         return holograma == null || holograma.modelo() == null ? "" : holograma.modelo().trim();
     }
 
-    /** O teto de saída do holograma: 8000 de padrão. Valor não positivo cai no padrão. */
-    public int maxTokensDoHolograma() {
-        Integer t = holograma == null ? null : holograma.maxTokens();
-        return t == null || t <= 0 ? 8_000 : t;
+    /**
+     * O teto de saída de um nível do holograma ({@code rapido}, {@code normal}, {@code detalhado}):
+     * 4000, 8000 e 16000 de padrão. Valor não positivo cai no padrão; nível desconhecido é o normal.
+     */
+    public int maxTokensDoHolograma(String nivel) {
+        Integer t = null;
+        int padrao;
+        switch (nivel) {
+            case "rapido" -> {
+                padrao = 4_000;
+                if (holograma != null) t = holograma.maxTokensRapido();
+            }
+            case "detalhado" -> {
+                padrao = 16_000;
+                if (holograma != null) t = holograma.maxTokensDetalhado();
+            }
+            default -> {
+                padrao = 8_000;
+                if (holograma != null) t = holograma.maxTokensNormal();
+            }
+        }
+        return t == null || t <= 0 ? padrao : t;
     }
 
     /** US$ por milhão de tokens de entrada na estimativa do holograma (0,10 de padrão). */

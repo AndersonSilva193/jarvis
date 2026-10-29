@@ -14,9 +14,30 @@ public sealed interface SaidaHolograma {
 
     Object dados();
 
-    record Meta(HologramaMeta meta) implements SaidaHolograma {
+    /**
+     * @param id o id da geração, que a HUD devolve no {@code /continuar}; {@code null} no exemplo,
+     *           que não se retoma
+     */
+    record Meta(HologramaMeta meta, String id) implements SaidaHolograma {
+        public Meta(HologramaMeta meta) {
+            this(meta, null);
+        }
+
+        public Meta comId(String novo) {
+            return new Meta(meta, novo);
+        }
+
         public String evento() { return "meta"; }
-        public Object dados() { return meta; }
+
+        public Object dados() {
+            if (id == null) return meta;
+            Map<String, Object> corpo = new LinkedHashMap<>();
+            corpo.put("nome", meta.nome());
+            corpo.put("categoria", meta.categoria());
+            corpo.put("descricao", meta.descricao());
+            corpo.put("id", id);
+            return corpo;
+        }
     }
 
     record Peca(HologramaPeca peca) implements SaidaHolograma {
@@ -61,32 +82,56 @@ public sealed interface SaidaHolograma {
      */
     record Resumo(String provedor, String modelo, Long tokensEntrada, Long tokensSaida, Double custoUsd) { }
 
+    /** O objeto chegou inteiro: o modelo escreveu a linha de fim (ou o limite de peças fechou). */
+    String COMPLETO = "completo";
+    /** O objeto parou antes: teto de tokens, resposta sem fim, prazo, falha. Não vai para cache nenhum. */
+    String INCOMPLETO = "incompleto";
+
     /**
-     * O fim, com o placar: quantas peças foram para a tela e quantos avisos saíram. O {@code resumo}
-     * é acrescentado por quem transmite uma geração real; o exemplo fixo não tem o que informar.
+     * O fim, com o placar: quantas peças foram para a tela, quantos avisos saíram e se o objeto
+     * chegou {@link #COMPLETO} ou {@link #INCOMPLETO} — com o {@code motivo}, frase fixa em Java,
+     * no segundo caso. O {@code resumo} e o {@code id} são acrescentados por quem transmite uma
+     * geração real; o exemplo fixo não tem o que informar.
      */
-    record Fim(int pecas, int avisos, Resumo resumo) implements SaidaHolograma {
+    record Fim(int pecas, int avisos, String status, String motivo, Resumo resumo, String id)
+            implements SaidaHolograma {
         public Fim(int pecas, int avisos) {
-            this(pecas, avisos, null);
+            this(pecas, avisos, COMPLETO, null, null, null);
+        }
+
+        public static Fim incompleto(int pecas, int avisos, String motivo) {
+            return new Fim(pecas, avisos, INCOMPLETO, motivo, null, null);
+        }
+
+        public boolean completo() {
+            return COMPLETO.equals(status);
         }
 
         public Fim comResumo(Resumo novo) {
-            return new Fim(pecas, avisos, novo);
+            return new Fim(pecas, avisos, status, motivo, novo, id);
+        }
+
+        public Fim comId(String novo) {
+            return new Fim(pecas, avisos, status, motivo, resumo, novo);
         }
 
         public String evento() { return "fim"; }
 
-        /** Sem resumo o corpo é o de sempre; campo que não se sabe fica de fora, não vai como null. */
+        /** Campo que não se sabe fica de fora, não vai como null. */
         public Object dados() {
-            if (resumo == null) return this;
             Map<String, Object> corpo = new LinkedHashMap<>();
             corpo.put("pecas", pecas);
             corpo.put("avisos", avisos);
-            corpo.put("provedor", resumo.provedor());
-            if (!resumo.modelo().isEmpty()) corpo.put("modelo", resumo.modelo());
-            if (resumo.tokensEntrada() != null) corpo.put("tokensEntrada", resumo.tokensEntrada());
-            if (resumo.tokensSaida() != null) corpo.put("tokensSaida", resumo.tokensSaida());
-            if (resumo.custoUsd() != null) corpo.put("custoUsd", resumo.custoUsd());
+            corpo.put("status", status);
+            if (motivo != null) corpo.put("motivo", motivo);
+            if (resumo != null) {
+                corpo.put("provedor", resumo.provedor());
+                if (!resumo.modelo().isEmpty()) corpo.put("modelo", resumo.modelo());
+                if (resumo.tokensEntrada() != null) corpo.put("tokensEntrada", resumo.tokensEntrada());
+                if (resumo.tokensSaida() != null) corpo.put("tokensSaida", resumo.tokensSaida());
+                if (resumo.custoUsd() != null) corpo.put("custoUsd", resumo.custoUsd());
+            }
+            if (id != null) corpo.put("id", id);
             return corpo;
         }
     }

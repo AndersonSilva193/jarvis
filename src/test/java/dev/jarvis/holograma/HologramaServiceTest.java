@@ -76,8 +76,8 @@ class HologramaServiceTest {
 
         var opcoes = anthropic.ultimo.opcoes();
         assertEquals("modelo-holograma", opcoes.modelo());
-        // O teto configurado (8000 de padrão) prende o do nível detalhado (16000).
-        assertEquals(8_000, opcoes.maxTokens());
+        // Cada nível tem o seu teto; o detalhado não é mais preso nos 8000 do normal.
+        assertEquals(16_000, opcoes.maxTokens());
         assertEquals(null, opcoes.temperatura());
         assertEquals("Gere: cubo", anthropic.ultimo.mensagens().get(0).texto());
         assertTrue(anthropic.ultimo.sistema().blocos().get(0).texto().contains("OBJETO: cubo"));
@@ -401,6 +401,100 @@ class HologramaServiceTest {
         assertFalse(emissor.corpo().contains("custoUsd"), emissor.corpo());
     }
 
+    // ---- continuação e retomada ---------------------------------------------------------------
+
+    private static final String TOPO = "{\"t\":\"p\",\"id\":\"topo\",\"f\":\"cone\"}\n";
+
+    @Test
+    void oTetoDeTokensPedeAContinuacaoComOQueJaChegou() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        // A primeira para no teto com meia linha; a continuação repete o cubo e termina.
+        anthropic.porChamada = List.of(List.of(META, PECA, "{\"t\":\"p\",\"id\":\"to"),
+                List.of(PECA, TOPO, FIM));
+        anthropic.motivo = RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS;
+        anthropic.uso = new RespostaDoModelo.Uso(100, 200, 0, 0, 0);
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.DETALHADO, emissor);
+        emissor.esperar();
+
+        assertEquals(2, anthropic.chamadas);
+        // O cubo repetido não volta à tela; o topo sim, no mesmo SSE.
+        assertEquals(List.of("meta", "peca", "peca", "fim"), emissor.eventos());
+        assertTrue(emissor.corpo().contains("\"status\":\"completo\""), emissor.corpo());
+        assertTrue(emissor.corpo().contains("\"tokensSaida\":400"), "as duas chamadas somam: " + emissor.corpo());
+        List<dev.jarvis.ia.provedor.Mensagem> mensagens = anthropic.ultimo.mensagens();
+        assertEquals(3, mensagens.size());
+        String recebido = ((Bloco.Texto) mensagens.get(1).blocos().getFirst()).texto();
+        assertEquals(META.strip() + "\n" + PECA.strip(), recebido, "a meia linha não vai de volta");
+        assertEquals(PromptDeHolograma.CONTINUAR, ((Bloco.Texto) mensagens.get(2).blocos().getFirst()).texto());
+    }
+
+    @Test
+    void depoisDeDuasContinuacoesOFimSaiIncompletoComOMotivo() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of(META, PECA));
+        anthropic.motivo = RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS;
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.DETALHADO, emissor);
+        emissor.esperar();
+
+        assertEquals(1 + HologramaService.MAX_CONTINUACOES, anthropic.chamadas);
+        assertEquals(List.of("meta", "peca", "fim"), emissor.eventos());
+        assertTrue(emissor.corpo().contains("\"status\":\"incompleto\",\"motivo\":\""
+                + HologramaService.MOTIVO_TETO + "\""), emissor.corpo());
+        assertTrue(emissor.corpo().matches("(?s).*\"id\":\"h[0-9a-z]{8}\".*"), emissor.corpo());
+    }
+
+    @Test
+    void streamQueAcabaSemFimTambemContinua() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        anthropic.porChamada = List.of(List.of(META, PECA), List.of(TOPO, FIM));
+        anthropic.motivo = RespostaDoModelo.MotivoDeParada.OUTRO;
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(2, anthropic.chamadas);
+        assertTrue(emissor.corpo().contains("\"status\":\"completo\""), emissor.corpo());
+    }
+
+    @Test
+    void aRetomadaReenviaOQueAHudPerdeuEContinua() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        String outra = "{\"t\":\"p\",\"id\":\"base\",\"f\":\"box\"}\n";
+        anthropic.porChamada = List.of(List.of(META, PECA, outra), List.of(), List.of(), List.of(TOPO, FIM));
+        anthropic.motivo = RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS;
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
+        servico.gerar("cubo", DetalheHolograma.DETALHADO, emissor);
+        emissor.esperar();
+        assertTrue(emissor.corpo().contains("\"status\":\"incompleto\""), emissor.corpo());
+        java.util.regex.Matcher id = java.util.regex.Pattern.compile("\"id\":\"(h[0-9a-z]{8})\"").matcher(emissor.corpo());
+        assertTrue(id.find());
+
+        // A HUD só tinha recebido a primeira peça.
+        Emissor retomada = new Emissor();
+        assertTrue(servico.continuar(id.group(1), 1, retomada));
+        retomada.esperar();
+
+        assertEquals(List.of("meta", "peca", "peca", "fim"), retomada.eventos());
+        assertTrue(retomada.corpo().contains("\"id\":\"base\""), "a peça perdida volta: " + retomada.corpo());
+        assertTrue(retomada.corpo().contains("\"id\":\"topo\""), retomada.corpo());
+        assertFalse(retomada.corpo().contains("\"id\":\"cubo\""), "a que a HUD tem não volta");
+        assertTrue(retomada.corpo().contains("\"status\":\"completo\""), retomada.corpo());
+    }
+
+    @Test
+    void retomadaDeIdDesconhecidoNaoMexeNoEmissor() {
+        servico = servico(new Falso(List.of()), new Falso(List.of()), "anthropic", true);
+        assertFalse(servico.continuar("habcdefgh", 0, new Emissor()));
+    }
+
     @Test
     void custoEstimadoUsaATabelaConfigurada() {
         servico = servico(new Falso(List.of()), new Falso(List.of()), "anthropic", true);
@@ -437,6 +531,10 @@ class HologramaServiceTest {
     /** Um provedor que transmite os pedaços dados, e reage ao corte como um stream fechado. */
     private static final class Falso implements ProvedorDeModelo {
         private final List<String> deltas;
+        /** As respostas de cada chamada, na ordem (a última se repete); vazio usa {@code deltas}. */
+        List<List<String>> porChamada = List.of();
+        RespostaDoModelo.MotivoDeParada motivo = RespostaDoModelo.MotivoDeParada.FIM;
+        final List<PedidoAoModelo> pedidos = Collections.synchronizedList(new ArrayList<>());
         IOException falha;
         RespostaDoModelo.Uso uso;
         boolean esperarCorte;
@@ -461,6 +559,9 @@ class HologramaServiceTest {
                 Cancelamento cancelamento) throws IOException, InterruptedException {
             chamadas++;
             ultimo = pedido;
+            pedidos.add(pedido);
+            List<String> deltas = porChamada.isEmpty() ? this.deltas
+                    : porChamada.get(Math.min(chamadas, porChamada.size()) - 1);
             cancelamento.aoCancelar(() -> {
                 cortado = true;
                 corte.countDown();
@@ -476,8 +577,7 @@ class HologramaServiceTest {
                 throw new IOException("stream fechado");
             }
             if (falha != null) throw falha;
-            return new RespostaDoModelo(List.of(new Bloco.Texto(String.join("", deltas))),
-                    RespostaDoModelo.MotivoDeParada.FIM, uso);
+            return new RespostaDoModelo(List.of(new Bloco.Texto(String.join("", deltas))), motivo, uso);
         }
     }
 

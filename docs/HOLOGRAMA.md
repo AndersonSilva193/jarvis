@@ -181,6 +181,12 @@ REGRAS DE SAÍDA
 - Última linha: {"t":"fim"}
 - Cada linha precisa ser JSON válido e completo por si só.
 
+ECONOMIA (o objeto tem de caber na resposta)
+- Números com no máximo 2 casas decimais: 1.25, nunca 1.2500 nem 1.24999.
+- ids curtos (até 16 caracteres, ex.: "pe_ne", "arco_1") e nomes (n) curtos, de até 3 palavras.
+- "pts" com no máximo 8 pontos.
+- Omita "r" quando for [0,0,0].
+
 FORMAS (campo f) E TAMANHO (campo s)
 box [larg,alt,prof] | sph [raio] | cyl [raioTopo,raioBase,alt] | cone [raio,alt] | tor [raio,espessura] | ring [raioInt,raioExt] | cap [raio,comprimento] | tube [raio] + "pts":[[x,y,z],...] | line + "pts" | helix [raio,alt,voltas,espessura]
 
@@ -338,10 +344,10 @@ desconhecido (o nome casa `[a-z0-9_]{1,40}` antes de virar caminho de recurso).
 
 | Evento | `data` |
 |---|---|
-| `meta` | `{"nome","categoria","descricao"}` — sempre o primeiro, uma vez só |
+| `meta` | `{"nome","categoria","descricao"}` — sempre o primeiro, uma vez só. Na geração real leva também `id` (`h` + 8 caracteres), o que o "Continuar" devolve |
 | `peca` | `{"id","nome","grupo","forma","posicao":[3],"rotacao":[3],"tamanho":[..],"cor","explosao":[3],"opacidade","contorno","pontos":[[3]..]}` |
 | `aviso` | `{"texto"}` — o que foi consertado ou descartado |
-| `fim` | `{"pecas","avisos"}` — sempre o último, mesmo que o NDJSON não tenha `fim` |
+| `fim` | `{"pecas","avisos","status","motivo"?}` — sempre o último. `status` é `completo` quando o modelo escreveu a linha de fim (ou o limite de 250 peças fechou) e `incompleto` quando quem fechou foi o servidor; aí vem o `motivo`, frase fixa em Java |
 
 A geração real (Fase 2) passa pela **mesma** `MontagemDeHolograma`, então a HUD que entende o
 exemplo entende o modelo.
@@ -425,7 +431,49 @@ modelo ──delta──► BufferDeLinhas ──linha──► MontagemDeHologr
 O `HologramaService` (`dev.jarvis.holograma`) faz uma chamada com `system` = o prompt
 (`src/main/resources/holograma/holograma-prompt.txt`, com `{{OBJETO}}` e `{{DETALHE}}`) e
 `user` = `"Gere: <objeto>"`, sem histórico, `Origem.HOLOGRAMA` (balde de custo próprio, esforço do
-perfil de apoio) e `max_tokens` por nível (4 mil, 8 mil, 16 mil).
+perfil de apoio) e `max_tokens` por nível: `HOLOGRAMA_MAX_TOKENS_RAPIDO` (4000),
+`HOLOGRAMA_MAX_TOKENS_NORMAL` (8000) e `HOLOGRAMA_MAX_TOKENS_DETALHADO` (16000). No preço configurado
+(US$ 0,50 por milhão de saída), o teto do detalhado fica em US$ 0,008 por chamada.
+
+*Até 29/10/2026 era um `HOLOGRAMA_MAX_TOKENS` só, de 8000, que **prendia** os três níveis: o
+detalhado nunca recebia os 16000 e saía cortado ("Torre Eiffel": 72 peças, a última linha pela
+metade e o aviso "A resposta acabou sem a linha de fim"). A variável antiga não é mais lida.*
+
+### A continuação
+
+Uma resposta que acaba **sem a linha de fim** — `stop_reason` `max_tokens`, ou o stream que fechou
+sem `message_stop` (sem motivo) — ganha até **duas** chamadas novas
+(`HologramaService.MAX_CONTINUACOES`) ao **mesmo** provedor, com três mensagens: o `"Gere: <objeto>"`
+original, as linhas já aceitas como fala do assistente (só as que viraram meta ou peça; a meia linha
+cortada fica de fora) e `PromptDeHolograma.CONTINUAR`, que pede só as peças que faltam, sem repetir
+meta nem id. As peças novas saem **no mesmo SSE**, entre o que já estava na tela.
+
+O servidor não confia no "sem repetir": na continuação a `MontagemDeHolograma` ignora calada a meta
+repetida e **descarta** a peça cujo id já existe (o `id` cru, ou o `id_1` de um `rep`/`rad`), em vez
+de renomeá-la como faz na primeira chamada — um modelo que recomeça do início desenharia o objeto de
+novo por cima. Cada chamada tem o próprio prazo de 180 s, e os tokens somam no `fim`.
+
+Esgotadas as continuações, o `fim` sai `incompleto` com o motivo: `o modelo bateu no teto de tokens`
+ou `a resposta acabou sem a linha de fim`. Erro e prazo também fecham `incompleto`, com o texto do
+`erro` como motivo. **Objeto incompleto não vai para cache nenhum**: hoje não existe cache de
+holograma; quando a biblioteca da Fase 7 existir, ela guarda só `status: completo`.
+
+### A retomada
+
+`GET /api/holograma/continuar?id=<id>&recebidas=<n>` (Bearer). A última geração com peça na tela
+fica guardada por 30 minutos (`HologramaService.RETENCAO`): a montagem, a meta e as peças na ordem
+em que saíram. A rota reenvia a meta e as peças a partir da `n`-ésima — as que a HUD não recebeu —
+e, se o objeto não estava completo, roda o mesmo laço de continuação. Completo, só reenvia e manda
+o `fim` (é o caso do `fim` que se perdeu na rede). 400 para id torto ou `recebidas` negativo; 404
+quando outra geração tomou o lugar ou a retenção passou. Uma geração do mesmo id ainda rodando (a
+HUD desistiu antes de o servidor perceber) é cortada e esperada até 5 s.
+
+Na HUD, a fase `incompleto` mostra "Incompleto: <motivo> · N peças" e o botão **Continuar**, que
+chama a rota com `recebidas` = peças na tela e **não** limpa a cena. A HUD também chega a
+`incompleto` sozinha quando a conexão cai com peça na tela: o stream acabou sem `fim`, o `fetch`
+falhou, ou nenhum byte chegou por 15 s (`SILENCIO_MAXIMO_MS`; o servidor manda `:gerando` a cada
+3 s). É o celular que pôs a aba em segundo plano: na volta (`visibilitychange`) a conferência é
+imediata, a tela mostra o que chegou e oferece Continuar em vez de perder tudo.
 
 ### Quem gera
 
@@ -482,12 +530,29 @@ Uma geração longa que está escrevendo não é um PC travado. O total é o da 
 
 ### Log
 
-Uma linha por geração:
-`Holograma 'motor V8' (normal): provedor=anthropic modelo=claude-haiku-5-5 1ª peça em 3.1 s,
-58 peças, 2 linhas descartadas, 1 avisos, total 24.0 s, fim=modelo`. E uma linha a mais quando há
-troca de provedor (`Holograma: local → anthropic: pc_offline`).
+Uma linha **por chamada** ao modelo, com o `stop_reason` como o provedor o escreve (`end_turn`,
+`max_tokens`, `nenhum` para o stream que fechou sem dizer por quê; no local, `stop`/`length`), os
+tokens de saída, o teto, se a linha de fim do modelo chegou e, quando a última linha veio pela
+metade, o texto dela:
+
+```
+Holograma 'Torre Eiffel' (detalhado) chamada inicial: provedor=anthropic stop_reason=max_tokens
+  tokens_saida=16000 teto=16000 linha_fim=não peças até aqui=118, última linha cortada: {"t":"p","id":"vi
+Holograma 'Torre Eiffel' (detalhado) chamada continuação 1: provedor=anthropic stop_reason=end_turn
+  tokens_saida=2310 teto=16000 linha_fim=sim peças até aqui=141
+```
+
+E uma por geração, com o total: peças, chamadas, linhas descartadas, repetidas, avisos, tokens
+(entrada/saída, somados), custo estimado, `status` (com o motivo, se incompleto), se o **evento
+`fim`** chegou a ser enviado à HUD (`não enviado` = o cliente tinha saído) e o fim interno. Havendo
+linha descartada, mais uma com o texto bruto das cinco primeiras (até 300 caracteres cada). A troca
+de provedor continua numa linha à parte (`Holograma: local → anthropic: pc_offline`).
 
 ### nginx
 
-Nada a mudar. A rota cai em `location /api/`, que já tem `proxy_buffering off` e
-`proxy_read_timeout 1h`. O `X-Accel-Buffering: no` só protege a rota se ela mudar de bloco um dia.
+Nada a mudar, conferido em 29/10/2026 no `deploy/nginx-jarvis.conf`: `/api/holograma/gerar` e
+`/api/holograma/continuar` caem em `location /api/`, que tem `proxy_buffering off`,
+`proxy_read_timeout 1h`, `proxy_send_timeout 1h` e `proxy_http_version 1.1`. O pior caso de um
+pedido é 3 × 180 s mais folga, abaixo da hora. O `X-Accel-Buffering: no` só protege a rota se ela
+mudar de bloco um dia. *(O arquivo da VPS é reescrito pelo certbot; confira lá com
+`sudo nginx -T | grep -A12 'location /api/ '`.)*

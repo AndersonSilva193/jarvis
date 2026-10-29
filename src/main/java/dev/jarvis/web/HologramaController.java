@@ -51,8 +51,11 @@ public class HologramaController {
     /** Cem peças a 40 ms são quatro segundos; um minuto é folga para cliente lento. */
     private static final Duration PRAZO_DO_STREAM = Duration.ofMinutes(1);
 
-    /** Folga sobre o prazo da geração: quem fecha o stream no prazo é o gerador, com erro e fim. */
-    private static final Duration PRAZO_DA_GERACAO = HologramaService.PRAZO.plusSeconds(10);
+    /**
+     * Folga sobre o pior caso da geração (a chamada inicial e as continuações): quem fecha o stream
+     * no prazo é o gerador, com erro e fim.
+     */
+    private static final Duration PRAZO_DA_GERACAO = HologramaService.PRAZO_TOTAL.plusSeconds(10);
 
     private final ExemplosDeHolograma exemplos;
     private final HologramaLineParser parser;
@@ -101,6 +104,28 @@ public class HologramaController {
         }
         SseEmitter emissor = new SseEmitter(PRAZO_DA_GERACAO.toMillis());
         geracao.gerar(limpo, nivel.get(), gerador.get(), emissor);
+        return semBuffer(emissor);
+    }
+
+    /**
+     * Retoma a última geração: a HUD manda o id que veio na {@code meta} e quantas peças tem, e
+     * recebe pelo mesmo formato de eventos a meta, as peças que perdeu e — se o objeto não estava
+     * completo — o que o modelo ainda escrever. É o "Continuar" da tela, e o que salva o celular
+     * que perdeu a conexão com a aba em segundo plano.
+     *
+     * @return 400 com id torto ou contagem negativa; 404 quando não há mais o que retomar com esse
+     *         id (outra geração tomou o lugar, ou passou a retenção)
+     */
+    @GetMapping(path = "/api/holograma/continuar", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> continuar(@RequestParam(required = false) String id,
+            @RequestParam(required = false, defaultValue = "0") int recebidas) {
+        if (!HologramaService.idValido(id) || recebidas < 0) {
+            return ResponseEntity.badRequest().build();
+        }
+        SseEmitter emissor = new SseEmitter(PRAZO_DA_GERACAO.toMillis());
+        if (!geracao.continuar(id, recebidas, emissor)) {
+            return ResponseEntity.notFound().build();
+        }
         return semBuffer(emissor);
     }
 

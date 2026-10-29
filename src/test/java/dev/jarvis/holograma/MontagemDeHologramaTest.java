@@ -1,6 +1,7 @@
 package dev.jarvis.holograma;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -39,9 +40,46 @@ class MontagemDeHologramaTest {
                 "```"));
         assertEquals("Cubo", assertInstanceOf(SaidaHolograma.Meta.class, saidas.getFirst()).meta().nome());
         assertEquals("cubo", assertInstanceOf(SaidaHolograma.Peca.class, saidas.get(1)).peca().id());
-        // Sem a linha de fim, o terminar() avisa e fecha.
+        // Sem a linha de fim, o terminar() avisa e fecha como incompleto.
         assertInstanceOf(SaidaHolograma.Aviso.class, saidas.get(2));
-        assertEquals(new SaidaHolograma.Fim(1, 1), saidas.getLast());
+        assertEquals(SaidaHolograma.Fim.incompleto(1, 1, MontagemDeHolograma.MOTIVO_SEM_FIM), saidas.getLast());
+    }
+
+    @Test
+    @DisplayName("a linha cortada fica guardada em texto para o log")
+    void linhaDescartadaGuardaOTexto() {
+        MontagemDeHolograma montagem = new MontagemDeHolograma(parser);
+        montagem.processar("{\"t\":\"meta\",\"nome\":\"Torre\"}");
+        montagem.processar("{\"t\":\"p\",\"id\":\"viga_1\",\"f\":\"bo");
+        assertEquals(List.of("{\"t\":\"p\",\"id\":\"viga_1\",\"f\":\"bo"), montagem.descartadasBrutas());
+    }
+
+    @Test
+    @DisplayName("continuação: meta e id repetidos são descartados calados, e o fim fecha completo")
+    void continuacaoDescartaORepetido() {
+        MontagemDeHolograma montagem = new MontagemDeHolograma(parser);
+        String meta = "{\"t\":\"meta\",\"nome\":\"Torre\"}";
+        String base = "{\"t\":\"p\",\"id\":\"base\",\"f\":\"box\"}";
+        String pe = "{\"t\":\"p\",\"id\":\"pe\",\"f\":\"box\",\"rep\":{\"n\":4,\"d\":[1,0,0]}}";
+        montagem.processar(meta);
+        montagem.processar(base);
+        montagem.processar(pe);
+        montagem.incompleto(HologramaService.MOTIVO_TETO);
+        assertFalse(montagem.completo());
+        assertEquals(List.of(meta, base, pe), montagem.linhasAceitas());
+
+        montagem.continuar();
+        assertEquals(List.of(), montagem.processar(meta));
+        assertEquals(List.of(), montagem.processar(base));
+        assertEquals(List.of(), montagem.processar(pe));
+        List<SaidaHolograma> novas = montagem.processar("{\"t\":\"p\",\"id\":\"topo\",\"f\":\"cone\"}");
+        assertEquals("topo", assertInstanceOf(SaidaHolograma.Peca.class, novas.getFirst()).peca().id());
+        assertEquals(2, montagem.repetidas()); // a meta repetida some calada, sem contar
+        assertEquals(0, montagem.avisos());
+
+        List<SaidaHolograma> fim = montagem.processar("{\"t\":\"fim\"}");
+        assertTrue(montagem.completo());
+        assertEquals(new SaidaHolograma.Fim(6, 0), fim.getLast());
     }
 
     @Test

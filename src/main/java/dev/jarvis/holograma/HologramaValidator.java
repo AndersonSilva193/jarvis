@@ -159,6 +159,15 @@ public final class HologramaValidator {
         return new Validacao(pecas, avisos);
     }
 
+    /**
+     * Este id (como o modelo o escreveu) já virou peça? Conta a cópia {@code id_1} do {@code rep}/
+     * {@code rad}, que é como uma linha repetida ficou registrada.
+     */
+    public boolean usado(String idBruto) {
+        String id = slug(idBruto);
+        return !id.isEmpty() && (ids.contains(id) || ids.contains(sufixado(id, "_1")));
+    }
+
     /** Quantas peças já foram aceitas neste objeto. */
     public int total() {
         return total;

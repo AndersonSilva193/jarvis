@@ -444,6 +444,10 @@ validação, eventos, prompt) está em `docs/HOLOGRAMA.md`. Aqui ficam só as re
   opções, ao contrário, só a Anthropic lê: no local quem escolhe o modelo é o PC.
 - **A reserva no Claude só vale antes da primeira peça.** Depois dela, outro modelo desenharia outro
   objeto por cima do que está na tela; a geração termina com `erro` e as peças ficam.
+- **Sem a linha de fim, o servidor continua — com o mesmo modelo.** Até duas chamadas novas levam as
+  linhas aceitas como fala do assistente; a montagem descarta id repetido. Esgotadas, o `fim` sai
+  `status: incompleto` com o motivo, e a HUD retoma por `GET /api/holograma/continuar` (a última
+  geração fica 30 min). Objeto incompleto nunca entra em cache.
 
 ## O PC Windows pelo Telegram
 

@@ -67,6 +67,20 @@ class HologramaHttpTest {
     }
 
     @Test
+    void continuarRecusaIdTortoENaoAchaOQueNaoExiste() throws Exception {
+        String token = "Bearer token-de-teste";
+        mvc.perform(get("/api/holograma/continuar").header("Authorization", token))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/holograma/continuar").param("id", "../etc").header("Authorization", token))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/holograma/continuar").param("id", "habcdefgh").param("recebidas", "-1")
+                .header("Authorization", token)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/holograma/continuar").param("id", "habcdefgh").param("recebidas", "3")
+                .header("Authorization", token)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/holograma/continuar").param("id", "habcdefgh")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void gerarRecusaParametroTorto() throws Exception {
         String token = "Bearer token-de-teste";
         mvc.perform(get("/api/holograma/gerar").header("Authorization", token))

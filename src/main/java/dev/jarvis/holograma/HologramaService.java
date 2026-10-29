@@ -1,9 +1,12 @@
 package dev.jarvis.holograma;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -50,21 +53,40 @@ import jakarta.annotation.PreDestroy;
  * primeira não há reserva: refazer com outro modelo desenharia um objeto diferente por cima do que
  * já está na tela. Aí sai {@code erro}, e as peças ficam.
  *
+ * <p><b>Continuação.</b> A resposta que acaba sem a linha de fim — teto de tokens, ou stream que
+ * terminou antes — ganha até {@value #MAX_CONTINUACOES} chamadas novas ao <b>mesmo</b> provedor, com
+ * as linhas já aceitas como mensagem do assistente e o pedido de seguir só com o que falta. As peças
+ * novas saem no mesmo SSE. Esgotadas as continuações, o {@code fim} sai {@code incompleto} com o
+ * motivo, e a HUD oferece "Continuar".
+ *
+ * <p><b>Retomada.</b> A última geração fica guardada por {@link #RETENCAO} (montagem, meta e peças
+ * que saíram). {@link #continuar} reenvia à HUD as peças que ela não recebeu — o celular que pôs a
+ * aba em segundo plano perde a conexão no meio — e, se o objeto não estava completo, continua com o
+ * modelo. Uma geração só: há uma cena só na HUD.
+ *
  * <p><b>Quem para.</b> Quatro coisas cortam a geração, e todas pelo mesmo {@link Cancelamento}, que
  * fecha o stream da Anthropic ou cancela o {@code inferir} no PC: o limite de
- * {@value HologramaValidator#MAX_PECAS} peças, o prazo de {@link #PRAZO}, o cliente que foi embora
- * (percebido pelo ping, já que antes da primeira peça não há escrita para falhar) e uma geração nova,
- * que substitui esta — há uma cena só na HUD e uma GPU só no PC.
+ * {@value HologramaValidator#MAX_PECAS} peças, o prazo de {@link #PRAZO} por chamada, o cliente que
+ * foi embora (percebido pelo ping, já que antes da primeira peça não há escrita para falhar) e uma
+ * geração nova, que substitui esta — há uma cena só na HUD e uma GPU só no PC.
  */
 @Service
 public class HologramaService {
 
     private static final Logger log = LoggerFactory.getLogger(HologramaService.class);
 
-    /** Quanto a geração inteira pode levar, do pedido ao último evento. */
+    /** Quanto cada chamada ao modelo pode levar, a inicial e cada continuação. */
     public static final Duration PRAZO = Duration.ofSeconds(180);
+    /** Quantas chamadas de continuação um objeto cortado recebe, por pedido. */
+    public static final int MAX_CONTINUACOES = 2;
+    /** O pior caso de um pedido: a chamada inicial e todas as continuações no prazo. */
+    public static final Duration PRAZO_TOTAL = PRAZO.multipliedBy(MAX_CONTINUACOES + 1L);
+    /** Por quanto tempo a última geração pode ser retomada pela HUD. */
+    static final Duration RETENCAO = Duration.ofMinutes(30);
     /** Um comentário SSE a cada tanto: é a escrita que revela o cliente que saiu. */
     static final Duration PING = Duration.ofSeconds(3);
+    /** Quanto o {@code /continuar} espera a geração anterior soltar a montagem. */
+    private static final Duration ESPERA_DA_ANTERIOR = Duration.ofSeconds(5);
 
     static final String LOCAL = "local";
     static final String ANTHROPIC = "anthropic";
@@ -75,6 +97,8 @@ public class HologramaService {
     static final String SEM_PECAS = "sem_pecas";
     private static final int TRECHO_DO_LOG = 300;
     static final String TEXTO_SUBSTITUIDO = "A geração foi substituída por outra.";
+    /** O motivo do {@code fim} incompleto quando a última chamada bateu no teto. */
+    static final String MOTIVO_TETO = "o modelo bateu no teto de tokens";
 
     /** Quanto o Haiku pode ficar mudo antes de a geração passar ao local (só se o local puder). */
     public static final Duration PRIMEIRA_RESPOSTA = Duration.ofSeconds(45);
@@ -85,6 +109,10 @@ public class HologramaService {
     static final String AVISO_HAIKU_FALHOU = "O Haiku falhou; troquei para o gerador local.";
     static final String AVISO_LOCAL_FALHOU = "O gerador local falhou; troquei para o Haiku.";
     static final String AVISO_LOCAL_FORA = "O gerador local não está disponível; usei o Haiku.";
+
+    private static final SecureRandom SORTEIO = new SecureRandom();
+    private static final String ALFABETO = "0123456789abcdefghijklmnopqrstuvwxyz";
+    private static final int TAMANHO_ID = 8;
 
     private final ProvedorDeModelo anthropic;
     private final ProvedorDeModelo local;
@@ -100,6 +128,8 @@ public class HologramaService {
     private final String provedorConfigurado;
 
     private final AtomicReference<Geracao> atual = new AtomicReference<>();
+    /** A última geração que terminou com peça na tela, para o {@link #continuar}. */
+    private final AtomicReference<Retomada> retomavel = new AtomicReference<>();
     private final ExecutorService geracoes = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("holograma-", 0).factory());
     private final ScheduledExecutorService relogio = Executors.newSingleThreadScheduledExecutor(
@@ -161,6 +191,11 @@ public class HologramaService {
         };
     }
 
+    /** O formato do id que sai na {@code meta}: é o que o controlador confere antes de procurar. */
+    public static boolean idValido(String id) {
+        return id != null && id.matches("h[0-9a-z]{" + TAMANHO_ID + "}");
+    }
+
     /**
      * Começa a gerar e volta na hora: o trabalho roda numa thread virtual, e quem fecha o
      * {@code emitter} é ela. Uma geração em andamento é substituída.
@@ -176,16 +211,57 @@ public class HologramaService {
      *                 o configurado
      */
     public void gerar(String objeto, DetalheHolograma detalhe, String provedor, SseEmitter emitter) {
-        Geracao geracao = new Geracao(objeto, detalhe,
-                provedor == null || provedor.isEmpty() ? provedorConfigurado : provedor, emitter);
+        iniciar(new Geracao(novoId(), objeto, detalhe,
+                provedor == null || provedor.isEmpty() ? provedorConfigurado : provedor, emitter));
+    }
+
+    /**
+     * Retoma a última geração: reenvia a meta e as peças a partir da {@code recebidas}-ésima (as que
+     * a HUD não viu) e, se o objeto não estava completo, continua com o modelo. Volta {@code false}
+     * quando não há o que retomar com esse id — outra geração tomou o lugar, ou passou a
+     * {@link #RETENCAO} —, e aí não mexe no {@code emitter}.
+     *
+     * <p>A HUD pode desistir de uma conexão antes de o servidor perceber (aba em segundo plano):
+     * se a geração deste id ainda está rodando, ela é cortada como "cliente fora" e esperada.
+     */
+    public boolean continuar(String id, int recebidas, SseEmitter emitter) {
+        Geracao corrente = atual.get();
+        if (corrente != null && corrente.id.equals(id)) {
+            corrente.saiu();
+            try {
+                corrente.encerrada.await(ESPERA_DA_ANTERIOR.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        Retomada retomada = retomavel.get();
+        if (retomada == null || !retomada.id().equals(id)
+                || System.nanoTime() - retomada.guardadaEm() > RETENCAO.toNanos()
+                || !retomavel.compareAndSet(retomada, null)) {
+            return false;
+        }
+        iniciar(new Geracao(retomada, recebidas, emitter));
+        return true;
+    }
+
+    private void iniciar(Geracao geracao) {
         Geracao anterior = atual.getAndSet(geracao);
         if (anterior != null) {
             anterior.cancelamento.cancelar(SUBSTITUIDO);
         }
-        emitter.onCompletion(() -> geracao.cancelamento.cancelar(CLIENTE));
-        emitter.onTimeout(() -> geracao.cancelamento.cancelar(TEMPO));
-        emitter.onError(erro -> geracao.cancelamento.cancelar(CLIENTE));
+        geracao.emitter.onCompletion(() -> geracao.cancelamento.cancelar(CLIENTE));
+        geracao.emitter.onTimeout(() -> geracao.cancelamento.cancelar(TEMPO));
+        geracao.emitter.onError(erro -> geracao.cancelamento.cancelar(CLIENTE));
         geracoes.submit(geracao::rodar);
+    }
+
+    private static String novoId() {
+        StringBuilder id = new StringBuilder(TAMANHO_ID + 1).append('h');
+        for (int i = 0; i < TAMANHO_ID; i++) {
+            id.append(ALFABETO.charAt(SORTEIO.nextInt(ALFABETO.length())));
+        }
+        return id.toString();
     }
 
     @PreDestroy
@@ -204,33 +280,82 @@ public class HologramaService {
     private static final String CLIENTE = "cliente";
     private static final String SUBSTITUIDO = "substituido";
 
+    /**
+     * O que sobra de uma geração para a HUD retomar: a montagem (ids usados, linhas aceitas, o
+     * {@code fim} que saiu) e o que já foi para a tela, na ordem em que foi.
+     */
+    private record Retomada(String id, String objeto, DetalheHolograma detalhe, String provedor,
+            String modelo, MontagemDeHolograma montagem, SaidaHolograma.Meta meta,
+            List<SaidaHolograma.Peca> pecas, long guardadaEm) {
+    }
+
     /** Uma geração: o estado de um pedido, do primeiro delta ao último evento. */
     private final class Geracao {
+        private final String id;
         private final String objeto;
         private final DetalheHolograma detalhe;
         /** {@code local} ou {@code anthropic}: o do pedido, ou o configurado. */
         private final String provedorEscolhido;
         private final SseEmitter emitter;
         private final Cancelamento cancelamento = new Cancelamento();
-        private final MontagemDeHolograma montagem = new MontagemDeHolograma(parser);
+        private final MontagemDeHolograma montagem;
         private final BufferDeLinhas buffer = new BufferDeLinhas();
+        /** Na retomada: quantas peças a HUD já tem. Nulo numa geração nova. */
+        private final Integer recebidas;
+        /** O que já foi para a tela, na ordem: é o que a retomada reenvia. */
+        private SaidaHolograma.Meta metaVista;
+        private final List<SaidaHolograma.Peca> pecasVistas;
         /** Segura a montagem: os deltas do local chegam na thread da requisição do agente. */
         private final Object montando = new Object();
         /** Segura o emitter: o ping escreve de outra thread. */
         private final ReentrantLock escrita = new ReentrantLock();
+        /** Solta quando a geração guardou o que a retomada precisa: é o que o {@code /continuar} espera. */
+        private final CountDownLatch encerrada = new CountDownLatch(1);
         private final long inicio = System.nanoTime();
+        private volatile long inicioDaChamada = System.nanoTime();
+        private volatile ScheduledFuture<?> limite;
         private volatile long primeiraPeca = -1;
         private volatile boolean clienteFora;
+        private volatile boolean fimEnviado;
         private volatile String provedorUsado = "";
         private volatile String modeloUsado = "";
-        /** Os tokens que a API informou; {@code null} enquanto não informou (stream cortado, local). */
+        /** Os tokens que a API informou, somados entre as chamadas; {@code null} enquanto não informou. */
         private volatile Long tokensEntrada;
         private volatile Long tokensSaida;
+        private int chamadas;
+        private int continuacoes;
         /** Chegou algum texto nesta tentativa? É o que o prazo de primeira resposta confere. */
         private volatile boolean textoRecebido;
         private volatile String ultimaFalha = "";
         /** Os primeiros caracteres da resposta desta tentativa, só para o log de resposta vazia. */
         private final StringBuilder inicioDaResposta = new StringBuilder();
+
+        Geracao(String id, String objeto, DetalheHolograma detalhe, String provedorEscolhido,
+                SseEmitter emitter) {
+            this.id = id;
+            this.objeto = objeto;
+            this.detalhe = detalhe;
+            this.provedorEscolhido = provedorEscolhido;
+            this.emitter = emitter;
+            this.montagem = new MontagemDeHolograma(parser);
+            this.recebidas = null;
+            this.pecasVistas = new ArrayList<>();
+        }
+
+        /** A retomada: mesma montagem, mesmo provedor, e o que já foi para a tela. */
+        Geracao(Retomada retomada, int recebidas, SseEmitter emitter) {
+            this.id = retomada.id();
+            this.objeto = retomada.objeto();
+            this.detalhe = retomada.detalhe();
+            this.provedorEscolhido = retomada.provedor();
+            this.provedorUsado = retomada.provedor();
+            this.modeloUsado = retomada.modelo();
+            this.emitter = emitter;
+            this.montagem = retomada.montagem();
+            this.metaVista = retomada.meta();
+            this.pecasVistas = new ArrayList<>(retomada.pecas());
+            this.recebidas = Math.max(0, Math.min(recebidas, pecasVistas.size()));
+        }
 
         /** O começo da resposta numa linha só, para o log. */
         private String trecho() {
@@ -241,13 +366,6 @@ public class HologramaService {
         /** O erro mostrado quando as duas tentativas acabaram: a causa mais útil que há. */
         private String textoDaFalha() {
             return SEM_PECAS.equals(ultimaFalha) ? TEXTO_SEM_PECAS : TEXTO_FALHA;
-        }
-
-        Geracao(String objeto, DetalheHolograma detalhe, String provedorEscolhido, SseEmitter emitter) {
-            this.objeto = objeto;
-            this.detalhe = detalhe;
-            this.provedorEscolhido = provedorEscolhido;
-            this.emitter = emitter;
         }
 
         /** Um aviso fixo, em Java, de que o gerador trocou. Não conta nos avisos da montagem. */
@@ -271,11 +389,10 @@ public class HologramaService {
         void rodar() {
             ScheduledFuture<?> batidas = relogio.scheduleAtFixedRate(this::pingar,
                     ping.toMillis(), ping.toMillis(), TimeUnit.MILLISECONDS);
-            ScheduledFuture<?> limite = relogio.schedule(() -> cancelamento.cancelar(TEMPO),
-                    prazo.toMillis(), TimeUnit.MILLISECONDS);
-            String fim;
+            armarPrazo();
+            String fim = CLIENTE;
             try {
-                fim = gerarComReserva();
+                fim = recebidas != null ? retomar() : gerarComReserva();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 fim = CLIENTE;
@@ -284,7 +401,8 @@ public class HologramaService {
                 fim = encerrarComErro(TEXTO_FALHA);
             } finally {
                 batidas.cancel(false);
-                limite.cancel(false);
+                ScheduledFuture<?> prazoArmado = limite;
+                if (prazoArmado != null) prazoArmado.cancel(false);
                 atual.compareAndSet(this, null);
             }
             if (!clienteFora) {
@@ -294,7 +412,43 @@ public class HologramaService {
                     // Já completado pelo timeout ou pelo erro do próprio container.
                 }
             }
+            guardar(fim);
+            encerrada.countDown();
             registrar(fim);
+        }
+
+        /**
+         * Guarda o que a HUD pode querer retomar. Substituída não guarda: a geração nova é a que
+         * importa, e guardar esta por cima dela apagaria o que se poderia retomar de lá.
+         */
+        private void guardar(String fim) {
+            if (SUBSTITUIDO.equals(fim) || montagem.pecas() == 0) {
+                return;
+            }
+            synchronized (montando) {
+                retomavel.set(new Retomada(id, objeto, detalhe, provedorUsado, modeloUsado, montagem,
+                        metaVista, List.copyOf(pecasVistas), System.nanoTime()));
+            }
+        }
+
+        /** A retomada: reenvia o que a HUD perdeu e, se o objeto não fechou completo, continua. */
+        private String retomar() throws InterruptedException {
+            synchronized (montando) {
+                List<SaidaHolograma> perdidas = new ArrayList<>();
+                if (metaVista != null) perdidas.add(metaVista);
+                perdidas.addAll(pecasVistas.subList(recebidas, pecasVistas.size()));
+                enviar(perdidas);
+                if (montagem.completo()) {
+                    enviar(List.of(montagem.fim().orElseThrow()));
+                    return "reenvio";
+                }
+                // Fechada como incompleta (teto, prazo, falha) ou ainda aberta (o cliente caiu):
+                // reabre antes do laço, que só continua o que não terminou.
+                montagem.continuar();
+            }
+            log.info("Holograma '{}' ({}): retomada com {} de {} peças na HUD", curto(objeto),
+                    detalhe.chave(), recebidas, pecasVistas.size());
+            return continuarAteOFim(MontagemDeHolograma.MOTIVO_SEM_FIM);
         }
 
         /**
@@ -339,7 +493,7 @@ public class HologramaService {
             provedorUsado = LOCAL;
             modeloUsado = modeloLocal.get();
             try {
-                return transmitir(local, opcoes(true, false));
+                return transmitir(local, opcoes(true, false), null);
             } catch (IOException e) {
                 return aposFalha(e, "local");
             }
@@ -390,33 +544,110 @@ public class HologramaService {
         }
 
         private OpcoesDoPedido opcoes(boolean doLocal, boolean comPrazoCurto) {
-            long restante = Math.max(1_000, prazo.toMillis() - decorrido().toMillis());
+            long restante = Math.max(1_000,
+                    prazo.toMillis() - Duration.ofNanos(System.nanoTime() - inicioDaChamada).toMillis());
             if (comPrazoCurto) {
                 // Até os cabeçalhos chegarem: um Haiku que nem abre a resposta cai antes dos 45 s.
                 restante = Math.min(restante, primeiraResposta.toMillis());
             }
-            int teto = Math.min(detalhe.maxTokens(), props.maxTokensDoHolograma());
-            OpcoesDoPedido opcoes = OpcoesDoPedido.curta(Origem.HOLOGRAMA, teto,
-                    Duration.ofMillis(restante));
+            OpcoesDoPedido opcoes = OpcoesDoPedido.curta(Origem.HOLOGRAMA,
+                    props.maxTokensDoHolograma(detalhe.chave()), Duration.ofMillis(restante));
             return doLocal ? opcoes.comTemperatura(props.temperaturaDoHolograma())
                     : opcoes.comModelo(props.modeloDoHolograma());
         }
 
-        private String transmitir(ProvedorDeModelo provedor, OpcoesDoPedido opcoes)
-                throws IOException, InterruptedException {
-            return transmitir(provedor, opcoes, null);
+        /** O prazo de uma chamada, rearmado a cada continuação: cada uma tem o seu {@link #prazo}. */
+        private void armarPrazo() {
+            ScheduledFuture<?> anterior = limite;
+            if (anterior != null) anterior.cancel(false);
+            inicioDaChamada = System.nanoTime();
+            limite = relogio.schedule(() -> cancelamento.cancelar(TEMPO), prazo.toMillis(),
+                    TimeUnit.MILLISECONDS);
         }
 
         /**
-         * Uma tentativa num provedor. Volta o motivo do fim; corte de fora vira exceção ou corte.
+         * A primeira chamada num provedor e, se ela acabou sem a linha de fim, as continuações.
+         * Volta o motivo do fim; corte de fora vira corte, e falha antes de peça vira exceção.
          *
          * @param silencio quanto o provedor pode ficar sem entregar texto; {@code null} não limita
          */
         private String transmitir(ProvedorDeModelo provedor, OpcoesDoPedido opcoes, Duration silencio)
                 throws IOException, InterruptedException {
+            RespostaDoModelo resposta = chamar(provedor, opcoes, silencio,
+                    List.of(Mensagem.texto(Mensagem.Papel.USUARIO, "Gere: " + objeto)), "inicial");
+            if (resposta == null) {
+                return porCorte();
+            }
+            synchronized (montando) {
+                if (montagem.pecas() == 0) {
+                    // Resposta que terminou "bem" sem desenhar nada: prosa, recusa ou formato errado.
+                    // Vira falha para a reserva poder assumir; o trecho só vai ao log.
+                    ultimaFalha = SEM_PECAS;
+                    log.warn("Holograma: o modelo não devolveu nenhuma peça ({} linhas descartadas, motivo={}); "
+                            + "resposta: {}", montagem.descartadas(), resposta.motivo(), trecho());
+                    throw new IOException(SEM_PECAS);
+                }
+            }
+            return continuarAteOFim(motivoDoCorte(resposta));
+        }
+
+        /**
+         * Enquanto o objeto não fechou e há continuação no orçamento, pede ao mesmo provedor que siga
+         * de onde parou. Esgotado o orçamento, fecha o {@code fim} como incompleto.
+         *
+         * @param motivo o que dizer no {@code fim} se nenhuma continuação chegar à linha de fim
+         */
+        private String continuarAteOFim(String motivo) throws InterruptedException {
+            while (!montagem.terminou() && continuacoes < MAX_CONTINUACOES) {
+                continuacoes++;
+                synchronized (montando) {
+                    montagem.continuar();
+                }
+                armarPrazo();
+                boolean doLocal = LOCAL.equals(provedorUsado);
+                RespostaDoModelo resposta;
+                try {
+                    resposta = chamar(doLocal ? local : anthropic, opcoes(doLocal, false), null,
+                            mensagensDaContinuacao(), "continuação " + continuacoes);
+                } catch (IOException e) {
+                    String fim = aposFalha(e, provedorUsado);
+                    return fim != null ? fim : encerrarComErro(TEXTO_FALHA);
+                }
+                if (resposta == null) {
+                    return porCorte();
+                }
+                motivo = motivoDoCorte(resposta);
+            }
+            synchronized (montando) {
+                if (!montagem.terminou()) {
+                    enviar(montagem.incompleto(motivo));
+                    return "incompleto";
+                }
+            }
+            return "modelo";
+        }
+
+        /** O pedido original, o que já chegou como fala do modelo, e o pedido de seguir. */
+        private List<Mensagem> mensagensDaContinuacao() {
+            String recebido;
+            synchronized (montando) {
+                recebido = String.join("\n", montagem.linhasAceitas());
+            }
+            return List.of(Mensagem.texto(Mensagem.Papel.USUARIO, "Gere: " + objeto),
+                    Mensagem.texto(Mensagem.Papel.ASSISTENTE, recebido),
+                    Mensagem.texto(Mensagem.Papel.USUARIO, PromptDeHolograma.CONTINUAR));
+        }
+
+        /**
+         * Uma ida ao modelo, com o texto indo para a tela enquanto chega. Volta a resposta, ou
+         * {@code null} quando a geração foi cortada de fora; o silêncio desta tentativa e a falha do
+         * provedor viram exceção.
+         */
+        private RespostaDoModelo chamar(ProvedorDeModelo provedor, OpcoesDoPedido opcoes, Duration silencio,
+                List<Mensagem> mensagens, String qual) throws IOException, InterruptedException {
             PedidoAoModelo pedido = new PedidoAoModelo(
                     InstrucoesDeSistema.de(new BlocoDeSistema(prompt.sistema(objeto, detalhe), null)),
-                    List.of(Mensagem.texto(Mensagem.Papel.USUARIO, "Gere: " + objeto)), null, opcoes);
+                    mensagens, null, opcoes);
             // Um corte só desta tentativa (o silêncio), que não pode contaminar a geração inteira: a
             // reserva ainda vai usar o cancelamento geral. O geral desce para a tentativa.
             Cancelamento tentativa = new Cancelamento();
@@ -424,6 +655,7 @@ public class HologramaService {
             textoRecebido = false;
             ultimaFalha = "";
             inicioDaResposta.setLength(0);
+            chamadas++;
             ScheduledFuture<?> mudez = silencio == null ? null : relogio.schedule(() -> {
                 if (!textoRecebido && !tentativa.cancelado()) {
                     ultimaFalha = SEM_RESPOSTA;
@@ -437,35 +669,38 @@ public class HologramaService {
                 if (mudez != null) mudez.cancel(false);
             }
             if (cancelamento.cancelado()) {
-                return porCorte();
+                return null;
             }
             if (tentativa.cancelado()) {
                 throw new IOException(tentativa.motivo());
             }
             anotarUso(resposta.uso());
+            String cauda;
+            boolean caudaDescartada;
             synchronized (montando) {
-                enviar(montagem.processar(buffer.resto()));
-                if (montagem.pecas() == 0) {
-                    // Resposta que terminou "bem" sem desenhar nada: prosa, recusa ou formato errado.
-                    // Vira falha para a reserva poder assumir; o trecho só vai ao log.
-                    ultimaFalha = SEM_PECAS;
-                    log.warn("Holograma: o modelo não devolveu nenhuma peça ({} linhas descartadas, motivo={}); "
-                            + "resposta: {}", montagem.descartadas(), resposta.motivo(), trecho());
-                    throw new IOException(SEM_PECAS);
-                }
-                if (resposta.motivo() == RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS) {
-                    log.info("Holograma: o modelo bateu no teto de {} tokens", opcoes.maxTokens());
-                }
-                enviar(montagem.terminar());
+                cauda = buffer.resto();
+                int antes = montagem.descartadas();
+                publicar(montagem.processar(cauda));
+                caudaDescartada = montagem.descartadas() > antes;
             }
-            return "modelo";
+            log.info("Holograma '{}' ({}) chamada {}: provedor={} stop_reason={} tokens_saida={} teto={} "
+                    + "linha_fim={} peças até aqui={}{}",
+                    curto(objeto), detalhe.chave(), qual, provedorUsado,
+                    paradaDaApi(resposta.motivo(), provedorUsado), resposta.uso().saida(), opcoes.maxTokens(),
+                    montagem.terminou() ? "sim" : "não", montagem.pecas(),
+                    caudaDescartada ? ", última linha cortada: " + cortada(cauda) : "");
+            return resposta;
         }
 
         private void anotarUso(RespostaDoModelo.Uso uso) {
             if (uso.entrada() <= 0 && uso.saida() <= 0) return;
-            // Prompt inteiro: o que a API cobra como entrada mais o cache, se houver.
-            tokensEntrada = uso.entrada() + uso.cacheEscrito() + uso.cacheLido();
-            tokensSaida = uso.saida();
+            // Prompt inteiro: o que a API cobra como entrada mais o cache, se houver. Somado entre
+            // as chamadas, porque a continuação também é paga.
+            long entrada = uso.entrada() + uso.cacheEscrito() + uso.cacheLido();
+            Long entradaAntes = tokensEntrada;
+            Long saidaAntes = tokensSaida;
+            tokensEntrada = (entradaAntes == null ? 0 : entradaAntes) + entrada;
+            tokensSaida = (saidaAntes == null ? 0 : saidaAntes) + uso.saida();
         }
 
         /** Cada delta: as linhas que fecharam vão para a tela na hora. */
@@ -479,7 +714,7 @@ public class HologramaService {
                     return;
                 }
                 for (String linha : buffer.alimentar(delta)) {
-                    enviar(montagem.processar(linha));
+                    publicar(montagem.processar(linha));
                     if (montagem.cheia()) {
                         cancelamento.cancelar(LIMITE);
                         return;
@@ -493,9 +728,9 @@ public class HologramaService {
             String motivo = cancelamento.motivo();
             synchronized (montando) {
                 switch (motivo) {
-                    case LIMITE -> enviar(montagem.encerrar());
-                    case TEMPO -> enviar(montagem.interromper(TEXTO_TEMPO));
-                    case SUBSTITUIDO -> enviar(montagem.interromper(TEXTO_SUBSTITUIDO));
+                    case LIMITE -> publicar(montagem.encerrar());
+                    case TEMPO -> publicar(montagem.interromper(TEXTO_TEMPO));
+                    case SUBSTITUIDO -> publicar(montagem.interromper(TEXTO_SUBSTITUIDO));
                     default -> { } // O cliente saiu: não há a quem dizer.
                 }
             }
@@ -504,9 +739,21 @@ public class HologramaService {
 
         private String encerrarComErro(String texto) {
             synchronized (montando) {
-                enviar(montagem.interromper(texto));
+                publicar(montagem.interromper(texto));
             }
             return "erro";
+        }
+
+        /**
+         * O que a montagem produziu: guarda meta e peças para a retomada <b>antes</b> de mandar — a
+         * peça que não chegou à HUD é justamente a que a retomada tem de reenviar.
+         */
+        private void publicar(List<SaidaHolograma> saidas) {
+            for (SaidaHolograma saida : saidas) {
+                if (saida instanceof SaidaHolograma.Meta meta) metaVista = meta;
+                else if (saida instanceof SaidaHolograma.Peca peca) pecasVistas.add(peca);
+            }
+            enviar(saidas);
         }
 
         private void enviar(List<SaidaHolograma> saidas) {
@@ -514,9 +761,13 @@ public class HologramaService {
                 if (clienteFora) {
                     return;
                 }
-                // O fim carrega o gasto: quem sabe o provedor e os tokens é esta geração, não a montagem.
-                SaidaHolograma saida = original instanceof SaidaHolograma.Fim fim && fim.resumo() == null
-                        ? fim.comResumo(resumo()) : original;
+                // A meta e o fim carregam o id, para a HUD poder pedir a continuação; o fim carrega
+                // o gasto: quem sabe o provedor e os tokens é esta geração, não a montagem.
+                SaidaHolograma saida = switch (original) {
+                    case SaidaHolograma.Meta meta -> meta.comId(id);
+                    case SaidaHolograma.Fim fim -> fim.comResumo(resumo()).comId(id);
+                    default -> original;
+                };
                 escrita.lock();
                 try {
                     emitter.send(SseEmitter.event().name(saida.evento())
@@ -526,6 +777,9 @@ public class HologramaService {
                     return;
                 } finally {
                     escrita.unlock();
+                }
+                if (saida instanceof SaidaHolograma.Fim) {
+                    fimEnviado = true;
                 }
                 if (saida instanceof SaidaHolograma.Peca && primeiraPeca < 0) {
                     primeiraPeca = System.nanoTime();
@@ -552,24 +806,65 @@ public class HologramaService {
             cancelamento.cancelar(CLIENTE);
         }
 
-        private Duration decorrido() {
-            return Duration.ofNanos(System.nanoTime() - inicio);
-        }
-
         private void registrar(String fim) {
             String primeira = primeiraPeca < 0 ? "-"
                     : segundos(Duration.ofNanos(primeiraPeca - inicio));
             SaidaHolograma.Resumo resumo = resumo();
-            log.info("Holograma '{}' ({}): provedor={}{} 1ª peça em {}, {} peças, {} linhas descartadas, "
-                    + "{} avisos {}, tokens={}, custo estimado={}, total {}, fim={}",
-                    objeto.length() > 40 ? objeto.substring(0, 40) + "…" : objeto, detalhe.chave(),
+            String status = montagem.completo() ? SaidaHolograma.COMPLETO
+                    : SaidaHolograma.INCOMPLETO + montagem.fim().map(f -> " (" + f.motivo() + ")").orElse("");
+            log.info("Holograma '{}' ({}) {}: provedor={}{} 1ª peça em {}, {} peças, {} chamada(s), "
+                    + "{} linhas descartadas, {} repetidas, {} avisos {}, tokens={}, custo estimado={}, "
+                    + "total {}, status={}, evento fim={}, fim={}",
+                    curto(objeto), detalhe.chave(), id,
                     provedorUsado.isEmpty() ? "-" : provedorUsado,
                     modeloUsado.isEmpty() ? "" : " modelo=" + modeloUsado,
-                    primeira, montagem.pecas(), montagem.descartadas(), montagem.avisos(), montagem.textosDeAviso(),
+                    primeira, montagem.pecas(), chamadas, montagem.descartadas(), montagem.repetidas(),
+                    montagem.avisos(), montagem.textosDeAviso(),
                     resumo.tokensEntrada() == null ? "?" : resumo.tokensEntrada() + "/" + resumo.tokensSaida(),
                     resumo.custoUsd() == null ? "-" : String.format(Locale.ROOT, "US$ %.4f", resumo.custoUsd()),
-                    segundos(decorrido()), fim);
+                    segundos(Duration.ofNanos(System.nanoTime() - inicio)), status,
+                    fimEnviado ? "enviado" : "não enviado", fim);
+            List<String> descartadas = montagem.descartadasBrutas();
+            if (!descartadas.isEmpty()) {
+                log.info("Holograma '{}' {}: linhas descartadas (até 5): {}", curto(objeto), id, descartadas);
+            }
         }
+    }
+
+    /**
+     * O que a geração diz no {@code fim} incompleto, pelo jeito que a chamada parou: teto de tokens,
+     * ou qualquer outra coisa sem a linha de fim (a Anthropic que fechou o stream sem
+     * {@code message_stop} volta sem motivo).
+     */
+    private static String motivoDoCorte(RespostaDoModelo resposta) {
+        return resposta.motivo() == RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS ? MOTIVO_TETO
+                : MontagemDeHolograma.MOTIVO_SEM_FIM;
+    }
+
+    /**
+     * O motivo de parada como o provedor o escreve, para o log ser lido junto da documentação de
+     * cada um. O neutro junta {@code end_turn} e {@code stop_sequence}; "nenhum" é o stream que
+     * acabou antes de o provedor dizer por quê.
+     */
+    static String paradaDaApi(RespostaDoModelo.MotivoDeParada motivo, String provedor) {
+        boolean doLocal = LOCAL.equals(provedor);
+        return switch (motivo) {
+            case FIM -> doLocal ? "stop" : "end_turn";
+            case LIMITE_DE_TOKENS -> doLocal ? "length" : "max_tokens";
+            case RECUSA -> "refusal";
+            case PAUSA -> "pause_turn";
+            case FERRAMENTA -> "tool_use";
+            case OUTRO -> "nenhum";
+        };
+    }
+
+    private static String curto(String objeto) {
+        return objeto.length() > 40 ? objeto.substring(0, 40) + "…" : objeto;
+    }
+
+    private static String cortada(String linha) {
+        String limpa = linha.strip();
+        return limpa.length() > TRECHO_DO_LOG ? limpa.substring(0, TRECHO_DO_LOG) + "…" : limpa;
     }
 
     /** US$ pela tabela configurada (por milhão de tokens), em seis casas: a conta é de centésimos de centavo. */

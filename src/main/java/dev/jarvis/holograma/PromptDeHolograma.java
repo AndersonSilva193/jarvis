@@ -22,6 +22,15 @@ import org.springframework.stereotype.Component;
 public class PromptDeHolograma {
 
     public static final int MAX_OBJETO = 120;
+
+    /**
+     * O pedido de continuação, depois da resposta cortada que vai como mensagem do assistente.
+     * Fixo em Java: quem recusa a meta e o id repetidos é a {@link MontagemDeHolograma}, e isto só
+     * poupa os tokens de o modelo reescrever o que vai ser jogado fora.
+     */
+    public static final String CONTINUAR = "A resposta acima foi cortada. Continue o MESMO objeto: "
+            + "escreva só as peças que faltam, uma por linha, sem repetir a linha de meta nem nenhum id "
+            + "que já aparece acima, e termine com {\"t\":\"fim\"}. Nada além de linhas JSON.";
     private static final String RECURSO = "holograma/holograma-prompt.txt";
 
     private final String modelo;
