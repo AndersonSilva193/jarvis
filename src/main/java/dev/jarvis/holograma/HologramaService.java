@@ -74,11 +74,11 @@ public class HologramaService {
     static final String TEXTO_SUBSTITUIDO = "A geração foi substituída por outra.";
 
     /** Quanto o Haiku pode ficar mudo antes de a geração passar ao local (só se o local puder). */
-    public static final Duration PRIMEIRA_RESPOSTA = Duration.ofSeconds(15);
+    public static final Duration PRIMEIRA_RESPOSTA = Duration.ofSeconds(45);
 
     static final String SEM_RESPOSTA = "sem_resposta";
 
-    static final String AVISO_HAIKU_MUDO = "O Haiku não respondeu em 15 s; troquei para o gerador local.";
+    static final String AVISO_HAIKU_MUDO = "O Haiku não respondeu em 45 s; troquei para o gerador local.";
     static final String AVISO_HAIKU_FALHOU = "O Haiku falhou; troquei para o gerador local.";
     static final String AVISO_LOCAL_FALHOU = "O gerador local falhou; troquei para o Haiku.";
     static final String AVISO_LOCAL_FORA = "O gerador local não está disponível; usei o Haiku.";
@@ -376,7 +376,7 @@ public class HologramaService {
         private OpcoesDoPedido opcoes(boolean doLocal, boolean comPrazoCurto) {
             long restante = Math.max(1_000, prazo.toMillis() - decorrido().toMillis());
             if (comPrazoCurto) {
-                // Até os cabeçalhos chegarem: um Haiku que nem abre a resposta cai antes dos 15 s.
+                // Até os cabeçalhos chegarem: um Haiku que nem abre a resposta cai antes dos 45 s.
                 restante = Math.min(restante, primeiraResposta.toMillis());
             }
             int teto = Math.min(detalhe.maxTokens(), props.maxTokensDoHolograma());

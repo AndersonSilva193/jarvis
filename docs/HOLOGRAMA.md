@@ -434,7 +434,7 @@ Ollama do PC de reserva; `local` faz o inverso. O pedido sobrescreve o padrão c
 `?provedor=haiku|local` (outro valor → 400), e é o que o seletor "Gerador" da HUD manda.
 
 A reserva só assume **antes de qualquer peça**: erro da API (sem crédito, 429/5xx), cabeçalhos que
-não chegam em 15 s ou nenhum texto em 15 s (`HologramaService.PRIMEIRA_RESPOSTA`, só enquanto há local
+não chegam em 45 s ou nenhum texto em 45 s (`HologramaService.PRIMEIRA_RESPOSTA`, só enquanto há local
 para assumir — sem reserva, cortar um Haiku lento só trocaria demora por erro). A troca sai como
 `aviso` com `"troca":true`. Depois da primeira peça não há reserva: outro modelo desenharia outro
 objeto por cima do que já está na tela, então sai `erro` e as peças ficam. O seletor de modo
