@@ -232,8 +232,10 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
   servidos pela própria HUD, liga/desliga explícito, gestos → as mesmas ações do mouse.
 - [ ] **Fase 6 — Controle por voz/conversa.** Ações novas de tela para o holograma (girar,
   explodir, montar, fechar), estado do holograma no `POST /api/tela/estado`, frases do servidor.
-- [ ] **Fase 7 — Biblioteca e acabamento.** Hologramas gerados guardados em disco (reabrir sem
-  gastar modelo), medição de custo/tempo, desempenho, e2e e atualização do CLAUDE.md.
+- [x] **Galeria (backend + HUD).** Objeto completo guardado em disco, cache pelo pedido
+  normalizado, reprodução pelo mesmo SSE, lista/abrir/apagar/"Gerar de novo" e miniatura capturada
+  pela HUD. Os exemplos viraram itens fixos da galeria. Contrato na seção 9.
+- [ ] **Fase 7 — Acabamento.** Medição de custo/tempo, desempenho e e2e.
 
 ---
 
@@ -455,8 +457,8 @@ novo por cima. Cada chamada tem o próprio prazo de 180 s, e os tokens somam no 
 
 Esgotadas as continuações, o `fim` sai `incompleto` com o motivo: `o modelo bateu no teto de tokens`
 ou `a resposta acabou sem a linha de fim`. Erro e prazo também fecham `incompleto`, com o texto do
-`erro` como motivo. **Objeto incompleto não vai para cache nenhum**: hoje não existe cache de
-holograma; quando a biblioteca da Fase 7 existir, ela guarda só `status: completo`.
+`erro` como motivo. **Objeto incompleto não vai para cache nenhum**: a galeria (seção 9) guarda só
+`status: completo`.
 
 ### A retomada
 
@@ -500,8 +502,7 @@ O `fim` ganha `provedor`, `modelo`, `tokensEntrada`, `tokensSaida` e `custoUsd` 
 por milhão). Campo que não se sabe **fica de fora**: stream cortado (limite de 250 peças, prazo,
 cliente) não recebe o `usage`, e o local não cobra da API. A HUD mostra o selo "Haiku · 86 peças ·
 US$0,002" com isso. O custo real continua no `MedidorDeCusto` (`Origem.HOLOGRAMA`); este é só a
-estimativa por geração. *(Guardar o gasto no item salvo depende da biblioteca da Fase 7, que ainda
-não existe.)*
+estimativa por geração. O item da galeria guarda provedor e modelo, não o gasto.
 
 ### Quem para
 
@@ -556,3 +557,66 @@ Nada a mudar, conferido em 29/10/2026 no `deploy/nginx-jarvis.conf`: `/api/holog
 pedido é 3 × 180 s mais folga, abaixo da hora. O `X-Accel-Buffering: no` só protege a rota se ela
 mudar de bloco um dia. *(O arquivo da VPS é reescrito pelo certbot; confira lá com
 `sudo nginx -T | grep -A12 'location /api/ '`.)*
+
+---
+
+## 9. A galeria
+
+### O que entra
+
+Quando o `fim` sai **completo** e com pelo menos **8 peças** (`GaleriaDeHologramas.MINIMO_DE_PECAS`),
+o `HologramaService` guarda o objeto normalizado — meta, peças já expandidas, provedor, modelo,
+detalhe, pedido e data — **antes** de mandar o `fim`. A ordem importa: a HUD manda a miniatura logo
+que recebe o `fim`, e o id já tem de existir. Incompleto não entra (é meio objeto, e o cache o
+serviria pela metade para sempre); a retomada que fecha completa entra.
+
+Sem banco, como o resto do Jarvis: um `<id>.json` por objeto e o `<id>.png` da miniatura em
+`HOLOGRAMA_PASTA` (padrão `/data/jarvis/holograma`, volume `holograma`), gravados com a troca
+atômica do `ArquivoAtomico`. Em memória fica só o índice; as peças são lidas do disco ao abrir. Teto
+de 60 objetos: acima disso o mais velho sai, com a miniatura.
+
+### A chave
+
+`GaleriaDeHologramas.chave(objeto, detalhe)`: o **pedido** do dono (não o nome que o modelo deu)
+pelo `Texto.normalizar` — sem acento, minúsculo, espaço simples —, sem os artigos `o a os as um uma
+uns umas`, mais `|` e o nível. "o Motor V8" e "motor v8" são o mesmo; o mesmo objeto em outro nível é
+outro. Salvar com a chave de um objeto que já existe **substitui** o anterior (JSON e miniatura).
+
+### As rotas
+
+Todas com `Authorization: Bearer <HUD_TOKEN>`, sem exceção de `?token=`.
+
+| Rota | O que faz |
+|---|---|
+| `GET /api/holograma/gerar?...&novo=true` | Sem `novo`, consulta a galeria primeiro: achou, reproduz pelo mesmo SSE com 15 ms entre peças e `fim` com `origem: cache`. `novo=true` vai direto ao modelo e o objeto novo substitui o salvo |
+| `GET /api/holograma/galeria` | `[{id, nome, pecas, data, provedor, detalhe, objeto, fixo, miniatura}]` — exemplos primeiro, depois do mais novo ao mais velho |
+| `GET /api/holograma/{id}/stream` | Reproduz um item (inclusive exemplo) pelo SSE; 400 id torto, 404 inexistente |
+| `DELETE /api/holograma/{id}` | 204; 404 inexistente; **409** para exemplo |
+| `POST /api/holograma/{id}/miniatura` | `{"imagem":"data:image/png;base64,..."}`; só PNG **conferido pelos bytes** (`PcDto.mimeDe`), até 300 kB; 204, 400 ou 404 |
+| `GET /api/holograma/{id}/miniatura` | O PNG; 404 sem miniatura. A HUD lê com `fetch` e Bearer e mostra por `blob:` |
+
+O id casa `[a-z0-9_]{1,40}` antes de virar caminho. O CORS passou a liberar `DELETE`.
+
+O `fim` ganhou três campos: `origem` (`modelo` ou `cache`) e, só quando o objeto está na galeria,
+`salvo: true` e `miniatura` (se a imagem já existe). `salvo` com `miniatura: false` é o pedido para a
+HUD capturar.
+
+### Os exemplos
+
+Os três de `src/main/resources/holograma/exemplos` entram como itens **fixos** (`exemplo_motor_v8`,
+`exemplo_dna`, `exemplo_atomo`, provedor `exemplo`), montados uma vez pela `MontagemDeHolograma`. Não
+se apagam e não respondem a pedido de geração — são vitrine, não cache. Aceitam miniatura. A rota
+`/api/holograma/exemplo/{nome}` continua existindo, mas a HUD não a usa mais: os botões
+temporários deram lugar à galeria.
+
+### Na HUD
+
+`app-galeria-holograma` (painel na coluna da direita; no celular, uma fileira que rola de lado):
+miniatura ou ◇, nome, "Haiku · 86 peças", abrir (o item inteiro), ↻ "Gerar de novo" (repete o
+`objeto` e o `detalhe` do item com `novo=true` e o gerador escolhido agora) e ✕ apagar — em dois
+cliques, porque não há volta, e ausente nos fixos. As chamadas moram no `HologramaGaleriaService`.
+
+A miniatura: com a fase `pronto` e um `fim` `salvo` sem `miniatura`, a view espera 1,5 s (a última
+peça acender e a câmera chegar), chama `CenaHolograma.miniatura(256)` — um `render` e a leitura na
+mesma tarefa, porque o WebGL não preserva o buffer — com o quadrado central da tela, e manda o
+`toDataURL('image/png')`. A imagem entra na lista na hora; trocar de objeto antes dos 1,5 s desarma.

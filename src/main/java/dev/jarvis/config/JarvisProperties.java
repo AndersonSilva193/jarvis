@@ -159,14 +159,24 @@ public record JarvisProperties(
      *                           com 8000 o detalhado saía cortado sempre
      * @param precoEntradaUsd dólares por milhão de tokens de entrada, só para a estimativa do selo
      * @param precoSaidaUsd   dólares por milhão de tokens de saída
+     * @param pasta           onde a galeria guarda os objetos completos e as miniaturas (volume
+     *                        {@code holograma}); vazio é {@code /data/jarvis/holograma}
      */
     public record Holograma(String provedor, String modelo, Double temperatura, Integer maxTokensRapido,
             Integer maxTokensNormal, Integer maxTokensDetalhado, Double precoEntradaUsd,
-            Double precoSaidaUsd) {
+            Double precoSaidaUsd, String pasta) {
+
+        /** A aridade de antes da galeria. */
+        public Holograma(String provedor, String modelo, Double temperatura, Integer maxTokensRapido,
+                Integer maxTokensNormal, Integer maxTokensDetalhado, Double precoEntradaUsd,
+                Double precoSaidaUsd) {
+            this(provedor, modelo, temperatura, maxTokensRapido, maxTokensNormal, maxTokensDetalhado,
+                    precoEntradaUsd, precoSaidaUsd, null);
+        }
 
         /** A aridade de antes dos tetos e dos preços: os testes que informam o holograma não mudam. */
         public Holograma(String provedor, String modelo, Double temperatura) {
-            this(provedor, modelo, temperatura, null, null, null, null, null);
+            this(provedor, modelo, temperatura, null, null, null, null, null, null);
         }
     }
 
@@ -662,6 +672,12 @@ public record JarvisProperties(
     public Path pastaDoDiario() {
         String caminho = diario == null ? null : diario.pasta();
         return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/diario" : caminho);
+    }
+
+    /** Pasta da galeria de hologramas, no volume montado em /data/jarvis/holograma. */
+    public Path pastaDoHolograma() {
+        String caminho = holograma == null ? null : holograma.pasta();
+        return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/holograma" : caminho);
     }
 
     /** Pasta do histórico de disponibilidade, no volume montado em /data/jarvis/proativo. */

@@ -58,7 +58,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho), `ProcedimentosService`/`RevisorDeProcedimentos` (o que ele aprende fazendo, em `MEMORIA_PASTA/procedimentos`) e `EsquecimentosDeMemoria` (o recado de que um esquecimento aprovado aconteceu) |
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
-| `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
+| `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream), `GaleriaDeHologramas` (os objetos completos em disco, a chave do cache e as miniaturas), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
@@ -448,6 +448,10 @@ validação, eventos, prompt) está em `docs/HOLOGRAMA.md`. Aqui ficam só as re
   linhas aceitas como fala do assistente; a montagem descarta id repetido. Esgotadas, o `fim` sai
   `status: incompleto` com o motivo, e a HUD retoma por `GET /api/holograma/continuar` (a última
   geração fica 30 min). Objeto incompleto nunca entra em cache.
+- **A galeria guarda o completo com 8 peças ou mais, antes do `fim` sair**, num JSON por objeto no
+  volume `holograma` (`HOLOGRAMA_PASTA`), com a chave no **pedido** normalizado mais o nível. O
+  `/gerar` a consulta primeiro e reproduz pelo mesmo SSE (`origem: cache`); `novo=true` força o
+  modelo e substitui. Os três exemplos são itens fixos dela, e a miniatura é capturada pela HUD.
 
 ## O PC Windows pelo Telegram
 
@@ -1429,7 +1433,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   avisado); o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
   Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
   `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou; e a
-  disponibilidade dos sites em `PROATIVO_PASTA` (volume `proativo`), um JSON por data por 30 dias.
+  disponibilidade dos sites em `PROATIVO_PASTA` (volume `proativo`), um JSON por data por 30 dias; e
+  a galeria de hologramas em `HOLOGRAMA_PASTA` (volume `holograma`), um JSON e um PNG por objeto, até 60.
   Todos usam a troca atômica do `ArquivoAtomico`.
 - **O diário guarda até 500 ações por dia.** Passando disso ele conta as descartadas e a
   `acoes_do_jarvis` avisa que a lista está incompleta — não há paginação, e o que foi recusado não

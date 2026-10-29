@@ -30,6 +30,8 @@ services:
       # O historico de disponibilidade dos sites: um JSON por dia, 30 dias. Sem ele o Jarvis
       # avisa a queda e esquece que ela aconteceu.
       - proativo:/data/jarvis/proativo
+      # A galeria de hologramas: o objeto já gerado volta sem gastar modelo, com a miniatura.
+      - holograma:/data/jarvis/holograma
       - pc-operacoes:/data/pc
     # Limite de memória para não disputar recursos com os outros sistemas da VPS
     # (512m depois da entrada do Tomcat; o uso medido fica bem abaixo disso)
@@ -50,4 +52,5 @@ volumes:
   custo:
   diario:
   proativo:
+  holograma:
   pc-operacoes:

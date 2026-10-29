@@ -69,6 +69,11 @@ import jakarta.annotation.PreDestroy;
  * {@value HologramaValidator#MAX_PECAS} peças, o prazo de {@link #PRAZO} por chamada, o cliente que
  * foi embora (percebido pelo ping, já que antes da primeira peça não há escrita para falhar) e uma
  * geração nova, que substitui esta — há uma cena só na HUD e uma GPU só no PC.
+ *
+ * <p><b>Galeria.</b> O objeto que fecha completo, com ao menos
+ * {@value GaleriaDeHologramas#MINIMO_DE_PECAS} peças, é guardado na {@link GaleriaDeHologramas}
+ * <b>antes</b> de o {@code fim} sair — a HUD manda a miniatura logo que o recebe, e o id já tem de
+ * existir. Quem consulta a galeria antes de gerar é o controlador.
  */
 @Service
 public class HologramaService {
@@ -119,6 +124,8 @@ public class HologramaService {
     private final Supplier<DisponibilidadeLocal.Situacao> disponibilidade;
     private final Supplier<String> modeloLocal;
     private final JarvisProperties props;
+    /** Nula nos testes que não falam de galeria: aí nada é guardado. */
+    private final GaleriaDeHologramas galeria;
     private final PromptDeHolograma prompt;
     private final HologramaLineParser parser;
     private final Duration prazo;
@@ -138,9 +145,9 @@ public class HologramaService {
     @Autowired
     public HologramaService(ProvedorAnthropic anthropic, ProvedorLocal local,
             DisponibilidadeLocal disponibilidade, JarvisProperties props, PromptDeHolograma prompt,
-            HologramaLineParser parser) {
+            HologramaLineParser parser, GaleriaDeHologramas galeria) {
         this(anthropic, local, disponibilidade::agora, () -> disponibilidade.modeloAnunciado().orElse(""),
-                props, prompt, parser, PRAZO, PING, PRIMEIRA_RESPOSTA);
+                props, prompt, parser, PRAZO, PING, PRIMEIRA_RESPOSTA, galeria);
     }
 
     /** Para teste: provedores de mentira e relógios curtos. Público porque o teste HTTP mora em {@code web}. */
@@ -155,6 +162,15 @@ public class HologramaService {
             Supplier<DisponibilidadeLocal.Situacao> disponibilidade, Supplier<String> modeloLocal,
             JarvisProperties props, PromptDeHolograma prompt, HologramaLineParser parser,
             Duration prazo, Duration ping, Duration primeiraResposta) {
+        this(anthropic, local, disponibilidade, modeloLocal, props, prompt, parser, prazo, ping,
+                primeiraResposta, null);
+    }
+
+    public HologramaService(ProvedorDeModelo anthropic, ProvedorDeModelo local,
+            Supplier<DisponibilidadeLocal.Situacao> disponibilidade, Supplier<String> modeloLocal,
+            JarvisProperties props, PromptDeHolograma prompt, HologramaLineParser parser,
+            Duration prazo, Duration ping, Duration primeiraResposta, GaleriaDeHologramas galeria) {
+        this.galeria = galeria;
         this.anthropic = anthropic;
         this.local = local;
         this.disponibilidade = disponibilidade;
@@ -317,6 +333,8 @@ public class HologramaService {
         private volatile long primeiraPeca = -1;
         private volatile boolean clienteFora;
         private volatile boolean fimEnviado;
+        /** O objeto está na galeria: o {@code fim} diz à HUD que pode mandar a miniatura. */
+        private volatile boolean naGaleria;
         private volatile String provedorUsado = "";
         private volatile String modeloUsado = "";
         /** Os tokens que a API informou, somados entre as chamadas; {@code null} enquanto não informou. */
@@ -439,6 +457,7 @@ public class HologramaService {
                 perdidas.addAll(pecasVistas.subList(recebidas, pecasVistas.size()));
                 enviar(perdidas);
                 if (montagem.completo()) {
+                    naGaleria = galeria != null && galeria.contem(id);
                     enviar(List.of(montagem.fim().orElseThrow()));
                     return "reenvio";
                 }
@@ -752,8 +771,18 @@ public class HologramaService {
             for (SaidaHolograma saida : saidas) {
                 if (saida instanceof SaidaHolograma.Meta meta) metaVista = meta;
                 else if (saida instanceof SaidaHolograma.Peca peca) pecasVistas.add(peca);
+                else if (saida instanceof SaidaHolograma.Fim fim && fim.completo()) guardarNaGaleria();
             }
             enviar(saidas);
+        }
+
+        /** O objeto completo vai para a galeria, substituindo o do mesmo pedido. Falha só no log. */
+        private void guardarNaGaleria() {
+            if (galeria == null || metaVista == null || pecasVistas.size() < GaleriaDeHologramas.MINIMO_DE_PECAS) {
+                return;
+            }
+            naGaleria = galeria.salvar(id, objeto, detalhe, provedorUsado, modeloUsado, metaVista.meta(),
+                    pecasVistas.stream().map(SaidaHolograma.Peca::peca).toList());
         }
 
         private void enviar(List<SaidaHolograma> saidas) {
@@ -765,7 +794,8 @@ public class HologramaService {
                 // o gasto: quem sabe o provedor e os tokens é esta geração, não a montagem.
                 SaidaHolograma saida = switch (original) {
                     case SaidaHolograma.Meta meta -> meta.comId(id);
-                    case SaidaHolograma.Fim fim -> fim.comResumo(resumo()).comId(id);
+                    case SaidaHolograma.Fim fim -> fim.comResumo(resumo()).comId(id)
+                            .naGaleria(SaidaHolograma.ORIGEM_MODELO, naGaleria ? Boolean.valueOf(galeria.temMiniatura(id)) : null);
                     default -> original;
                 };
                 escrita.lock();

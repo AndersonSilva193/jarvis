@@ -87,20 +87,29 @@ public sealed interface SaidaHolograma {
     /** O objeto parou antes: teto de tokens, resposta sem fim, prazo, falha. Não vai para cache nenhum. */
     String INCOMPLETO = "incompleto";
 
+    /** O {@code fim} de uma geração do modelo. */
+    String ORIGEM_MODELO = "modelo";
+    /** O {@code fim} de um objeto que veio da galeria, sem gastar modelo. */
+    String ORIGEM_CACHE = "cache";
+
     /**
      * O fim, com o placar: quantas peças foram para a tela, quantos avisos saíram e se o objeto
      * chegou {@link #COMPLETO} ou {@link #INCOMPLETO} — com o {@code motivo}, frase fixa em Java,
      * no segundo caso. O {@code resumo} e o {@code id} são acrescentados por quem transmite uma
      * geração real; o exemplo fixo não tem o que informar.
+     *
+     * @param origem     {@link #ORIGEM_MODELO} ou {@link #ORIGEM_CACHE}; {@code null} no exemplo antigo
+     * @param miniatura  {@code null} quando o objeto não está na galeria; senão, se ela já tem a
+     *                   miniatura — é o que diz à HUD para capturar a tela e mandar uma
      */
-    record Fim(int pecas, int avisos, String status, String motivo, Resumo resumo, String id)
-            implements SaidaHolograma {
+    record Fim(int pecas, int avisos, String status, String motivo, Resumo resumo, String id,
+            String origem, Boolean miniatura) implements SaidaHolograma {
         public Fim(int pecas, int avisos) {
-            this(pecas, avisos, COMPLETO, null, null, null);
+            this(pecas, avisos, COMPLETO, null, null, null, null, null);
         }
 
         public static Fim incompleto(int pecas, int avisos, String motivo) {
-            return new Fim(pecas, avisos, INCOMPLETO, motivo, null, null);
+            return new Fim(pecas, avisos, INCOMPLETO, motivo, null, null, null, null);
         }
 
         public boolean completo() {
@@ -108,11 +117,16 @@ public sealed interface SaidaHolograma {
         }
 
         public Fim comResumo(Resumo novo) {
-            return new Fim(pecas, avisos, status, motivo, novo, id);
+            return new Fim(pecas, avisos, status, motivo, novo, id, origem, miniatura);
         }
 
         public Fim comId(String novo) {
-            return new Fim(pecas, avisos, status, motivo, resumo, novo);
+            return new Fim(pecas, avisos, status, motivo, resumo, novo, origem, miniatura);
+        }
+
+        /** De onde veio o objeto, e se ele está na galeria ({@code miniatura} não nulo). */
+        public Fim naGaleria(String deOnde, Boolean temMiniatura) {
+            return new Fim(pecas, avisos, status, motivo, resumo, id, deOnde, temMiniatura);
         }
 
         public String evento() { return "fim"; }
@@ -132,6 +146,11 @@ public sealed interface SaidaHolograma {
                 if (resumo.custoUsd() != null) corpo.put("custoUsd", resumo.custoUsd());
             }
             if (id != null) corpo.put("id", id);
+            if (origem != null) corpo.put("origem", origem);
+            if (miniatura != null) {
+                corpo.put("salvo", true);
+                corpo.put("miniatura", miniatura);
+            }
             return corpo;
         }
     }

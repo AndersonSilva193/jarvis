@@ -62,7 +62,7 @@ public class WebConfig {
         log.info("CORS liberado para: {}", origens);
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(origens);
-        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         config.setMaxAge(3600L);
         fonte.registerCorsConfiguration("/api/**", config);

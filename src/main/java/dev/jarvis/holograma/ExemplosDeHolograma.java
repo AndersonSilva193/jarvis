@@ -24,6 +24,8 @@ import org.springframework.stereotype.Component;
 public class ExemplosDeHolograma {
 
     static final Pattern NOME = Pattern.compile("[a-z0-9_]{1,40}");
+    /** Os exemplos que existem, na ordem em que a galeria os mostra. */
+    public static final List<String> NOMES = List.of("motor_v8", "dna", "atomo");
     private static final String PASTA = "holograma/exemplos/";
 
     /** As linhas do exemplo, ou vazio quando o nome não existe. */

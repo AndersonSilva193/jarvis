@@ -182,6 +182,8 @@ jarvis:
     # US$ por milhão de tokens, só para a estimativa do selo e do log.
     preco-entrada-usd: ${HOLOGRAMA_PRECO_ENTRADA_USD:0.10}
     preco-saida-usd: ${HOLOGRAMA_PRECO_SAIDA_USD:0.50}
+    # A galeria: cada objeto completo (8 peças ou mais) num JSON, mais a miniatura. Volume holograma.
+    pasta: ${HOLOGRAMA_PASTA:/data/jarvis/holograma}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}
