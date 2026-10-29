@@ -23,6 +23,7 @@ public final class MontagemDeHolograma {
     private boolean terminou;
     private int avisos;
     private int descartadas;
+    private final List<String> textos = new ArrayList<>();
 
     public MontagemDeHolograma(HologramaLineParser parser) {
         this.parser = parser;
@@ -141,8 +142,16 @@ public final class MontagemDeHolograma {
         saidas.add(new SaidaHolograma.Fim(validador.total(), avisos));
     }
 
+    /** O texto dos avisos que já saíram, na ordem: é o que o log mostra para explicar o contador. */
+    public List<String> textosDeAviso() {
+        return List.copyOf(textos);
+    }
+
     private void aviso(List<SaidaHolograma> saidas, String texto) {
         avisos++;
+        if (textos.size() < 20) {
+            textos.add(texto);
+        }
         saidas.add(new SaidaHolograma.Aviso(texto));
     }
 }

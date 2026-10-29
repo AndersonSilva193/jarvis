@@ -71,6 +71,9 @@ public class HologramaService {
 
     static final String TEXTO_TEMPO = "O modelo não respondeu a tempo.";
     static final String TEXTO_FALHA = "Falha ao gerar o holograma.";
+    static final String TEXTO_SEM_PECAS = "O modelo não devolveu um objeto válido.";
+    static final String SEM_PECAS = "sem_pecas";
+    private static final int TRECHO_DO_LOG = 300;
     static final String TEXTO_SUBSTITUIDO = "A geração foi substituída por outra.";
 
     /** Quanto o Haiku pode ficar mudo antes de a geração passar ao local (só se o local puder). */
@@ -226,6 +229,19 @@ public class HologramaService {
         /** Chegou algum texto nesta tentativa? É o que o prazo de primeira resposta confere. */
         private volatile boolean textoRecebido;
         private volatile String ultimaFalha = "";
+        /** Os primeiros caracteres da resposta desta tentativa, só para o log de resposta vazia. */
+        private final StringBuilder inicioDaResposta = new StringBuilder();
+
+        /** O começo da resposta numa linha só, para o log. */
+        private String trecho() {
+            String texto = inicioDaResposta.toString().replaceAll("\\s+", " ").strip();
+            return texto.isEmpty() ? "(vazia)" : texto;
+        }
+
+        /** O erro mostrado quando as duas tentativas acabaram: a causa mais útil que há. */
+        private String textoDaFalha() {
+            return SEM_PECAS.equals(ultimaFalha) ? TEXTO_SEM_PECAS : TEXTO_FALHA;
+        }
 
         Geracao(String objeto, DetalheHolograma detalhe, String provedorEscolhido, SseEmitter emitter) {
             this.objeto = objeto;
@@ -298,17 +314,17 @@ public class HologramaService {
                     avisar(AVISO_LOCAL_FORA);
                 }
                 String fim = tentarAnthropic(false);
-                return fim != null ? fim : encerrarComErro(TEXTO_FALHA);
+                return fim != null ? fim : encerrarComErro(textoDaFalha());
             }
             String fim = tentarAnthropic(situacao.pode());
             if (fim != null) return fim;
             if (!situacao.pode()) {
                 log.warn("Holograma: a Anthropic falhou e o local não pode ({})", situacao.motivo());
-                return encerrarComErro(TEXTO_FALHA);
+                return encerrarComErro(textoDaFalha());
             }
             avisar(SEM_RESPOSTA.equals(ultimaFalha) ? AVISO_HAIKU_MUDO : AVISO_HAIKU_FALHOU);
             fim = tentarLocal();
-            return fim != null ? fim : encerrarComErro(TEXTO_FALHA);
+            return fim != null ? fim : encerrarComErro(textoDaFalha());
         }
 
         private DisponibilidadeLocal.Situacao situacaoDoLocal() {
@@ -407,6 +423,7 @@ public class HologramaService {
             cancelamento.aoCancelar(() -> tentativa.cancelar(cancelamento.motivo()));
             textoRecebido = false;
             ultimaFalha = "";
+            inicioDaResposta.setLength(0);
             ScheduledFuture<?> mudez = silencio == null ? null : relogio.schedule(() -> {
                 if (!textoRecebido && !tentativa.cancelado()) {
                     ultimaFalha = SEM_RESPOSTA;
@@ -428,6 +445,14 @@ public class HologramaService {
             anotarUso(resposta.uso());
             synchronized (montando) {
                 enviar(montagem.processar(buffer.resto()));
+                if (montagem.pecas() == 0) {
+                    // Resposta que terminou "bem" sem desenhar nada: prosa, recusa ou formato errado.
+                    // Vira falha para a reserva poder assumir; o trecho só vai ao log.
+                    ultimaFalha = SEM_PECAS;
+                    log.warn("Holograma: o modelo não devolveu nenhuma peça ({} linhas descartadas, motivo={}); "
+                            + "resposta: {}", montagem.descartadas(), resposta.motivo(), trecho());
+                    throw new IOException(SEM_PECAS);
+                }
                 if (resposta.motivo() == RespostaDoModelo.MotivoDeParada.LIMITE_DE_TOKENS) {
                     log.info("Holograma: o modelo bateu no teto de {} tokens", opcoes.maxTokens());
                 }
@@ -446,6 +471,9 @@ public class HologramaService {
         /** Cada delta: as linhas que fecharam vão para a tela na hora. */
         private void aoTexto(String delta) {
             textoRecebido = true;
+            if (inicioDaResposta.length() < TRECHO_DO_LOG) {
+                inicioDaResposta.append(delta, 0, Math.min(delta.length(), TRECHO_DO_LOG - inicioDaResposta.length()));
+            }
             synchronized (montando) {
                 if (cancelamento.cancelado()) {
                     return;
@@ -533,11 +561,11 @@ public class HologramaService {
                     : segundos(Duration.ofNanos(primeiraPeca - inicio));
             SaidaHolograma.Resumo resumo = resumo();
             log.info("Holograma '{}' ({}): provedor={}{} 1ª peça em {}, {} peças, {} linhas descartadas, "
-                    + "{} avisos, tokens={}, custo estimado={}, total {}, fim={}",
+                    + "{} avisos {}, tokens={}, custo estimado={}, total {}, fim={}",
                     objeto.length() > 40 ? objeto.substring(0, 40) + "…" : objeto, detalhe.chave(),
                     provedorUsado.isEmpty() ? "-" : provedorUsado,
                     modeloUsado.isEmpty() ? "" : " modelo=" + modeloUsado,
-                    primeira, montagem.pecas(), montagem.descartadas(), montagem.avisos(),
+                    primeira, montagem.pecas(), montagem.descartadas(), montagem.avisos(), montagem.textosDeAviso(),
                     resumo.tokensEntrada() == null ? "?" : resumo.tokensEntrada() + "/" + resumo.tokensSaida(),
                     resumo.custoUsd() == null ? "-" : String.format(Locale.ROOT, "US$ %.4f", resumo.custoUsd()),
                     segundos(decorrido()), fim);

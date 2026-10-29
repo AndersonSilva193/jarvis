@@ -325,6 +325,35 @@ class HologramaServiceTest {
     }
 
     @Test
+    void respostaSemNenhumaPecaPassaAoLocal() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of("Claro! Aqui está o seu objeto.\n"));
+        Falso local = new Falso(List.of(META, PECA, FIM));
+        servico = servico(anthropic, local, "anthropic", true);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertEquals(1, local.chamadas);
+        assertTrue(emissor.eventos().contains("peca"));
+        assertFalse(emissor.eventos().contains("erro"));
+    }
+
+    @Test
+    void respostaSemNenhumaPecaESemReservaViraErroEspecifico() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of("Desculpe, não posso.\n"));
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", false);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, emissor);
+        emissor.esperar();
+
+        assertTrue(emissor.eventos().contains("erro"), emissor.corpo());
+        assertTrue(emissor.corpo().contains(HologramaService.TEXTO_SEM_PECAS), emissor.corpo());
+        assertFalse(emissor.corpo().contains("\"pecas\":0,\"avisos\":2"), "não pode fechar como pronto");
+    }
+
+    @Test
     void localEscolhidoEForaDeAlcanceUsaOHaikuComAviso() throws Exception {
         Emissor emissor = new Emissor();
         Falso anthropic = new Falso(List.of(META, PECA, FIM));
