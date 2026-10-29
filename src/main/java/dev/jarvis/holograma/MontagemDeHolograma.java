@@ -22,6 +22,7 @@ public final class MontagemDeHolograma {
     private boolean temMeta;
     private boolean terminou;
     private int avisos;
+    private int descartadas;
 
     public MontagemDeHolograma(HologramaLineParser parser) {
         this.parser = parser;
@@ -33,6 +34,9 @@ public final class MontagemDeHolograma {
         }
         Optional<EventoHolograma> evento = parser.ler(linha);
         if (evento.isEmpty()) {
+            if (linha != null && !linha.isBlank()) {
+                descartadas++;
+            }
             return List.of();
         }
         List<SaidaHolograma> saidas = new ArrayList<>();
@@ -67,8 +71,60 @@ public final class MontagemDeHolograma {
         return saidas;
     }
 
+    /**
+     * Fecha o objeto porque a geração parou antes da hora: um {@link SaidaHolograma.Erro} com o
+     * texto e o {@code fim}. Depois de fechado não devolve nada. Sem meta ainda, sai a padrão —
+     * calada, porque o erro já explica o que faltou.
+     */
+    public List<SaidaHolograma> interromper(String texto) {
+        if (terminou) {
+            return List.of();
+        }
+        List<SaidaHolograma> saidas = new ArrayList<>();
+        if (!temMeta) {
+            temMeta = true;
+            saidas.add(new SaidaHolograma.Meta(HologramaMeta.PADRAO));
+        }
+        saidas.add(new SaidaHolograma.Erro(texto));
+        terminou = true;
+        saidas.add(new SaidaHolograma.Fim(validador.total(), avisos));
+        return saidas;
+    }
+
+    /**
+     * Fecha sem reclamar da linha de fim que faltou: é o caso de quem parou o modelo de propósito,
+     * no limite de peças — o validador já avisou do que ficou de fora.
+     */
+    public List<SaidaHolograma> encerrar() {
+        if (terminou) {
+            return List.of();
+        }
+        List<SaidaHolograma> saidas = new ArrayList<>();
+        fechar(saidas);
+        return saidas;
+    }
+
     public boolean terminou() {
         return terminou;
+    }
+
+    /** Chegou ao {@link HologramaValidator#MAX_PECAS}: o que o modelo escrever daqui em diante é descartado. */
+    public boolean cheia() {
+        return validador.total() >= HologramaValidator.MAX_PECAS;
+    }
+
+    /** Quantas peças já saíram, contando as cópias. */
+    public int pecas() {
+        return validador.total();
+    }
+
+    public int avisos() {
+        return avisos;
+    }
+
+    /** Linhas com texto que o parser não aceitou: cerca de markdown, prosa, JSON quebrado. */
+    public int descartadas() {
+        return descartadas;
     }
 
     private void garantirMeta(List<SaidaHolograma> saidas) {

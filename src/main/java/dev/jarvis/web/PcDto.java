@@ -29,6 +29,11 @@ public final class PcDto {
      * de empurrar meio megabyte de resposta para dentro do prompt.
      */
     static final int MAX_DADOS_INFERENCIA = 256 * 1024;
+    /**
+     * Teto de uma parcial de {@code inferir} com stream, em caracteres. O agente manda a cada
+     * quebra de linha ou 300 ms — uma linha de holograma tem uns 200 —, então isto só barra o torto.
+     */
+    static final int MAX_TEXTO_PARCIAL = 32_000;
 
     private PcDto() {
     }

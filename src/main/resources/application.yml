@@ -167,6 +167,14 @@ jarvis:
     sites-intervalo-minutos: ${SITES_INTERVALO_MINUTOS:5}
     # Formato: nome_do_site=nome_da_rotina  (a rotina tem de existir no agente do PC)
     sites-acoes: ${SITES_ACOES:}
+  holograma:
+    # Quem gera o holograma: local (o Ollama do PC, com o Claude de reserva enquanto nenhuma peça
+    # saiu) ou anthropic.
+    provedor: ${HOLOGRAMA_PROVEDOR:local}
+    # Modelo da Anthropic para o holograma; vazio usa o ANTHROPIC_MODELO. No local quem escolhe é o PC.
+    modelo: ${HOLOGRAMA_MODELO:}
+    # Só vale para o local (0 a 1). A Anthropic recusa temperature nos modelos atuais.
+    temperatura: ${HOLOGRAMA_TEMPERATURA:0.4}
   resumo-diario:
     # segundo minuto hora dia mês dia-da-semana  ("-" desliga)
     cron: ${RESUMO_DIARIO_CRON:0 0 8 * * MON-FRI}

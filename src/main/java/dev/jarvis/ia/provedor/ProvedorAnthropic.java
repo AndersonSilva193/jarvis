@@ -1,6 +1,7 @@
 package dev.jarvis.ia.provedor;
 
 import java.io.IOException;
+import java.util.function.Consumer;
 
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
@@ -73,6 +74,28 @@ public class ProvedorAnthropic implements ProvedorDeModelo {
         } else {
             raiz = claude.criarMensagem(opcoes.origem(), system, mensagens, ferramentas);
         }
+        return conversor.resposta(raiz);
+    }
+
+    /**
+     * A chamada curta com stream. Ferramentas não vão: o que transmite aqui é texto para quem
+     * mostra enquanto chega, e uma chamada de ferramenta não teria quem a executasse. A
+     * temperatura das opções também não vai — os modelos atuais da Anthropic a recusam com 400.
+     */
+    @Override
+    public RespostaDoModelo transmitir(PedidoAoModelo pedido, Consumer<String> aoTexto,
+            Cancelamento cancelamento) throws IOException, InterruptedException {
+        OpcoesDoPedido opcoes = pedido.opcoes();
+        if (!opcoes.curta()) {
+            throw new IllegalArgumentException("o stream é para a chamada curta, com teto e prazo");
+        }
+        ArrayNode system = pedido.sistema().renderizada(ConversorAnthropic.PROVEDOR, conversor::sistema);
+        ArrayNode mensagens = json.createArrayNode();
+        for (Mensagem mensagem : pedido.mensagens()) {
+            mensagens.add(conversor.mensagem(mensagem));
+        }
+        JsonNode raiz = claude.transmitirMensagem(opcoes.origem(), system, mensagens, opcoes.modelo(),
+                opcoes.maxTokens(), opcoes.prazo(), aoTexto, cancelamento::aoCancelar);
         return conversor.resposta(raiz);
     }
 }

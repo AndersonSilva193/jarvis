@@ -26,6 +26,16 @@ public sealed interface SaidaHolograma {
         public Object dados() { return this; }
     }
 
+    /**
+     * A geração parou antes da hora: prazo, falha do modelo, corte. Sai sempre <b>antes</b> do
+     * {@link Fim} — o {@code fim} continua sendo o último evento —, e as peças que já foram ficam.
+     * O texto é fixo, montado em Java; o erro do provedor não chega à tela.
+     */
+    record Erro(String texto) implements SaidaHolograma {
+        public String evento() { return "erro"; }
+        public Object dados() { return this; }
+    }
+
     /** O fim, com o placar: quantas peças foram para a tela e quantos avisos saíram. */
     record Fim(int pecas, int avisos) implements SaidaHolograma {
         public String evento() { return "fim"; }

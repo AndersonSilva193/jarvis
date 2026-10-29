@@ -209,6 +209,36 @@ class PcE2HttpTest {
                 "inferir não é gravado no operacoes.json");
     }
 
+    @Test void parcialDeInferirChegaAoOuvinteE410DepoisDoCancelamento() throws Exception {
+        var e2 = new OperacoesPcService(JsonMapper.builder().build(),
+                temporaria.resolve("operacoes.json"), Clock.systemUTC());
+        e2.catalogo(java.util.List.of());
+        var pc = new PcService(e2);
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(pc,
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+        var inferir = new ComandoPc(java.util.UUID.randomUUID().toString(), "inferir", "",
+                Instant.now().toString(), JsonMapper.builder().build().createObjectNode());
+        var recebido = new StringBuilder();
+        pc.inferirTransmitindo(inferir, Duration.ofMinutes(1), (inicio, texto) -> recebido.append(texto));
+        iniciar(http, inferir.id());
+
+        http.perform(post("/api/pc/v2/comandos/" + inferir.id() + "/parcial")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inicio\":0,\"texto\":\"{\\\"t\\\"\"}"))
+                .andExpect(status().isNoContent());
+        assertEquals("{\"t\"", recebido.toString());
+        http.perform(post("/api/pc/v2/comandos/" + inferir.id() + "/parcial")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inicio\":-1,\"texto\":\"x\"}"))
+                .andExpect(status().isBadRequest());
+
+        pc.cancelar(inferir.id());
+        http.perform(post("/api/pc/v2/comandos/" + inferir.id() + "/parcial")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inicio\":4,\"texto\":\"x\"}"))
+                .andExpect(status().isGone());
+        http.perform(post("/api/pc/v2/comandos/" + java.util.UUID.randomUUID() + "/parcial")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"inicio\":0,\"texto\":\"x\"}"))
+                .andExpect(status().isGone());
+    }
+
     @Test void cabecalhoIaChegaAoPcService() throws Exception {
         var e2 = new OperacoesPcService(JsonMapper.builder().build(),
                 temporaria.resolve("operacoes.json"), Clock.systemUTC());

@@ -58,6 +58,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho), `ProcedimentosService`/`RevisorDeProcedimentos` (o que ele aprende fazendo, em `MEMORIA_PASTA/procedimentos`) e `EsquecimentosDeMemoria` (o recado de que um esquecimento aprovado aconteceu) |
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
+| `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
@@ -125,7 +126,9 @@ algum filtro passar a depender de estado, que é exatamente o bug que este aviso
 **Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são sete:
 `CicloDeFerramentas`, `NarradorDeBriefing`, `InicializacaoService`, `ClassificadorDeResposta`,
 `AnotadorDeMemoria`, `RevisorDeProcedimentos` e `AnthropicBusca` (esta pede o `@Primary`: busca
-nativa é da Anthropic por construção). O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
+nativa é da Anthropic por construção). O `HologramaService` é o oitavo, e o único que transmite:
+pede o `ProvedorAnthropic` e o `ProvedorLocal` pelo nome e escolhe entre eles (ver "O holograma").
+O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
 quem traduz é o `ProvedorAnthropic`. Ele é **só tradução**: repetição, cache da conversa, TTL,
 esforço e custo continuam no `ClaudeClient`, que não mudou. O computer use segue com os provedores
 próprios dele.
@@ -192,7 +195,10 @@ chamador ──► ProvedorDeApoio ──► DisponibilidadeLocal ── não �
 - **O prazo é de quem espera**: o classificador usa o próprio (5 s), a introdução 10 s
   (`ProvedorLocal.PRAZO_COM_ALGUEM_ESPERANDO`), anotador e briefing o `IA_LOCAL_TIMEOUT_SEGUNDOS`.
   Nunca acima deste. Estourou, o `inferir` é cancelado na fila e o Claude assume — no pior caso o
-  classificador leva os 5 s do local mais os 5 do Claude.
+  classificador leva os 5 s do local mais os 5 do Claude. **A exceção é o stream** (`transmitir`,
+  só o holograma usa): ali o `IA_LOCAL_TIMEOUT_SEGUNDOS` vira prazo de *inatividade* — sem texto
+  novo nesse tempo, cai —, e o total é o de quem transmite. Uma geração longa que está escrevendo
+  não é um PC travado.
 - **Erro de formato nunca vira execução.** Toda chamada de ferramenta do local é conferida contra
   a lista do pedido e o esquema (`ValidadorDeEsquema`): nome que não foi oferecido, argumento que
   não é JSON ou fora do esquema volta ao próprio modelo como mensagem `tool` de erro, numa volta de
@@ -412,6 +418,32 @@ mudaram.
 A `unidade` é a única exceção ao "nada de texto do modelo" na fonte `planilha`: a planilha não
 declara em que unidade está, então o modelo copia o símbolo do cabeçalho. É rótulo, não número — no
 `clima_7_dias` o Java sabe a unidade e ignora o campo.
+
+## O holograma
+
+O dono digita um objeto na HUD, um modelo descreve o objeto em NDJSON de peças primitivas, e cada
+linha completa vira peça na tela **enquanto o modelo ainda escreve**. O contrato inteiro (formato,
+validação, eventos, prompt) está em `docs/HOLOGRAMA.md`. Aqui ficam só as regras que valem fora dele.
+
+- **`ProvedorDeModelo.transmitir(pedido, aoTexto, cancelamento)` é o único caminho de stream.** O
+  `default` responde inteiro e entrega o texto num pedaço só, então provedor que não transmite
+  continua compilando. A Anthropic (`ClaudeClient.transmitirMensagem` + `LeitorDeStreamAnthropic`) e
+  o local (parciais do E2) sobrescrevem. Só texto passa por `aoTexto`; chamada curta, sem
+  ferramentas, sem cache da conversa.
+- **Quem corta é um `Cancelamento`**, e não interrupção de thread: o provedor pendura nele o que
+  fecha o stream (o `InputStream` da Anthropic, o `pc.cancelar` do `inferir`), e a leitura bloqueada
+  sai pelo erro que o corte provoca. Quem chama confere `cancelado()` antes de tratar esse erro
+  como falha do modelo.
+- **Parcial de `inferir` é um endpoint E2, não uma ação**: `POST /api/pc/v2/comandos/{id}/parcial`
+  responde 204, ou **410 quando a VPS desistiu**, e o 410 é o que faz o agente fechar o Ollama. O
+  resultado final continua pelo `/resultado` e é a fonte da verdade: a VPS emenda os pedaços pelo
+  `inicio` e completa pelo `content` o que se perdeu. O ouvinte entra no `PcService` **antes** de o
+  comando ir para a fila — o agente pode postar a primeira parcial antes de o enfileirar voltar.
+- **A temperatura não vai à Anthropic.** Os modelos atuais recusam `temperature` com 400; o
+  `OpcoesDoPedido.temperatura` só é lido pelo local, e o agente a prende em 0..1. O `modelo` das
+  opções, ao contrário, só a Anthropic lê: no local quem escolhe o modelo é o PC.
+- **A reserva no Claude só vale antes da primeira peça.** Depois dela, outro modelo desenharia outro
+  objeto por cima do que está na tela; a geração termina com `erro` e as peças ficam.
 
 ## O PC Windows pelo Telegram
 
@@ -989,8 +1021,10 @@ conversa e perdê-la seria susto, não privacidade.
 ### Diário de custo
 
 `ClaudeClient.criarMensagem` recebe uma `Origem` explícita em cada chamada: `CONVERSA`,
-`BRIEFING`, `INICIALIZACAO`, `ANOTADOR`, `CLASSIFICADOR` ou `BUSCA` (a reserva da `buscar_na_web`,
-que pensa no esforço de apoio e não liga o cache da conversa). Os dois provedores de computer use
+`BRIEFING`, `INICIALIZACAO`, `ANOTADOR`, `CLASSIFICADOR`, `BUSCA` (a reserva da `buscar_na_web`,
+que pensa no esforço de apoio e não liga o cache da conversa) ou `HOLOGRAMA` (a geração com stream,
+no esforço de apoio e num balde próprio: um objeto detalhado pode custar mais que uma conversa, e o
+dono precisa ver isso no `custo_do_jarvis`). Os dois provedores de computer use
 registram `COMPUTER_USE` ao receber uma resposta de sucesso; `TarefasComputerUse` usa os mesmos
 tokens só para o retrato da HUD. O registro de custo acontece uma vez por resposta, depois das
 tentativas HTTP. A ferramenta `custo_do_jarvis` consulta hoje, os últimos sete ou os últimos
@@ -1030,14 +1064,16 @@ Nada de `@Value` espalhado pelo código, e nada de ler `System.getenv` direto. U
 o `PC_TOKEN` (`jarvis.pc.token`), usado pelo `TokenPcFiltro`: vazio, `/api/pc` recusa tudo com 401
 e o controle do PC fica desligado.
 
-Atenção ao `JarvisProperties`: é um record de 21 componentes, construído **por posição** em mais
+Atenção ao `JarvisProperties`: é um record de 23 componentes, construído **por posição** em mais
 de vinte arquivos de teste. Acrescente componente **no fim**, e prefira esticar um dos blocos
 aninhados (`Pc`, `ComputerUse`, `Historico`…) a criar outro no topo. Os construtores de
 compatibilidade no fim da classe existem justamente para os testes antigos continuarem compilando
 — quando criar um componente novo, decida se ele entra num desses atalhos ou se os testes passam
 a informá-lo. O `Diario` que virou o 20º é o exemplo do barato: o atalho novo repete a aridade
 anterior (19 parâmetros) e passa `null`, e nenhum dos testes que informavam `Custo` precisou mudar.
-O `Proativo` que virou o 21º fez o mesmo com a aridade 20.
+O `Proativo` que virou o 21º fez o mesmo com a aridade 20, e o `Holograma` que virou o 23º, com a
+22 — ele não coube em bloco nenhum existente: provedor, modelo e temperatura são do holograma, não
+da IA local nem da Anthropic.
 
 Um detalhe de nome que custa uma hora se for descoberto no bind: `SITES_INTERVALO_MINUTOS` e
 `SITES_ACOES` moram em `jarvis.proativo.*`, e **não** em `jarvis.sites.*`. O `jarvis.sites` já é o

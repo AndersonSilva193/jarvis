@@ -65,6 +65,8 @@ public class PcService {
     private final BlockingQueue<Pendente> fila = new LinkedBlockingQueue<>();
     /** Todo comando vivo, entregue ou não, para achar pelo id quando o resultado chegar. */
     private final ConcurrentMap<String, Pendente> emAberto = new ConcurrentHashMap<>();
+    /** Os {@code inferir} com stream em andamento, por id de comando. */
+    private final ConcurrentMap<String, OuvinteDeInferencia> parciais = new ConcurrentHashMap<>();
 
     private volatile Instant ultimoContato;
     /** O último {@code X-Pc-Ia}, cru, e quando chegou. Quem interpreta é a {@code DisponibilidadeLocal}. */
@@ -160,6 +162,43 @@ public class PcService {
         return e2.enfileirar(comando, prazo, prazo, "", 0);
     }
 
+    /** Quem ouve o texto de um {@code inferir} com stream, conforme o agente o posta. */
+    @FunctionalInterface
+    public interface OuvinteDeInferencia {
+        /** @param inicio onde o pedaço começa, em caracteres do texto inteiro */
+        void parcial(int inicio, String texto);
+    }
+
+    /**
+     * O {@link #inferir} com stream: os pedaços que o agente posta em
+     * {@code /v2/comandos/{id}/parcial} vão para o ouvinte, e o resultado final chega pelo futuro
+     * como sempre. O ouvinte sai do mapa quando o futuro termina, e um {@link #cancelar} o tira na
+     * hora — é isso que faz a próxima parcial voltar 410 e o agente largar o Ollama.
+     */
+    public CompletableFuture<ResultadoPc> inferirTransmitindo(ComandoPc comando, Duration prazo,
+            OuvinteDeInferencia ouvinte) {
+        // Antes de enfileirar: o agente pode buscar o comando e postar a primeira parcial antes de
+        // esta linha voltar, e uma parcial sem ouvinte recebe 410 — que ele lê como "desisti".
+        parciais.put(comando.id(), ouvinte);
+        CompletableFuture<ResultadoPc> futuro = inferir(comando, prazo);
+        futuro.whenComplete((resultado, erro) -> parciais.remove(comando.id()));
+        return futuro;
+    }
+
+    /**
+     * Uma parcial que o agente postou. Falso quando ninguém mais espera por ela — o id é
+     * desconhecido, já terminou ou foi cancelado —, e o controller responde 410.
+     */
+    public boolean parcial(String id, int inicio, String texto) {
+        registrarContato();
+        OuvinteDeInferencia ouvinte = parciais.get(id);
+        if (ouvinte == null || e2 == null || e2.cancelamentoPedido(id)) {
+            return false;
+        }
+        ouvinte.parcial(inicio, texto);
+        return true;
+    }
+
     /**
      * O próximo comando para o agente, esperando até {@code espera} por um — é o long poll.
      *
@@ -247,6 +286,7 @@ public class PcService {
 
     /** Cancela a espera quando a ferramenta já devolveu resposta ao usuário. */
     public void cancelar(String id) {
+        parciais.remove(id);
         if (e2 != null && e2.estado(id).isPresent()) { e2.cancelar(id); return; }
         Pendente pendente = emAberto.get(id);
         if (pendente != null) vencer(pendente);

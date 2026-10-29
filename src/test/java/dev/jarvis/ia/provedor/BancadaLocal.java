@@ -49,6 +49,8 @@ public final class BancadaLocal implements AutoCloseable {
     public final List<JsonNode> recebidos = new CopyOnWriteArrayList<>();
     /** O id de cada {@code inferir} recebido, para conferir cancelamento. */
     public final List<String> ids = new CopyOnWriteArrayList<>();
+    /** O que o {@code PcService.parcial} respondeu a cada parcial postada (falso = 410). */
+    public final List<Boolean> parciaisAceitas = new CopyOnWriteArrayList<>();
 
     private final ConcurrentLinkedDeque<Function<String, ResultadoPc>> roteiro = new ConcurrentLinkedDeque<>();
     private final Thread agente;
@@ -110,6 +112,28 @@ public final class BancadaLocal implements AutoCloseable {
                 JSON.createObjectNode().put("codigoErro", codigo)));
         return this;
     }
+
+    /**
+     * A próxima inferência com stream: posta as parciais dadas ({@code inicio}, {@code texto}),
+     * como o agente real faz em {@code /v2/comandos/{id}/parcial}, e depois o resultado com o
+     * {@code content} inteiro. O que a VPS respondeu a cada parcial fica em {@link #parciaisAceitas}.
+     */
+    public BancadaLocal transmite(List<Parcial> parciais, String completo) {
+        ObjectNode mensagem = mensagem(completo);
+        roteiro.add(id -> {
+            for (Parcial parcial : parciais) {
+                parciaisAceitas.add(pc.parcial(id, parcial.inicio(), parcial.texto()));
+            }
+            ObjectNode dados = JSON.createObjectNode();
+            dados.set("message", mensagem);
+            dados.put("modelo", "qwen3.5:9b").put("done_reason", "stop")
+                    .put("prompt_eval_count", 120).put("eval_count", 30).put("total_duration", 900_000_000L);
+            return new ResultadoPc(id, true, "inferência concluída", null, null, false, dados);
+        });
+        return this;
+    }
+
+    public record Parcial(int inicio, String texto) { }
 
     /** A próxima inferência é recebida e nunca respondida. */
     public BancadaLocal calado() {

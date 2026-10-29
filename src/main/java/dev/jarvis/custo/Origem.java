@@ -23,7 +23,12 @@ public enum Origem {
      * {@link #CONVERSA}: esta ligaria o cache automático numa chamada que nunca se repete.
      */
     BUSCA("busca"),
-    COMPUTER_USE("computer_use");
+    COMPUTER_USE("computer_use"),
+    /**
+     * A geração de um holograma: uma chamada só, mas a de saída mais longa do Jarvis — um objeto
+     * detalhado passa de dez mil tokens. Balde próprio para o dono ver quanto cada objeto custa.
+     */
+    HOLOGRAMA("holograma");
 
     private final String chave;
 

@@ -1,6 +1,9 @@
 package dev.jarvis.ia;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -9,6 +12,8 @@ import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.nio.charset.StandardCharsets;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,7 +120,9 @@ public class ClaudeClient {
             case CONVERSA, COMPUTER_USE -> PerfilDeEsforco.CONVERSA;
             case BRIEFING -> PerfilDeEsforco.BRIEFING;
             case INICIALIZACAO -> PerfilDeEsforco.INICIALIZACAO;
-            case ANOTADOR, CLASSIFICADOR, BUSCA -> PerfilDeEsforco.APOIO;
+            // O holograma pensa como apoio: o prompt já diz a forma de cada linha, e o esforço
+            // a mais iria para o raciocínio, não para as peças.
+            case ANOTADOR, CLASSIFICADOR, BUSCA, HOLOGRAMA -> PerfilDeEsforco.APOIO;
         };
     }
 
@@ -188,8 +195,99 @@ public class ClaudeClient {
     private JsonNode criarMensagem(Origem origem, PerfilDeEsforco perfil, ArrayNode system,
             ArrayNode mensagens, ArrayNode ferramentas, int maxTokens, Duration prazo,
             int tentativas, boolean cacheDaConversa) throws IOException, InterruptedException {
+        ObjectNode corpo = corpo(config.modelo(), perfil, system, mensagens, ferramentas, maxTokens,
+                cacheDaConversa);
+        HttpRequest requisicao = requisicao(corpo, prazo);
+
+        for (int tentativa = 1; ; tentativa++) {
+            HttpResponse<String> resposta = http.send(requisicao, HttpResponse.BodyHandlers.ofString());
+            int status = resposta.statusCode();
+            if (status == 200) {
+                JsonNode raiz = json.readTree(resposta.body());
+                registrarConsumo(origem, config.modelo(), raiz.path("usage"));
+                return raiz;
+            }
+            if (STATUS_TEMPORARIOS.contains(status) && tentativa < tentativas) {
+                log.warn("API do Claude respondeu {} (tentativa {}), tentando de novo...", status, tentativa);
+                Thread.sleep(2_000L * tentativa);
+                continue;
+            }
+            throw new ErroDaApiDoModelo(status, detalheSeguro(resposta.body()));
+        }
+    }
+
+    /**
+     * A chamada curta com {@code "stream": true}: o texto vai para {@code aoTexto} conforme o
+     * modelo escreve, e no fim volta a mesma forma de uma resposta sem stream.
+     *
+     * <p>Sem ferramentas e sem o cache da conversa: é uma chamada só, como as de apoio. O esforço
+     * sai do perfil da origem, e o modelo pode ser outro que o configurado — quem escolhe é o
+     * chamador, e o custo é registrado no modelo que de fato respondeu.
+     *
+     * <p>Repete em erro temporário <b>só antes do corpo</b>: depois do primeiro texto entregue não
+     * há como desfazer o que quem ouve já mostrou. O {@code prazo} vale até os cabeçalhos chegarem;
+     * dali em diante quem segura o tempo é quem chama, pelo corte.
+     *
+     * <p>{@code aoCancelar} recebe a ação que fecha o stream; a leitura bloqueada sai com
+     * {@code IOException}. Num stream cortado o {@code message_delta} não chega, então só a entrada
+     * (e a saída do {@code message_start}) é registrada: o custo da saída fica subestimado.
+     *
+     * @param modelo o modelo desta chamada; vazio ou nulo é o {@code ANTHROPIC_MODELO}
+     */
+    public JsonNode transmitirMensagem(Origem origem, ArrayNode system, ArrayNode mensagens,
+            String modelo, int maxTokens, Duration prazo, Consumer<String> aoTexto,
+            Consumer<Runnable> aoCancelar) throws IOException, InterruptedException {
+        String usado = modelo == null || modelo.isBlank() ? config.modelo() : modelo.trim();
+        ObjectNode corpo = corpo(usado, perfilPadrao(origem), system, mensagens,
+                json.createArrayNode(), maxTokens, false);
+        corpo.put("stream", true);
+        HttpRequest requisicao = requisicao(corpo, prazo);
+        LeitorDeStreamAnthropic leitor = new LeitorDeStreamAnthropic(json);
+
+        for (int tentativa = 1; ; tentativa++) {
+            HttpResponse<InputStream> resposta = http.send(requisicao, HttpResponse.BodyHandlers.ofInputStream());
+            int status = resposta.statusCode();
+            if (status != 200) {
+                String corpoDoErro;
+                try (InputStream entrada = resposta.body()) {
+                    corpoDoErro = new String(entrada.readNBytes(16 * 1024), StandardCharsets.UTF_8);
+                }
+                if (STATUS_TEMPORARIOS.contains(status) && tentativa < TENTATIVAS) {
+                    log.warn("API do Claude respondeu {} no stream (tentativa {}), tentando de novo...",
+                            status, tentativa);
+                    Thread.sleep(2_000L * tentativa);
+                    continue;
+                }
+                throw new ErroDaApiDoModelo(status, detalheSeguro(corpoDoErro));
+            }
+            InputStream entrada = resposta.body();
+            aoCancelar.accept(() -> fecharCalado(entrada));
+            LeitorDeStreamAnthropic.Leitura leitura = new LeitorDeStreamAnthropic.Leitura();
+            try (BufferedReader linhas = new BufferedReader(
+                    new InputStreamReader(entrada, StandardCharsets.UTF_8))) {
+                leitor.ler(linhas, aoTexto, leitura);
+            } finally {
+                // Cortado antes do message_start não houve cobrança a registrar.
+                if (leitura.entrada > 0 || leitura.saida > 0) {
+                    registrarConsumo(origem, usado, leitor.remontar(leitura).path("usage"));
+                }
+            }
+            return leitor.remontar(leitura);
+        }
+    }
+
+    private static void fecharCalado(InputStream entrada) {
+        try {
+            entrada.close();
+        } catch (IOException e) {
+            // Já fechado ou já caído: o corte aconteceu do mesmo jeito.
+        }
+    }
+
+    private ObjectNode corpo(String modelo, PerfilDeEsforco perfil, ArrayNode system,
+            ArrayNode mensagens, ArrayNode ferramentas, int maxTokens, boolean cacheDaConversa) {
         ObjectNode corpo = json.createObjectNode();
-        corpo.put("model", config.modelo());
+        corpo.put("model", modelo);
         corpo.put("max_tokens", maxTokens);
         corpo.set("system", system);
         corpo.set("messages", mensagens);
@@ -208,30 +306,17 @@ public class ClaudeClient {
         if (esforco != null) {
             corpo.putObject("output_config").put("effort", esforco.chave());
         }
+        return corpo;
+    }
 
-        HttpRequest requisicao = HttpRequest.newBuilder(URL)
+    private HttpRequest requisicao(ObjectNode corpo, Duration prazo) {
+        return HttpRequest.newBuilder(URL)
                 .timeout(prazo)
                 .header("x-api-key", config.apiKey())
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(corpo)))
                 .build();
-
-        for (int tentativa = 1; ; tentativa++) {
-            HttpResponse<String> resposta = http.send(requisicao, HttpResponse.BodyHandlers.ofString());
-            int status = resposta.statusCode();
-            if (status == 200) {
-                JsonNode raiz = json.readTree(resposta.body());
-                registrarConsumo(origem, raiz.path("usage"));
-                return raiz;
-            }
-            if (STATUS_TEMPORARIOS.contains(status) && tentativa < tentativas) {
-                log.warn("API do Claude respondeu {} (tentativa {}), tentando de novo...", status, tentativa);
-                Thread.sleep(2_000L * tentativa);
-                continue;
-            }
-            throw new ErroDaApiDoModelo(status, detalheSeguro(resposta.body()));
-        }
     }
 
     /**
@@ -248,7 +333,7 @@ public class ClaudeClient {
      * ela alimenta o teto de {@code BUSCA_WEB_MAX_USOS}, que é outro assunto. São dois leitores do
      * mesmo número, com fins diferentes.
      */
-    private void registrarConsumo(Origem origem, JsonNode usage) {
+    private void registrarConsumo(Origem origem, String modelo, JsonNode usage) {
         long entrada = Json.numero(usage.path("input_tokens"));
         long saida = Json.numero(usage.path("output_tokens"));
         long cacheEscrito = Json.numero(usage.path("cache_creation_input_tokens"));
@@ -256,7 +341,7 @@ public class ClaudeClient {
         long buscas = Json.numero(usage.path("server_tool_use").path("web_search_requests"));
         log.info("Claude: entrada={} saída={} cache_escrito={} cache_lido={}",
                 entrada, saida, cacheEscrito, cacheLido);
-        medidor.registrar(origem, config.modelo(), entrada, saida, cacheEscrito, cacheLido, buscas);
+        medidor.registrar(origem, modelo, entrada, saida, cacheEscrito, cacheLido, buscas);
     }
 
     private String detalheSeguro(String corpo) {

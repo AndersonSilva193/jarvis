@@ -40,12 +40,28 @@ public record JarvisProperties(
         Custo custo,
         Diario diario,
         Proativo proativo,
-        EconomiaFerramentas ferramentas) {
+        EconomiaFerramentas ferramentas,
+        Holograma holograma) {
 
     private static final Logger log = LoggerFactory.getLogger(JarvisProperties.class);
 
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public JarvisProperties { }
+
+    /**
+     * A aridade de antes do holograma. Mesmo motivo dos outros atalhos: os testes que informam a
+     * economia de ferramentas montam este record por posição.
+     */
+    public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
+            Anthropic anthropic, Clima clima, Noticias noticias, Hud hud,
+            Personalidade personalidade, Voz voz, BuscaWeb buscaWeb, Youtube youtube, Pc pc,
+            ComputerUse computerUse, Google google, Memoria memoria, Lembretes lembretes,
+            Historico historico, Custo custo, Diario diario, Proativo proativo,
+            EconomiaFerramentas ferramentas) {
+        this(nomeUsuario, fusoHorario, sites, telegram, anthropic, clima, noticias, hud,
+                personalidade, voz, buscaWeb, youtube, pc, computerUse, google, memoria, lembretes,
+                historico, custo, diario, proativo, ferramentas, null);
+    }
 
     /** Compatibilidade com testes que ainda montam os 21 componentes por posição. */
     public JarvisProperties(String nomeUsuario, String fusoHorario, String sites, Telegram telegram,
@@ -128,6 +144,17 @@ public record JarvisProperties(
             int duracaoSegundos) { }
 
     public record EconomiaFerramentas(String sempreCarregadas, int resultadoMaxCaracteres) { }
+
+    /**
+     * A geração de hologramas.
+     *
+     * @param provedor    {@code local} ou {@code anthropic}, cru: quem o interpreta (e avisa do
+     *                    valor torto, uma vez) é o {@code HologramaService}
+     * @param modelo      o modelo da Anthropic para o holograma; vazio é o {@code ANTHROPIC_MODELO}.
+     *                    No local quem escolhe é o {@code ollama.modelo} do PC
+     * @param temperatura só vai ao local; os modelos atuais da Anthropic recusam o campo
+     */
+    public record Holograma(String provedor, String modelo, Double temperatura) { }
 
     public List<String> ferramentasSempreCarregadas() {
         String nomes = ferramentas == null || ferramentas.sempreCarregadas() == null
@@ -472,6 +499,23 @@ public record JarvisProperties(
         if (!iaLocalAtiva()) return false;
         String apoio = pc.iaLocal().apoio();
         return apoio == null || !apoio.trim().equalsIgnoreCase("false");
+    }
+
+    /** O {@code HOLOGRAMA_PROVEDOR} cru, ou vazio. */
+    public String provedorDoHolograma() {
+        return holograma == null || holograma.provedor() == null ? "" : holograma.provedor().trim();
+    }
+
+    /** O modelo da Anthropic para o holograma, ou vazio para o {@code ANTHROPIC_MODELO}. */
+    public String modeloDoHolograma() {
+        return holograma == null || holograma.modelo() == null ? "" : holograma.modelo().trim();
+    }
+
+    /** A temperatura do holograma no local, com 0,4 de padrão e presa entre 0 e 1. */
+    public double temperaturaDoHolograma() {
+        Double t = holograma == null ? null : holograma.temperatura();
+        if (t == null || !Double.isFinite(t)) return 0.4;
+        return Math.max(0, Math.min(1, t));
     }
 
     /** Quanto o local tem para responder, com 60 s de padrão e piso de 1 s. */

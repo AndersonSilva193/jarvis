@@ -158,6 +158,23 @@ public class PcController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    public record ParcialE2(Integer inicio, String texto) { }
+
+    /**
+     * Um pedaço do texto de um {@code inferir} com stream. 204 quando alguém ainda espera por ele;
+     * <b>410 quando a VPS desistiu</b> (cliente saiu, prazo, limite de peças) — é o 410 que faz o
+     * agente fechar o stream do Ollama e soltar a GPU. O pedaço é texto de modelo e só chega a
+     * quem pediu o stream; o resultado final, que vem depois, é a fonte da verdade.
+     */
+    @PostMapping("/v2/comandos/{id}/parcial")
+    public ResponseEntity<?> parcialE2(@PathVariable String id, @RequestBody ParcialE2 corpo) {
+        if (corpo == null || corpo.inicio() == null || corpo.inicio() < 0 || corpo.texto() == null
+                || corpo.texto().length() > PcDto.MAX_TEXTO_PARCIAL)
+            return ResponseEntity.badRequest().build();
+        return pc.parcial(id, corpo.inicio(), corpo.texto())
+                ? ResponseEntity.noContent().build() : ResponseEntity.status(410).build();
+    }
+
     @GetMapping("/v2/comandos/{id}/cancelamento")
     public Map<String, Boolean> cancelamentoE2(@PathVariable String id) {
         return Map.of("cancelar", e2.cancelamentoPedido(id));

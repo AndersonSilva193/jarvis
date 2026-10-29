@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,11 @@ public class ProvedorLocal implements ProvedorDeModelo {
     public static final String TIMEOUT = "timeout";
     public static final String ERRO_DE_FORMATO = "erro_de_formato";
     public static final String FALHA_LOCAL = "falha_local";
+    /** Quem transmitia desistiu: não é falha do modelo, e não leva ao Claude. */
+    public static final String CANCELADO = "cancelado";
+
+    /** De quanto em quanto a espera do stream olha o relógio e o corte. */
+    private static final Duration ESPIADA = Duration.ofMillis(250);
 
     private final PcService pc;
     /** Pode ser nulo nos testes que só conferem a conversão. */
@@ -117,6 +123,147 @@ public class ProvedorLocal implements ProvedorDeModelo {
                         ? "Erro de formato: " + problema + ". Nada foi executado; corrija e repita."
                         : "Não executada: corrija as chamadas inválidas e repita."));
             }
+        }
+    }
+
+    /**
+     * O {@code inferir} com stream: o agente chama o Ollama com {@code stream: true} e posta o
+     * texto em pedaços, que chegam aqui pelo {@link PcService#parcial} e vão para {@code aoTexto}.
+     *
+     * <p><b>O resultado final é a fonte da verdade.</b> Cada pedaço diz onde começa; só entra o que
+     * emenda no que já chegou (repetido é ignorado, buraco espera). No fim, o que faltar entre o
+     * recebido e o {@code content} completo sai como o último pedaço — uma parcial perdida na rede
+     * atrasa o texto, não o corta.
+     *
+     * <p><b>Dois prazos.</b> O total é o das opções (quem transmite sabe quanto aguenta esperar). O
+     * {@code IA_LOCAL_TIMEOUT_SEGUNDOS} vira prazo de <b>inatividade</b>: sem pedaço novo nesse
+     * tempo, inclusive antes do primeiro, o comando é cancelado e a falha é {@code timeout}. Uma
+     * geração longa que está escrevendo não é a mesma coisa que um PC travado.
+     *
+     * <p>Sem ferramentas e sem correção de formato: o que transmite é texto. O {@code think} vai
+     * falso e a temperatura das opções vai no {@code dados}; o agente a prende em 0..1.
+     */
+    @Override
+    public RespostaDoModelo transmitir(PedidoAoModelo pedido, Consumer<String> aoTexto,
+            Cancelamento cancelamento) throws java.io.IOException, InterruptedException {
+        OpcoesDoPedido opcoes = pedido.opcoes();
+        ObjectNode corpo = conversor.pedido(pedido, false);
+        corpo.remove("tools");
+        corpo.put("stream", true);
+        if (opcoes.temperatura() != null) corpo.put("temperatura", opcoes.temperatura());
+        Duration inatividade = props.prazoDaIaLocal();
+        Duration total = opcoes.prazo() == null ? inatividade : opcoes.prazo();
+        long limite = System.nanoTime() + total.toNanos();
+
+        ComandoPc comando = new ComandoPc(UUID.randomUUID().toString(), "inferir", "",
+                Instant.now().toString(), corpo);
+        TextoRecebido recebido = new TextoRecebido(aoTexto);
+        CompletableFuture<ResultadoPc> futuro;
+        try {
+            futuro = pc.inferirTransmitindo(comando, total, recebido::parcial);
+        } catch (RuntimeException e) {
+            throw new FalhaLocal(FALHA_LOCAL, "falha ao falar com o agente: " + e.getClass().getSimpleName());
+        }
+        cancelamento.aoCancelar(() -> {
+            pc.cancelar(comando.id());
+            futuro.cancel(false);
+        });
+
+        ResultadoPc resultado;
+        try {
+            resultado = esperar(futuro, recebido, inatividade, limite, cancelamento, comando.id());
+        } finally {
+            recebido.fechar();
+        }
+        if (!resultado.ok()) {
+            String codigo = resultado.dados() == null ? "" : Json.texto(resultado.dados().path("codigoErro"));
+            throw new FalhaLocal(codigo.matches("[a-z_]{1,32}") ? codigo : FALHA_LOCAL,
+                    "o PC recusou a inferência");
+        }
+        if (resultado.dados() == null || !resultado.dados().path("message").isObject()) {
+            throw new FalhaLocal(FALHA_LOCAL, "resposta do agente sem message");
+        }
+        RespostaDoModelo resposta = conversor.resposta(resultado.dados());
+        recebido.reconciliar(Json.texto(resultado.dados().path("message").path("content")));
+        if (medidor != null) {
+            medidor.registrarLocal(opcoes.origem(), resposta.uso().entrada(), resposta.uso().saida());
+        }
+        return resposta;
+    }
+
+    /** Espera o futuro olhando o relógio: inatividade, prazo total e o corte de fora. */
+    private ResultadoPc esperar(CompletableFuture<ResultadoPc> futuro, TextoRecebido recebido,
+            Duration inatividade, long limite, Cancelamento cancelamento, String id)
+            throws FalhaLocal, InterruptedException {
+        while (true) {
+            if (cancelamento.cancelado()) {
+                throw new FalhaLocal(CANCELADO, "a transmissão foi cancelada: " + cancelamento.motivo());
+            }
+            long agora = System.nanoTime();
+            if (agora - recebido.ultimoSinal() > inatividade.toNanos()) {
+                pc.cancelar(id);
+                throw new FalhaLocal(TIMEOUT, "o modelo local ficou " + inatividade.toSeconds()
+                        + " s sem escrever");
+            }
+            if (agora > limite) {
+                pc.cancelar(id);
+                throw new FalhaLocal(TIMEOUT, "o modelo local passou do prazo da transmissão");
+            }
+            try {
+                return futuro.get(ESPIADA.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                // Volta a olhar o relógio.
+            } catch (java.util.concurrent.CancellationException e) {
+                throw new FalhaLocal(CANCELADO, "a transmissão foi cancelada: " + cancelamento.motivo());
+            } catch (InterruptedException e) {
+                pc.cancelar(id);
+                throw e;
+            } catch (ExecutionException e) {
+                throw new FalhaLocal(FALHA_LOCAL, "falha ao falar com o agente: "
+                        + e.getCause().getClass().getSimpleName());
+            }
+        }
+    }
+
+    /**
+     * O texto que já chegou, emendado em ordem. Os pedaços vêm na thread da requisição do agente e
+     * a reconciliação na de quem transmite, por isso o monitor.
+     */
+    private static final class TextoRecebido {
+        private final Consumer<String> aoTexto;
+        private int tamanho;
+        private boolean fechado;
+        private volatile long ultimoSinal = System.nanoTime();
+
+        TextoRecebido(Consumer<String> aoTexto) {
+            this.aoTexto = aoTexto;
+        }
+
+        synchronized void parcial(int inicio, String texto) {
+            if (fechado || texto.isEmpty()) return;
+            int fim = inicio + texto.length();
+            if (inicio > tamanho || fim <= tamanho) return;
+            String novo = texto.substring(tamanho - inicio);
+            tamanho = fim;
+            ultimoSinal = System.nanoTime();
+            aoTexto.accept(novo);
+        }
+
+        /** Depois do resultado (ou da desistência), parcial atrasada não entra mais. */
+        synchronized void fechar() {
+            fechado = true;
+        }
+
+        synchronized void reconciliar(String completo) {
+            if (completo.length() > tamanho) {
+                String resto = completo.substring(tamanho);
+                tamanho = completo.length();
+                aoTexto.accept(resto);
+            }
+        }
+
+        long ultimoSinal() {
+            return ultimoSinal;
         }
     }
 

@@ -213,13 +213,13 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
   `HologramaValidator` (compacta → peças, com `rep`/`rad` e limites), `MontagemDeHolograma`
   (ordem do que sai), três exemplos em `src/main/resources/holograma/exemplos` e
   `GET /api/holograma/exemplo/{nome}` por SSE. Contrato fixado na seção 7.
-- [ ] **Fase 2 — Geração e publicação no backend.** `GeradorDeHolograma` pelo `ProvedorDeApoio`,
-  prompt em `config/`, ferramenta `mostrar_holograma`, execução assíncrona fora do lock do
-  `Assistente`, eventos `holograma.*` cadenciados pelo SSE, `GET /api/holograma/{id}` para
-  recuperação.
-- [ ] **Fase 3 — Cena na HUD.** Three.js carregado sob demanda, camada `app-holograma` no palco,
-  validador `lerPecaHolograma`, montagem peça por peça, visual neon (wireframe + bordas + bloom
-  leve), mouse (girar, ampliar, arrastar), fechar.
+- [x] **Cena na HUD.** Three.js carregado sob demanda, camada `app-holograma-view` no palco,
+  validador `lerPecaHolograma`, montagem peça por peça, visual neon, mouse, fechar.
+- [x] **Geração com streaming (backend + agente + HUD).** `HologramaService` e
+  `GET /api/holograma/gerar`, `ProvedorDeModelo.transmitir` na Anthropic e no local, parciais do
+  `inferir` pelo E2, campo e Cancelar na HUD, varredura de "escaneando". Contrato na seção 8.
+- [ ] **Ferramenta e publicação.** `mostrar_holograma` para a conversa (Telegram e HUD) abrir um
+  holograma, eventos `holograma.*` no SSE geral, `GET /api/holograma/{id}` para recuperação.
 - [ ] **Fase 4 — Interação com as peças.** Vista explodida pelo `e`, destaque por grupo, nome da
   peça ao passar/selecionar, teclado e `prefers-reduced-motion`.
 - [ ] **Fase 5 — Gestos pela webcam.** MediaPipe Hand Landmarker no navegador, arquivos
@@ -233,13 +233,11 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 
 ## 5. Decisões de arquitetura propostas
 
-1. **Sem streaming na primeira versão; a montagem peça por peça é feita pelo servidor.** Nenhum
-   provedor transmite hoje, e o local nem poderia sem mexer no agente (Ollama com `stream: false`,
-   resultado num `POST` só). O gerador recebe o NDJSON inteiro, valida tudo e publica as peças
-   **cadenciadas** (ex.: 60–120 ms entre elas, na ordem que o modelo escreveu — estrutura primeiro).
-   Na tela o efeito é o mesmo. O `ProvedorDeModelo` e o `ClaudeClient` não mudam. Streaming
-   real fica para depois, se a espera inicial incomodar — e aí seria um método `default` novo na
-   interface, não um caminho paralelo.
+1. ~~**Sem streaming na primeira versão.**~~ **Substituída na geração (seção 8): há streaming
+   real nos dois provedores.** A espera pela resposta inteira de um objeto `detalhado` passava de
+   um minuto com a tela parada; agora cada linha completa vira peça enquanto o modelo escreve. O
+   caminho é o que esta decisão já previa: um método `default` novo na interface
+   (`ProvedorDeModelo.transmitir`), não um caminho paralelo.
 
 2. **A geração é tarefa de apoio: `ProvedorDeApoio`, com o validador como predicado.** É uma
    chamada só, sem ferramentas, com `system` próprio — o desenho do `ClassificadorDeResposta`, não
@@ -310,10 +308,10 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 
 | # | Risco | Efeito | Saída proposta |
 |---|---|---|---|
-| 1 | **Nenhum provedor faz streaming** (Claude sem `stream`, Ollama `stream:false`, E2 com resultado num POST só) | Primeira peça só aparece depois da geração inteira | Decisão 1: cadência no servidor; streaming depois, se necessário |
+| 1 | **Nenhum provedor faz streaming** (Claude sem `stream`, Ollama `stream:false`, E2 com resultado num POST só) | Primeira peça só aparece depois da geração inteira | **Resolvido**: streaming nos dois provedores (seção 8) |
 | 2 | **Premissa do Qwen como principal não confere** | A conversa é Claude; o local só atende apoio, e só com `IA_LOCAL_ATIVA=true` e PC ligado | Decisão 2: holograma como apoio; com o PC desligado, quem gera é o Claude (custo) |
 | 3 | **Teto de tokens**: `max_tokens` padrão 1024; uma peça tem ~50–70 tokens, `detalhado` (110 linhas) passa de 6 mil | Resposta cortada | Teto explícito por nível na chamada curta |
-| 4 | **Local lento demais para `detalhado`**: Qwen 9B gerando milhares de tokens não cabe em `IA_LOCAL_TIMEOUT_SEGUNDOS=60` nem em `ollama.timeoutSegundos=90`; `num_ctx=8192` divide espaço entre prompt e saída | Cai no Claude quase sempre no `detalhado` | Medir na Fase 2; talvez o local só faça `rapido`/`normal`. O CLAUDE.md proíbe prazo do local acima do configurado |
+| 4 | **Local lento demais para `detalhado`**: Qwen 9B gerando milhares de tokens não cabe em `IA_LOCAL_TIMEOUT_SEGUNDOS=60` nem em `ollama.timeoutSegundos=90`; `num_ctx=8192` divide espaço entre prompt e saída | Cai no Claude quase sempre no `detalhado` | Com stream, os dois prazos do local viraram **inatividade** (seção 8), e o total é o da geração (180 s). Falta medir o Qwen no `detalhado`; o `num_ctx` continua dividindo espaço |
 | 5 | **Predicado do `ProvedorDeApoio` é tudo ou nada** | Resposta local com 40 peças boas e 3 tortas pode ser trocada pelo Claude | Predicado conta peças válidas, não exige perfeição (Decisão 2) |
 | 6 | **Lista de `tools` muda** (ferramenta nova; e de novo na Fase 6 com ações novas no enum da `controlar_tela`) | Uma invalidação de cache de prompt por deploy | Aceitável; juntar as duas mudanças num deploy se possível |
 | 7 | **Lock do `Assistente`** | Gerar dentro da ferramenta congelaria o bot | Decisão 7: geração assíncrona |
@@ -395,3 +393,85 @@ um aviso só diz que o resto foi descartado.
   fração `t` é `Ry(360·voltas·t) · (raio, 0, 0)` — ou seja, começa em `+x` e gira no sentido
   positivo de `y`. É isso que faz os pares do `dna.ndjson` encostarem nas fitas.
 - `tube`/`line`: pontos relativos a `p`, com `r` aplicado.
+
+---
+
+## 8. A geração com streaming
+
+### A rota
+
+`GET /api/holograma/gerar?objeto=<texto>&detalhe=rapido|normal|detalhado` (padrão `normal`),
+`Authorization: Bearer <HUD_TOKEN>`, `text/event-stream` com `X-Accel-Buffering: no`. Objeto vazio,
+acima de 120 caracteres ou detalhe desconhecido → 400. Os eventos são os da seção 7, mais um:
+
+| Evento | `data` |
+|---|---|
+| `erro` | `{"texto"}` — a geração parou antes da hora. Sai **antes** do `fim`, que continua sendo o último; as peças que já foram ficam |
+
+O texto do `erro` é fixo em Java: "O modelo não respondeu a tempo.", "Falha ao gerar o holograma." ou
+"A geração foi substituída por outra.". O erro do provedor fica no log e não chega à tela.
+
+Enquanto gera, o servidor manda um comentário SSE (`:gerando`) a cada 3 s. Não é para a HUD: é a
+escrita que revela o cliente que foi embora, já que antes da primeira peça não há outra escrita
+para falhar.
+
+### O caminho de uma peça
+
+```
+modelo ──delta──► BufferDeLinhas ──linha──► MontagemDeHolograma ──► emitter.send
+(Anthropic: text_delta do SSE; local: parcial do agente pelo E2)
+```
+
+O `HologramaService` (`dev.jarvis.holograma`) faz uma chamada com `system` = o prompt
+(`src/main/resources/holograma/holograma-prompt.txt`, com `{{OBJETO}}` e `{{DETALHE}}`) e
+`user` = `"Gere: <objeto>"`, sem histórico, `Origem.HOLOGRAMA` (balde de custo próprio, esforço do
+perfil de apoio) e `max_tokens` por nível (4 mil, 8 mil, 16 mil).
+
+### Quem gera
+
+`HOLOGRAMA_PROVEDOR=local` (o padrão) tenta o Ollama do PC se `IA_LOCAL_ATIVA` estiver ligada e a
+`DisponibilidadeLocal` disser que pode. O Claude assume quando o local não pode e quando ele falha
+**antes de qualquer peça**. Depois da primeira não há reserva: outro modelo desenharia outro objeto
+por cima do que já está na tela, então sai `erro` e as peças ficam. `anthropic` vai direto ao
+Claude. O seletor de modo (`AUTO`/`LOCAL`/`CLAUDE`) não entra aqui: quem escolhe é a configuração.
+
+`HOLOGRAMA_MODELO` é o modelo **da Anthropic** (vazio = `ANTHROPIC_MODELO`); no local quem escolhe é
+o `ollama.modelo` do PC, como sempre. `HOLOGRAMA_TEMPERATURA` (0,4) só vai ao local, preso em 0..1
+pelo agente: os modelos atuais da Anthropic recusam `temperature` com HTTP 400.
+
+### Quem para
+
+Um `Cancelamento` só, que fecha o `InputStream` da Anthropic ou cancela o `inferir` no PC:
+
+| Motivo | Quando | O que a HUD recebe |
+|---|---|---|
+| `limite` | a montagem chegou a 250 peças | `fim` |
+| `tempo` | 180 s desde o pedido | `erro` + `fim` |
+| `cliente` | o ping ou um `send` falhou, ou o emitter fechou | nada (não há quem ouça) |
+| `substituido` | chegou outra geração (há uma cena e uma GPU só) | `erro` + `fim` |
+
+### O stream do local
+
+O agente chama o Ollama com `stream: true` só quando o pedido traz `stream` **e** ele tem canal de
+parciais. Junta o `message.content` de cada linha NDJSON e posta o texto em
+`POST /api/pc/v2/comandos/{id}/parcial` (`{"inicio","texto"}`) a cada quebra de linha ou 300 ms.
+A VPS responde 204, ou **410** quando desistiu, e o 410 faz o agente fechar o stream, o que para o
+Ollama e solta a GPU. O resultado final vem pelo `/resultado` de sempre, com o texto inteiro, e é a
+fonte da verdade: a VPS emenda só o pedaço que começa onde o recebido termina e, no fim, completa
+pelo `content` o que uma parcial perdida deixou para trás.
+
+Os dois prazos do local mudam de sentido no stream: o `IA_LOCAL_TIMEOUT_SEGUNDOS` da VPS e o
+`ollama.timeoutSegundos` do agente passam a ser de **inatividade** (sem texto novo nesse tempo, cai).
+Uma geração longa que está escrevendo não é um PC travado. O total é o da geração.
+
+### Log
+
+Uma linha por geração:
+`Holograma 'motor V8' (normal): provedor=anthropic modelo=claude-haiku-5-5 1ª peça em 3.1 s,
+58 peças, 2 linhas descartadas, 1 avisos, total 24.0 s, fim=modelo`. E uma linha a mais quando há
+troca de provedor (`Holograma: local → anthropic: pc_offline`).
+
+### nginx
+
+Nada a mudar. A rota cai em `location /api/`, que já tem `proxy_buffering off` e
+`proxy_read_timeout 1h`. O `X-Accel-Buffering: no` só protege a rota se ela mudar de bloco um dia.
