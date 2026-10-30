@@ -20,6 +20,8 @@ public record ComandoDoHolograma(String acao, Map<String, Object> dados, boolean
     public static final String ABRIR = "abrir";
     public static final String FECHAR = "fechar";
     public static final String CARREGAR = "carregar";
+    /** Abre um item que já está na galeria, pelo id: nada de modelo. */
+    public static final String ABRIR_GALERIA = "abrir_galeria";
     public static final String EXPLODIR = "explodir";
     public static final String GIRAR = "girar";
     public static final String GIRAR_CONTINUO = "girar_continuo";
@@ -35,7 +37,7 @@ public record ComandoDoHolograma(String acao, Map<String, Object> dados, boolean
     public static final String CANCELAR_GERACAO = "cancelar_geracao";
 
     /** O que a HUD sabe aplicar. {@code montar} é um {@code explodir} com fator zero. */
-    public static final List<String> ACOES = List.of(ABRIR, FECHAR, CARREGAR, EXPLODIR, GIRAR,
+    public static final List<String> ACOES = List.of(ABRIR, FECHAR, CARREGAR, ABRIR_GALERIA, EXPLODIR, GIRAR,
             GIRAR_CONTINUO, PARAR, ZOOM, VISTA, DESTACAR, ISOLAR, ESCONDER, MOSTRAR_TUDO, SELECIONAR,
             RESETAR, CANCELAR_GERACAO);
 

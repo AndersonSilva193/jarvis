@@ -68,17 +68,17 @@ public class EstadoDoHologramaService {
     public boolean abertoAgora() {
         Optional<EstadoDoHolograma> retrato = ultimo();
         Boolean enviada = aberturaEnviada;
-        if (enviada != null && (retrato.isEmpty() || aberturaEnviadaEm.isAfter(retrato.get().instante()))) {
+        if (enviada != null && (retrato.isEmpty() || !aberturaEnviadaEm.isBefore(retrato.get().instante()))) {
             return enviada;
         }
         return retrato.map(EstadoDoHolograma::aberto).orElse(false);
     }
 
-    /** O fator de explosão atual: o que a HUD reportou, ou o que o servidor mandou depois. */
+    /** O fator de explosão atual: o que a HUD reportou, ou o que o servidor mandou depois (no empate, o envio). */
     public double explosaoAtual() {
         Optional<EstadoDoHolograma> retrato = aberto();
         Double enviada = explosaoEnviada;
-        if (enviada != null && (retrato.isEmpty() || explosaoEnviadaEm.isAfter(retrato.get().instante()))) {
+        if (enviada != null && (retrato.isEmpty() || !explosaoEnviadaEm.isBefore(retrato.get().instante()))) {
             return enviada;
         }
         return retrato.map(EstadoDoHolograma::explosao).orElse(0.0);
@@ -89,7 +89,7 @@ public class EstadoDoHologramaService {
         Instant agora = relogio.instant();
         switch (comando.acao()) {
             case ComandoDoHolograma.ABRIR -> abertura(true, agora);
-            case ComandoDoHolograma.CARREGAR -> {
+            case ComandoDoHolograma.CARREGAR, ComandoDoHolograma.ABRIR_GALERIA -> {
                 abertura(true, agora);
                 explosao(0.0, agora);
             }

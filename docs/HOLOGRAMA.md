@@ -875,7 +875,7 @@ menos: `acao` (enum), `objeto`, `detalhe`, `novo`, `provedor` (`haiku|local`), `
 | `acao` | O que manda à HUD | O que volta ao modelo |
 |---|---|---|
 | `abrir` / `fechar` | idem | frase curta |
-| `carregar` | `carregar` com objeto, detalhe, novo, provedor e o molde `falaPronto` | "Diga só: 'Construindo motor V8.'" — ou "Motor V8 na tela." quando a galeria já tem |
+| `carregar` | já na galeria: `abrir_galeria {id, nome}`; senão `carregar` com objeto, detalhe, novo, provedor e o molde `falaPronto` | "Diga só: 'Átomo de carbono na tela.'" ou "Diga só: 'Construindo motor V8.'"; dois itens casando voltam como pergunta |
 | `explodir` | `explodir {fator}`, já resolvido: `mais`/`menos` = ±0,25 sobre o atual, `80%` = 0,8 | o fator |
 | `montar` | `explodir {fator: 0}` | — |
 | `girar` | `girar {eixo, graus}` (padrão `y`, 90°, preso a ±720) | — |
@@ -904,6 +904,19 @@ resposta, executados em ordem pelo `CicloDeFerramentas`. O retrato da HUD ainda 
 `explodir` roda, então o `EstadoDoHologramaService` lembra o que o **servidor** mandou (abrir,
 carregar, o último fator) e vale o mais novo entre isso e o retrato. A `holograma` está no limite
 folgado de repetição (5), com `controlar_tela`: "mais, mais, mais" é de propósito.
+
+### A galeria antes de gerar
+
+`carregar` e `gerar_na_galeria` procuram primeiro na galeria pela `BuscaNaGaleria`, e não pela chave
+exata do cache: a chave decide a reprodução do `/gerar` e é exata de propósito, mas "abre o átomo de
+carbono da galeria" não é a chave de nada, outro nível é outra chave, e os exemplos fixos nem
+respondem a pedido. A busca compara palavras (as do `ResolvedorDeAlvo`, sem "abre", "galeria",
+"holograma") contra o **nome** e o **pedido** de cada item, exemplos inclusive: exato, o pedido
+contido no item ("carbono" acha "Átomo de carbono") ou uma letra de diferença. Só nessa direção —
+"motor V8 turbo" não abre o "Motor V8", porque a palavra a mais é o pedido. O mesmo objeto em dois
+níveis fica com o pedido; objetos diferentes no topo voltam ao modelo para ele perguntar. Achado, vai
+`abrir_galeria` pelo id e nada é gerado; sem HUD, a resposta é que ele já está na galeria. Só
+`novo=true` pula a busca.
 
 ### O alvo
 

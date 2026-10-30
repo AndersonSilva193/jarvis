@@ -2,14 +2,12 @@ package dev.jarvis.ferramentas;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.random.RandomGenerator;
 
 import org.junit.jupiter.api.DisplayName;
@@ -17,12 +15,10 @@ import org.junit.jupiter.api.Test;
 
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.holograma.ComandoDoHolograma;
-import dev.jarvis.holograma.DetalheHolograma;
 import dev.jarvis.holograma.EstadoDoHolograma;
 import dev.jarvis.holograma.EstadoDoHologramaService;
 import dev.jarvis.holograma.FalasDoHolograma;
 import dev.jarvis.holograma.GaleriaDeHologramas;
-import dev.jarvis.holograma.HologramaMeta;
 import dev.jarvis.holograma.SaidaHolograma;
 import dev.jarvis.proativo.FalasService;
 import dev.jarvis.tela.PresencaDaHud;
@@ -85,7 +81,6 @@ class HologramaFerramentaTest {
         ResultadoFerramenta carregar = semTela.executarDetalhado(pedido("carregar", "objeto", "motor V8"), DA_HUD);
         assertTrue(carregar.texto().contains("gerar_na_galeria"), carregar.texto());
 
-        when(galeria.buscar(any(), any())).thenReturn(Optional.empty());
         ResultadoFerramenta gerar = semTela.executarDetalhado(pedido("gerar_na_galeria", "objeto", "motor V8"), DA_HUD);
         assertTrue(gerar.texto().contains("galeria"), gerar.texto());
         assertEquals(List.of("motor V8|normal"), geradosSemTela);
@@ -93,9 +88,8 @@ class HologramaFerramentaTest {
     }
 
     @Test
-    @DisplayName("carregar abre, manda o comando e escolhe a frase pela galeria")
+    @DisplayName("carregar sem nada na galeria gera, e conta como aberto antes de a HUD reportar")
     void carregar() throws Exception {
-        when(galeria.buscar("motor V8", DetalheHolograma.NORMAL)).thenReturn(Optional.empty());
         ResultadoFerramenta gerando = comHud().executarDetalhado(pedido("carregar", "objeto", "motor V8"), DA_HUD);
         ComandoDoHolograma comando = gerando.holograma().get(0);
         assertEquals("carregar", comando.acao());
@@ -103,12 +97,39 @@ class HologramaFerramentaTest {
         assertEquals("Pronto: {n} peças.", comando.dados().get("falaPronto"));
         assertTrue(gerando.texto().contains("Construindo motor V8."), gerando.texto());
         assertTrue(estado.abertoAgora(), "carregar conta como aberto antes de a HUD reportar");
+    }
 
-        when(galeria.buscar("motor V8", DetalheHolograma.NORMAL)).thenReturn(Optional.of(
-                new GaleriaDeHologramas.HologramaSalvo("h1", "motor V8", "normal", "anthropic", "", "",
-                        new HologramaMeta("Motor V8", "mecanica", ""), List.of())));
-        ResultadoFerramenta doCache = comHud().executarDetalhado(pedido("carregar", "objeto", "motor V8"), DA_HUD);
-        assertTrue(doCache.texto().contains("Motor V8 na tela."), doCache.texto());
+    private static GaleriaDeHologramas.Item item(String id, String nome) {
+        return new GaleriaDeHologramas.Item(id, nome, 86, "", "exemplo", "normal", "", true, false);
+    }
+
+    @Test
+    @DisplayName("'abre o átomo de carbono da galeria' abre o exemplo pelo id, sem gerar; novo=true gera")
+    void carregarDaGaleria() throws Exception {
+        when(galeria.listar()).thenReturn(List.of(item("exemplo_atomo", "Átomo de carbono"), item("exemplo_dna", "DNA")));
+        ResultadoFerramenta aberto = comHud().executarDetalhado(
+                pedido("carregar", "objeto", "átomo de carbono da galeria", "detalhe", "detalhado"), DA_HUD);
+        ComandoDoHolograma comando = aberto.holograma().get(0);
+        assertEquals("abrir_galeria", comando.acao());
+        assertEquals("exemplo_atomo", comando.dados().get("id"));
+        assertTrue(aberto.texto().contains("Átomo de carbono na tela."), aberto.texto());
+
+        ObjectNode novo = pedido("carregar", "objeto", "átomo de carbono").put("novo", true);
+        assertEquals("carregar", comHud().executarDetalhado(novo, DA_HUD).holograma().get(0).acao());
+    }
+
+    @Test
+    @DisplayName("sem HUD, o que já está na galeria não se oferece gerar; dois candidatos viram pergunta")
+    void galeriaSemHudEVarios() throws Exception {
+        when(galeria.listar()).thenReturn(List.of(item("exemplo_motor_v8", "Motor V8"), item("h00000002", "Motor elétrico")));
+        HologramaFerramenta semTela = ferramenta(PresencaDaHud.semTela());
+        String texto = semTela.executarDetalhado(pedido("carregar", "objeto", "motor V8"), DA_HUD).texto();
+        assertTrue(texto.contains("já está na galeria") && !texto.contains("gerar_na_galeria"), texto);
+
+        ResultadoFerramenta varios = comHud().executarDetalhado(pedido("carregar", "objeto", "motor"), DA_HUD);
+        assertTrue(varios.holograma().isEmpty());
+        assertTrue(varios.texto().contains("Motor V8") && varios.texto().contains("Motor elétrico"), varios.texto());
+        assertTrue(geradosSemTela.isEmpty());
     }
 
     @Test

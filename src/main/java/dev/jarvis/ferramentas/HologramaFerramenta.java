@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.holograma.BuscaNaGaleria;
 import dev.jarvis.holograma.ComandoDoHolograma;
 import dev.jarvis.holograma.DetalheHolograma;
 import dev.jarvis.holograma.EstadoDoHolograma;
@@ -107,7 +108,9 @@ public class HologramaFerramenta extends FerramentaDeTela {
 
     @Override
     public String descricao() {
-        return "Holograma 3D da HUD. carregar mostra um objeto (abre o modo); as outras ações mexem no "
+        return "Holograma 3D da HUD. carregar mostra um objeto (abre o modo) e procura antes na galeria, "
+                + "exemplos inclusive: o que já existe abre sem gerar. novo=true só quando o dono pedir outro "
+                + "ou gerar de novo. As outras ações mexem no "
                 + "objeto atual: explodir (valor 0..1, mais, menos), montar, girar (eixo, valor=graus), "
                 + "girar_continuo, parar, zoom (aproximar/afastar), vista (frente/lado/cima/isometrica), "
                 + "destacar/isolar/esconder/selecionar/explicar (alvo = nome ou grupo da peça). Pedido "
@@ -152,7 +155,7 @@ public class HologramaFerramenta extends FerramentaDeTela {
             return ResultadoFerramenta.texto(listaDaGaleria());
         }
         if (telaFechada()) {
-            return ResultadoFerramenta.texto("carregar".equals(acao) ? SEM_HUD_CARREGAR : SEM_HUD);
+            return ResultadoFerramenta.texto("carregar".equals(acao) ? semHudCarregar(entrada) : SEM_HUD);
         }
         String valor = Json.texto(entrada.path("valor")).trim();
         return switch (acao) {
@@ -192,8 +195,10 @@ public class HologramaFerramenta extends FerramentaDeTela {
     }
 
     /**
-     * Abre (se fechado) e mostra o objeto. Quem consulta a galeria antes de gerar é a rota que a HUD
-     * vai chamar; daqui só se olha para escolher a frase — "na tela" é verdade só se já existe.
+     * Abre (se fechado) e mostra o objeto. A galeria vem primeiro, pela {@link BuscaNaGaleria}: "abre o
+     * átomo de carbono da galeria" acha o exemplo fixo, e o mesmo objeto em outro nível também serve —
+     * gerar de novo o que já existe gasta modelo e minutos para nada. Só com {@code novo} (ou nada na
+     * galeria) é que se gera; dois itens diferentes casando voltam ao modelo para ele perguntar.
      */
     private ResultadoFerramenta carregar(JsonNode entrada, boolean rapido) {
         String bruto = Json.texto(entrada.path("objeto"));
@@ -210,18 +215,29 @@ public class HologramaFerramenta extends FerramentaDeTela {
         if (!provedor.isEmpty() && HologramaService.provedorDoPedido(provedor).isEmpty()) {
             return ResultadoFerramenta.texto("O provedor é haiku ou local.");
         }
-        Optional<GaleriaDeHologramas.HologramaSalvo> salvo = novo ? Optional.empty()
-                : galeria.buscar(objeto, nivel.get());
-        String fala = salvo.map(s -> falas.daGaleria(s.meta().nome().isBlank() ? objeto : s.meta().nome()))
-                .orElseGet(() -> falas.construindo(objeto));
+        if (!novo) {
+            switch (BuscaNaGaleria.procurar(objeto, nivel.get(), galeria.listar())) {
+                case BuscaNaGaleria.Achado achado -> {
+                    GaleriaDeHologramas.Item item = achado.item();
+                    log.info("Holograma: '{}' achado na galeria ({})", objeto, item.id());
+                    return enviar("Diga só: '" + falas.daGaleria(item.nome()) + "'.",
+                            ComandoDoHolograma.de(ComandoDoHolograma.ABRIR_GALERIA,
+                                    dados("id", item.id(), "nome", item.nome())), rapido);
+                }
+                case BuscaNaGaleria.Varios varios -> {
+                    return ResultadoFerramenta.texto(maisDeUm(varios));
+                }
+                case BuscaNaGaleria.Nada nada -> { }
+            }
+        }
+        String fala = falas.construindo(objeto);
         Map<String, Object> dados = new LinkedHashMap<>();
         dados.put("objeto", objeto);
         dados.put("detalhe", nivel.get().chave());
         dados.put("novo", novo);
         if (!provedor.isEmpty()) dados.put("provedor", provedor);
         dados.put("falaPronto", falas.pronto());
-        String retorno = "Diga só: '" + fala + "'."
-                + (salvo.isPresent() ? "" : " A montagem segue na tela; o fim é anunciado sozinho.");
+        String retorno = "Diga só: '" + fala + "'. A montagem segue na tela; o fim é anunciado sozinho.";
         return enviar(retorno, ComandoDoHolograma.de(ComandoDoHolograma.CARREGAR, dados), rapido);
     }
 
@@ -364,10 +380,15 @@ public class HologramaFerramenta extends FerramentaDeTela {
         if (objeto.isEmpty()) return ResultadoFerramenta.texto("Diga em 'objeto' o que gerar.");
         Optional<DetalheHolograma> nivel = DetalheHolograma.porChave(Json.texto(entrada.path("detalhe")));
         if (nivel.isEmpty()) return ResultadoFerramenta.texto("O detalhe é rapido, normal ou detalhado.");
-        Optional<GaleriaDeHologramas.HologramaSalvo> salvo = galeria.buscar(objeto, nivel.get());
-        if (salvo.isPresent()) {
-            return ResultadoFerramenta.texto("Já está na galeria: " + salvo.get().meta().nome() + " ("
-                    + salvo.get().pecas().size() + " peças). Diga isso em uma frase.");
+        switch (BuscaNaGaleria.procurar(objeto, nivel.get(), galeria.listar())) {
+            case BuscaNaGaleria.Achado achado -> {
+                return ResultadoFerramenta.texto("Já está na galeria: " + achado.item().nome() + " ("
+                        + achado.item().pecas() + " peças). Diga isso em uma frase.");
+            }
+            case BuscaNaGaleria.Varios varios -> {
+                return ResultadoFerramenta.texto(maisDeUm(varios));
+            }
+            case BuscaNaGaleria.Nada nada -> { }
         }
         semTela.gerar(objeto, nivel.get(), fim -> {
             boolean entrou = fim != null && fim.completo() && fim.miniatura() != null;
@@ -377,6 +398,25 @@ public class HologramaFerramenta extends FerramentaDeTela {
         });
         return ResultadoFerramenta.texto("Comecei a montar " + objeto + " para a galeria; aviso quando "
                 + "ficar pronto. Diga isso em uma frase.");
+    }
+
+    /** Sem HUD, o que já está na galeria não se oferece gerar de novo: só se diz que está lá. */
+    private String semHudCarregar(JsonNode entrada) {
+        String objeto = PromptDeHolograma.higienizar(Json.texto(entrada.path("objeto")));
+        DetalheHolograma nivel = DetalheHolograma.porChave(Json.texto(entrada.path("detalhe"))).orElse(DetalheHolograma.NORMAL);
+        if (objeto.isEmpty() || entrada.path("novo").asBoolean(false)) return SEM_HUD_CARREGAR;
+        return switch (BuscaNaGaleria.procurar(objeto, nivel, galeria.listar())) {
+            case BuscaNaGaleria.Achado achado -> achado.item().nome() + " já está na galeria do holograma ("
+                    + achado.item().pecas() + " peças); aparece quando a HUD abrir. Diga isso em uma frase, sem gerar outro.";
+            case BuscaNaGaleria.Varios varios -> maisDeUm(varios);
+            case BuscaNaGaleria.Nada nada -> SEM_HUD_CARREGAR;
+        };
+    }
+
+    private static String maisDeUm(BuscaNaGaleria.Varios varios) {
+        return "Na galeria há mais de um que casa: " + String.join(", ", varios.itens().stream()
+                .map(i -> i.nome() + " (" + i.pecas() + " peças)").toList())
+                + ". Pergunte ao dono qual abrir; se ele quiser um novo, chame carregar com novo=true.";
     }
 
     private String listaDaGaleria() {
