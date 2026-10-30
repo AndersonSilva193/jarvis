@@ -56,7 +56,7 @@ final class CicloDeFerramentas {
      */
     private static final int LIMITE_REPETICAO_FOLGADO = 5;
     /** As de limite folgado que o prefixo {@code status_} não pega: as duas de ação em passos. */
-    private static final List<String> REPETIVEIS = List.of("controlar_tela", "controlar_pc");
+    private static final List<String> REPETIVEIS = List.of("controlar_tela", "controlar_pc", "holograma");
     /** Recusas por repetição que encerram o turno: insistir depois da primeira é andar em círculo. */
     private static final int BLOQUEIOS_PARA_PARAR = 2;
 

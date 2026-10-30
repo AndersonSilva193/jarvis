@@ -235,8 +235,9 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
   `/controle` no celular (câmera no perfil leve ou touchpad), WebSocket `/ws/holograma` com
   validação e limite de taxa, queda e retomada em 30 s, Wake Lock, medida de ida e volta. Contrato
   na seção 11.
-- [ ] **Fase 6 — Controle por voz/conversa.** Ações novas de tela para o holograma (girar,
-  explodir, montar, fechar), estado do holograma no `POST /api/tela/estado`, frases do servidor.
+- [x] **Fase 6 — Controle por voz/conversa (backend + HUD).** Uma ferramenta `holograma` com
+  `acao` em enum, estado da cena no bloco dinâmico (`POST /api/holograma/estado`), caminho rápido
+  sem modelo, porta única da cena na HUD. Contrato na seção 12.
 - [x] **Galeria (backend + HUD).** Objeto completo guardado em disco, cache pelo pedido
   normalizado, reprodução pelo mesmo SSE, lista/abrir/apagar/"Gerar de novo" e miniatura capturada
   pela HUD. Os exemplos viraram itens fixos da galeria. Contrato na seção 9.
@@ -306,9 +307,10 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
     desliga ao fechar o holograma. Gestos chamam as **mesmas** funções do mouse, que continua
     funcionando o tempo todo.
 
-11. **Comandos por voz entram no `ComandoTela.ACOES`** (Fase 6) e no espelho `ACOES_TELA` da HUD,
-    em vez de um canal novo. O estado do holograma entra no `EstadoTela` para o modelo enxergar o
-    alvo.
+11. ~~**Comandos por voz entram no `ComandoTela.ACOES`**~~ **Substituída na Fase 6 (seção 12):**
+    uma ferramenta `holograma` própria, com evento `holograma.comando` pelo mesmo `EventosHud.aoTela`,
+    e estado em `POST /api/holograma/estado` — o corpo (até 250 peças) e a cadência (300 ms) são
+    outros, e o `EstadoTela` da HUD velha continua igual.
 
 12. **Biblioteca em disco** (Fase 7) com `ArquivoAtomico`, chave pelo `Texto.normalizar` do objeto
     mais o nível — "mostra o motor V8 de novo" não gasta modelo. Pasta derivada de um volume
@@ -854,3 +856,113 @@ no Wi-Fi de casa — abaixo do teto de 150 ms. Em 4G cada perna soma de 30 a 60 
 a sinalização (oferta, resposta e candidatos ICE pelo mesmo par), e os gestos vão direto do celular
 ao PC pela rede local, sem passar pela VPS — com `ordered: false` e `maxRetransmits: 0` para giro e
 zoom, que valem mais novos do que completos.
+
+---
+
+## 12. Voz e conversa (Fase 6)
+
+O Jarvis mexe no holograma pela conversa — HUD ou Telegram — com **uma** ferramenta, `holograma`, e
+enxerga a cena por uma linha no bloco dinâmico do system. Na HUD, tudo o que mexe na cena passa por
+uma porta só, o `ComandosDoHologramaService`.
+
+### A ferramenta
+
+`HologramaFerramenta` (`dev.jarvis.ferramentas`), *faz e avisa*, adiada (`defer_loading`; a linha de
+estado nomeia a ferramenta para a busca BM25). Esquema plano, sem `oneOf`, para o Qwen local errar
+menos: `acao` (enum), `objeto`, `detalhe`, `novo`, `provedor` (`haiku|local`), `alvo`, `valor`
+(string: fator, `mais`/`menos`, graus, `aproximar`/`afastar`, a vista), `eixo` e `ligar`.
+
+| `acao` | O que manda à HUD | O que volta ao modelo |
+|---|---|---|
+| `abrir` / `fechar` | idem | frase curta |
+| `carregar` | `carregar` com objeto, detalhe, novo, provedor e o molde `falaPronto` | "Diga só: 'Construindo motor V8.'" — ou "Motor V8 na tela." quando a galeria já tem |
+| `explodir` | `explodir {fator}`, já resolvido: `mais`/`menos` = ±0,25 sobre o atual, `80%` = 0,8 | o fator |
+| `montar` | `explodir {fator: 0}` | — |
+| `girar` | `girar {eixo, graus}` (padrão `y`, 90°, preso a ±720) | — |
+| `girar_continuo` / `parar` | `girar_continuo {ligar, velocidade}` / `parar` | — |
+| `zoom` | `zoom {fator}` (`aproximar` 1,5, `afastar` 1/1,5, número 0,25..4) | — |
+| `vista` | `vista {frente\|lado\|cima\|isometrica}` | — |
+| `destacar` / `isolar` / `esconder` | `{grupos, pecas}` em ids | o nome resolvido, ou as opções do empate (e nada vai à tela) |
+| `mostrar_tudo` / `resetar` / `cancelar_geracao` | idem | — |
+| `selecionar` | `selecionar {peca}` | nome e grupo |
+| `explicar` | nada | nome, grupo e objeto da peça (ou da selecionada) para o modelo explicar |
+| `galeria` | nada | até 8 itens, "nome (N peças)" |
+| `gerar_na_galeria` | nada (sem HUD) | "Comecei a montar…"; o fim chega pelo Telegram |
+
+O comando vai no `ResultadoFerramenta.holograma` e o registro `Ferramentas` o publica como
+`TelaEvento.HOLOGRAMA` (`holograma.comando`), pelo mesmo `EventosHud.aoTela` — o canal servidor→HUD
+de sempre. Corpo: `{"acao", "dados": {...}, "rapido"}`.
+
+**Sem HUD**: ação de cena responde "O holograma precisa da HUD aberta."; `carregar` manda o modelo
+oferecer gerar e guardar na galeria; aceito, `gerar_na_galeria` roda a geração sem cliente
+(`HologramaService.gerarSemTela`, um `DestinoDaGeracao.mudo` no lugar do SSE) e, completo, o
+`AvisosProativos` manda "motor V8 está na galeria do holograma: 86 peças." (`FalasService`,
+`holograma_na_galeria` / `holograma_na_galeria_falhou`).
+
+**Pedido composto** ("abre o holograma e carrega o motor V8 explodido") são três `tool_use` na mesma
+resposta, executados em ordem pelo `CicloDeFerramentas`. O retrato da HUD ainda não mudou quando o
+`explodir` roda, então o `EstadoDoHologramaService` lembra o que o **servidor** mandou (abrir,
+carregar, o último fator) e vale o mais novo entre isso e o retrato. A `holograma` está no limite
+folgado de repetição (5), com `controlar_tela`: "mais, mais, mais" é de propósito.
+
+### O alvo
+
+`ResolvedorDeAlvo` (puro): sem acento, minúsculo, `_` como espaço, sem artigo nem preposição, cada
+palavra no singular (`ões→ão`, `ais→al`, `eis→el`, `ns→m`, `res→r`, `s→`). Nota 3 para as mesmas
+palavras, 2 para o alvo contido no nome, 1 com uma letra de diferença em palavra de 5 ou mais.
+Grupo e peça concorrem juntos, **exato vence**: com `pistoes` e `pinos_do_pistao`, "pistão" é o
+primeiro; "pino" empata com "pino da biela", e o empate volta ao modelo com as opções para ele
+perguntar. Peça com o nome do próprio grupo não vira segunda opção.
+
+### O estado, do lado do modelo
+
+`POST /api/holograma/estado` (Bearer, `HologramaEstadoController`, `EstadoDoHologramaDto` validado à
+mão — ids e grupos `[a-z0-9_]{1,40}`, até 250 peças, explosão 0..1, vista conhecida). O retrato vale
+10 minutos. Com o modo aberto e a HUD conectada, o `SistemaDoJarvis` põe uma linha no bloco
+**dinâmico** (teto de 420 caracteres, 12 grupos):
+
+```
+Holograma aberto: 'Motor V8' (86 peças, pronto). Grupos: bloco, pistoes (8), virabrequim (5).
+Explosão 0.8. Selecionada: 'Pistão esquerdo' (pistoes). Isolado: pistoes. Vista: frente.
+Para mexer nele use a ferramenta holograma; "disso" e "essa peça" são a selecionada.
+```
+
+As peças **não** vão ao prompt; servem à resolução de alvo. Fechado, nada entra.
+
+### O caminho rápido
+
+`IntentoDoHolograma` (puro, irmão do `PedidoDeParada`): tirados os enfeites das pontas ("Jarvis",
+"por favor", "de novo"), até 4 palavras que casem inteiras com um padrão — `explode`, `monta`,
+`gira`, `para`, `mais`, `menos`, `aproxima`, `afasta`, `reseta`, `vista de cima|frente|lado`,
+`isométrica`, `fecha (o holograma)`. O `AtalhoDoHolograma` só o liga com a HUD conectada e o modo
+aberto, e o `Assistente` só o usa depois da `TrocaDeModelo` e **sem pergunta pendente** ("para" pode
+ser o "não" de um "Posso?"). Executa a `holograma` direto, como o `ComandoDeRepouso`, com
+`rapido: true`; a resposta sai `silenciosa` na HUD (sem fala; a HUD toca um bip curto pelo WebAudio)
+e "Feito"-curto no Telegram. Log: `Holograma: caminho rápido 'mais' -> explodir` ou
+`Holograma: caminho do modelo`, e a ferramenta loga `via=caminho rápido|modelo`.
+
+### Na HUD
+
+| Onde | O quê |
+|---|---|
+| `nucleo/comandos-do-holograma.service.ts` | A porta única: abrir, fechar, carregar, explodir, girar, zoom, vista, destacar, isolar, esconder, mostrarTudo, selecionar, resetar, cancelar. Implementa o `AlvoDoControle` que gestos, toque e celular já usavam |
+| `nucleo/animador.ts` | 600 ms, ease-in-out, relógio injetável; `prefers-reduced-motion` pula ao fim |
+| `nucleo/holograma-estado.service.ts` | O retrato, debounce de 300 ms, um POST por vez, reenvio a cada 5 min e na reconexão; fechado manda uma vez |
+| `nucleo/holograma.modelos.ts` | `ComandoHolograma`, `lerComandoHolograma`, filtros |
+| `nucleo/som-de-confirmacao.ts` | O bip do caminho rápido |
+
+- **Voz anima, gesto é relativo.** O comando de voz anda até o valor; a explosão da mão vale
+  `base + (abertura − abertura no início)`. Comando de voz no meio do gesto **rebaseia** (a base vira
+  o alvo da voz, a referência vira a abertura atual): a voz vence e a mão segue do novo valor. A mão
+  mexendo durante a animação muda o destino, não a corta. Giro e zoom por voz somam deltas — dois
+  "gira 90" dão 180.
+- **Objeto em construção.** `carregar` zera explosão, seleção e filtros **na hora do pedido** (o
+  `effect` da view que zerava ao ver a geração nova saiu: desfaria o "explodido" que chega logo
+  depois). Explosão é da cena inteira; destaque, isolamento e esconder são filtros por grupo e peça,
+  e o `CenaHolograma.adicionar` aplica o filtro do momento a quem chega.
+- **O fim falado.** O `carregar` traz o molde `"Pronto: {n} peças."` escolhido no servidor
+  (`FalasDoHolograma`, variações sem repetir a anterior); ao `fim` completo **do modelo**, a HUD troca
+  o `{n}` e fala. Do cache não fala de novo — o "na tela" já foi dito.
+- O arrasto do mouse no canvas continua no OrbitControls, dentro da cena; ele só avisa
+  (`aoArrastar`) para a vista nomeada virar `livre`.
+- A HUD passou a narrar `resposta.fala || resposta.texto` e a calar a `silenciosa`.

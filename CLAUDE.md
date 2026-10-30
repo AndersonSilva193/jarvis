@@ -58,7 +58,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.memoria` | `MemoriaService` (registros Markdown por usuário, nos volumes `memoria` e `memoria-exclusoes`), `AnotadorDeMemoria` (o que o Jarvis anota sozinho), `ProcedimentosService`/`RevisorDeProcedimentos` (o que ele aprende fazendo, em `MEMORIA_PASTA/procedimentos`) e `EsquecimentosDeMemoria` (o recado de que um esquecimento aprovado aconteceu) |
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
-| `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream), `GaleriaDeHologramas` (os objetos completos em disco, a chave do cache e as miniaturas), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
+| `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream, para o SSE ou sem cliente pelo `DestinoDaGeracao`), o controle por conversa (`EstadoDoHologramaService`, `ResolvedorDeAlvo`, `ComandoDoHolograma`, `IntentoDoHolograma`/`AtalhoDoHolograma`, `FalasDoHolograma`), `GaleriaDeHologramas` (os objetos completos em disco, a chave do cache e as miniaturas), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
 | `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
@@ -448,6 +448,16 @@ validação, eventos, prompt) está em `docs/HOLOGRAMA.md`. Aqui ficam só as re
   linhas aceitas como fala do assistente; a montagem descarta id repetido. Esgotadas, o `fim` sai
   `status: incompleto` com o motivo, e a HUD retoma por `GET /api/holograma/continuar` (a última
   geração fica 30 min). Objeto incompleto nunca entra em cache.
+- **A conversa mexe na cena por uma ferramenta só**, `holograma` (`acao` em enum; seção 12 do
+  `docs/HOLOGRAMA.md`). O comando vai em `ResultadoFerramenta.holograma` e sai como
+  `holograma.comando` pelo `EventosHud.aoTela`. O alvo ("os pistões") é resolvido no Java pelo
+  `ResolvedorDeAlvo` — a HUD só recebe ids —, e empate volta ao modelo para ele perguntar. O estado
+  vem da HUD em `POST /api/holograma/estado` e entra no bloco **dinâmico** só com o modo aberto; o
+  `EstadoDoHologramaService` também lembra o que o servidor mandou no turno, porque o retrato chega
+  depois de um "abre e carrega explodido". Comando curto com o modo aberto ("explode", "mais") vai
+  pelo `IntentoDoHolograma`, sem modelo, depois da `TrocaDeModelo` e nunca com pergunta pendente; a
+  resposta sai `RespostaConversa.silenciosa`. Na HUD, nada mexe na cena fora do
+  `ComandosDoHologramaService`.
 - **A galeria guarda o completo com 8 peças ou mais, antes do `fim` sair**, num JSON por objeto no
   volume `holograma` (`HOLOGRAMA_PASTA`), com a chave no **pedido** normalizado mais o nível. O
   `/gerar` a consulta primeiro e reproduz pelo mesmo SSE (`origem: cache`); `novo=true` força o
@@ -797,9 +807,8 @@ O que foi anotado entra numa fila por chat e sai numa linha na resposta seguinte
 "Anotei: ..."), anexada em Java **só** à string da resposta — a mensagem `assistant` do turno fica
 intacta, então o aviso nunca chega ao histórico do modelo nem ao prefixo de cache. Memória que
 cresce calada é memória que o dono não consegue corrigir. O `RespostaConversa.fala` carrega a
-resposta **sem** o aviso: ele é para ler na tela, não para ouvir. *(A HUD ainda precisa de duas
-linhas para honrar esse campo — `conversa.modelos.ts` e `this.voz.falar(r.fala || r.texto)` em
-`conversa.service.ts`; até lá ela narra a resposta inteira.)*
+resposta **sem** o aviso: ele é para ler na tela, não para ouvir — a HUD narra
+`resposta.fala || resposta.texto` e cala a `silenciosa` (o caminho rápido do holograma).
 
 No log vão **só** contagens e motivos de recusa, nunca conteúdo: `Anotador: N candidatos, M
 gravados, recusados {recusado_pelo_armazem=1}`.

@@ -11,6 +11,7 @@ import dev.jarvis.ia.provedor.ConversorAnthropic;
 import dev.jarvis.ia.provedor.InstrucoesDeSistema;
 import dev.jarvis.memoria.MemoriaService;
 import dev.jarvis.memoria.ProcedimentosService;
+import dev.jarvis.holograma.EstadoDoHologramaService;
 import dev.jarvis.tela.PresencaDaHud;
 import dev.jarvis.tela.TelaEstadoService;
 import tools.jackson.databind.json.JsonMapper;
@@ -33,6 +34,8 @@ public class SistemaDoJarvis {
     private final MemoriaService memoria;
     /** O índice do que o Jarvis aprendeu fazendo. Nulo nos construtores de teste, como a memória. */
     private final ProcedimentosService procedimentos;
+    /** O retrato do holograma. Nulo nos construtores antigos: aí a linha nunca entra. */
+    private final EstadoDoHologramaService holograma;
     /**
      * Se há busca nenhuma, a nativa ou a {@code buscar_na_web}: decidido na partida, como a lista de
      * ferramentas, para as regras do prompt nunca prometerem uma busca que a lista não tem.
@@ -56,10 +59,17 @@ public class SistemaDoJarvis {
         this(personalidade, json, props, tela, hud, memoria, null);
     }
 
-    @Autowired
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
             TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
             ProcedimentosService procedimentos) {
+        this(personalidade, json, props, tela, hud, memoria, procedimentos, null);
+    }
+
+    @Autowired
+    public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
+            TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
+            ProcedimentosService procedimentos, EstadoDoHologramaService holograma) {
+        this.holograma = holograma;
         this.procedimentos = procedimentos;
         this.personalidade = personalidade;
         this.json = json;
@@ -113,9 +123,12 @@ public class SistemaDoJarvis {
         // aprende algo, e no bloco fixo levaria o cache de prompt embora a cada procedimento novo.
         String aprendidos = procedimentos != null && usuario > 0
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? procedimentos.indice(usuario) : "";
+        // Com o modo aberto e alguém na HUD, uma linha só; fechado, nada — nem o título.
+        String doHolograma = holograma != null && hud.conectada()
+                && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? holograma.linha() : "";
         return PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
                 props.nomeUsuario(), ZonedDateTime.now(props.zona()), buscaAtiva,
-                buscaPorFerramenta, naTela, sobreUsuario, aprendidos);
+                buscaPorFerramenta, naTela, sobreUsuario, aprendidos, doHolograma);
     }
 
     /**

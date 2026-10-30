@@ -19,7 +19,6 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -228,7 +227,23 @@ public class HologramaService {
      */
     public void gerar(String objeto, DetalheHolograma detalhe, String provedor, SseEmitter emitter) {
         iniciar(new Geracao(novoId(), objeto, detalhe,
-                provedor == null || provedor.isEmpty() ? provedorConfigurado : provedor, emitter));
+                provedor == null || provedor.isEmpty() ? provedorConfigurado : provedor,
+                DestinoDaGeracao.sse(emitter)));
+    }
+
+    /**
+     * Gera sem ninguém na HUD — o pedido pelo Telegram com a tela fechada. O objeto passa pela mesma
+     * montagem e, completo, vai para a galeria como qualquer outro; {@code aoTerminar} recebe o
+     * {@code fim} (com {@code salvo} quando entrou). Substitui a geração em andamento, como a da HUD:
+     * há uma GPU só no PC.
+     *
+     * @return o id da geração
+     */
+    public String gerarSemTela(String objeto, DetalheHolograma detalhe,
+            java.util.function.Consumer<SaidaHolograma.Fim> aoTerminar) {
+        String id = novoId();
+        iniciar(new Geracao(id, objeto, detalhe, provedorConfigurado, DestinoDaGeracao.mudo(aoTerminar)));
+        return id;
     }
 
     /**
@@ -257,7 +272,7 @@ public class HologramaService {
                 || !retomavel.compareAndSet(retomada, null)) {
             return false;
         }
-        iniciar(new Geracao(retomada, recebidas, emitter));
+        iniciar(new Geracao(retomada, recebidas, DestinoDaGeracao.sse(emitter)));
         return true;
     }
 
@@ -266,9 +281,8 @@ public class HologramaService {
         if (anterior != null) {
             anterior.cancelamento.cancelar(SUBSTITUIDO);
         }
-        geracao.emitter.onCompletion(() -> geracao.cancelamento.cancelar(CLIENTE));
-        geracao.emitter.onTimeout(() -> geracao.cancelamento.cancelar(TEMPO));
-        geracao.emitter.onError(erro -> geracao.cancelamento.cancelar(CLIENTE));
+        geracao.destino.aoSair(() -> geracao.cancelamento.cancelar(CLIENTE));
+        geracao.destino.aoEsgotar(() -> geracao.cancelamento.cancelar(TEMPO));
         geracoes.submit(geracao::rodar);
     }
 
@@ -312,7 +326,7 @@ public class HologramaService {
         private final DetalheHolograma detalhe;
         /** {@code local} ou {@code anthropic}: o do pedido, ou o configurado. */
         private final String provedorEscolhido;
-        private final SseEmitter emitter;
+        private final DestinoDaGeracao destino;
         private final Cancelamento cancelamento = new Cancelamento();
         private final MontagemDeHolograma montagem;
         private final BufferDeLinhas buffer = new BufferDeLinhas();
@@ -349,26 +363,26 @@ public class HologramaService {
         private final StringBuilder inicioDaResposta = new StringBuilder();
 
         Geracao(String id, String objeto, DetalheHolograma detalhe, String provedorEscolhido,
-                SseEmitter emitter) {
+                DestinoDaGeracao destino) {
             this.id = id;
             this.objeto = objeto;
             this.detalhe = detalhe;
             this.provedorEscolhido = provedorEscolhido;
-            this.emitter = emitter;
+            this.destino = destino;
             this.montagem = new MontagemDeHolograma(parser);
             this.recebidas = null;
             this.pecasVistas = new ArrayList<>();
         }
 
         /** A retomada: mesma montagem, mesmo provedor, e o que já foi para a tela. */
-        Geracao(Retomada retomada, int recebidas, SseEmitter emitter) {
+        Geracao(Retomada retomada, int recebidas, DestinoDaGeracao destino) {
             this.id = retomada.id();
             this.objeto = retomada.objeto();
             this.detalhe = retomada.detalhe();
             this.provedorEscolhido = retomada.provedor();
             this.provedorUsado = retomada.provedor();
             this.modeloUsado = retomada.modelo();
-            this.emitter = emitter;
+            this.destino = destino;
             this.montagem = retomada.montagem();
             this.metaVista = retomada.meta();
             this.pecasVistas = new ArrayList<>(retomada.pecas());
@@ -425,7 +439,7 @@ public class HologramaService {
             }
             if (!clienteFora) {
                 try {
-                    emitter.complete();
+                    destino.concluir();
                 } catch (RuntimeException e) {
                     // Já completado pelo timeout ou pelo erro do próprio container.
                 }
@@ -800,8 +814,7 @@ public class HologramaService {
                 };
                 escrita.lock();
                 try {
-                    emitter.send(SseEmitter.event().name(saida.evento())
-                            .data(saida.dados(), MediaType.APPLICATION_JSON));
+                    destino.enviar(saida);
                 } catch (IOException | IllegalStateException e) {
                     saiu();
                     return;
@@ -823,7 +836,7 @@ public class HologramaService {
             }
             escrita.lock();
             try {
-                emitter.send(SseEmitter.event().comment("gerando"));
+                destino.pingar();
             } catch (IOException | IllegalStateException e) {
                 saiu();
             } finally {

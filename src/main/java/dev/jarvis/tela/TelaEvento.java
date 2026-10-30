@@ -13,6 +13,8 @@ public record TelaEvento(String nome, Object dados) {
     public static final String COMANDO = "tela.comando";
     /** Uma frase pronta para a tela dizer em voz alta; ver {@link FalaDaTela}. */
     public static final String FALA = "voz.falar";
+    /** Uma ordem para a cena do holograma; o corpo é um {@code ComandoDoHolograma}. */
+    public static final String HOLOGRAMA = "holograma.comando";
 
     public static TelaEvento deCard(CardTela card) {
         return new TelaEvento(CARD, card);
@@ -20,6 +22,11 @@ public record TelaEvento(String nome, Object dados) {
 
     public static TelaEvento deComando(ComandoTela comando) {
         return new TelaEvento(COMANDO, comando);
+    }
+
+    /** O corpo é {@code Object} para o pacote da tela não depender do do holograma. */
+    public static TelaEvento deHolograma(Object comando) {
+        return new TelaEvento(HOLOGRAMA, comando);
     }
 
     /**

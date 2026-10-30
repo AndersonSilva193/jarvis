@@ -26,6 +26,8 @@ import dev.jarvis.aprovacao.ClassificadorDeResposta.Decisao;
 import dev.jarvis.memoria.AnotadorDeMemoria;
 import dev.jarvis.memoria.EsquecimentosDeMemoria;
 import dev.jarvis.memoria.RevisorDeProcedimentos;
+import dev.jarvis.holograma.AtalhoDoHolograma;
+import dev.jarvis.holograma.IntentoDoHolograma;
 import dev.jarvis.ia.provedor.Bloco;
 import dev.jarvis.ia.provedor.FormatoNeutro;
 import dev.jarvis.ia.provedor.Mensagem;
@@ -74,6 +76,8 @@ public class Assistente {
     private final ResultadosTardios tardios;
     /** Quem atende "modo local" e "pergunta pro Claude: ...". Nulo nos construtores enxutos. */
     private final SeletorDeModelo seletor;
+    /** O caminho rápido do holograma. Nulo nos construtores antigos: tudo vai ao modelo. */
+    private final AtalhoDoHolograma holograma;
     private final ReentrantLock execucao = new ReentrantLock(true);
     /**
      * O pedido que está sendo atendido agora, ou nulo. Serve a duas perguntas de quem está na borda
@@ -213,13 +217,26 @@ public class Assistente {
                 classificador, anotador, esquecimentos, compactador, tardios, seletor, null);
     }
 
-    @Autowired
+    /** A aridade de antes do holograma: sem atalho, todo comando de cena vai ao modelo. */
     public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
             JsonMapper json, RegistroConversas conversas, AnexosService anexos,
             BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
             ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
             EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
             ResultadosTardios tardios, SeletorDeModelo seletor, RevisorDeProcedimentos revisor) {
+        this(modelo, ferramentas, sistema, json, conversas, anexos, buscaWeb, aprovacoes, arquivo,
+                classificador, anotador, esquecimentos, compactador, tardios, seletor, revisor, null);
+    }
+
+    @Autowired
+    public Assistente(ProvedorDeModelo modelo, Ferramentas ferramentas, SistemaDoJarvis sistema,
+            JsonMapper json, RegistroConversas conversas, AnexosService anexos,
+            BuscaWebServidor buscaWeb, Aprovacoes aprovacoes, HistoricoEmArquivo arquivo,
+            ClassificadorDeResposta classificador, AnotadorDeMemoria anotador,
+            EsquecimentosDeMemoria esquecimentos, CompactadorDeHistorico compactador,
+            ResultadosTardios tardios, SeletorDeModelo seletor, RevisorDeProcedimentos revisor,
+            AtalhoDoHolograma holograma) {
+        this.holograma = holograma;
         this.revisor = revisor;
         this.seletor = seletor;
         this.tardios = tardios != null ? tardios : new ResultadosTardios();
@@ -367,16 +384,27 @@ public class Assistente {
             List<ResultadoFerramenta> resultados = new ArrayList<>();
             String resposta;
             boolean interrompido = false;
+            boolean silenciosa = false;
             var decisaoPc = aprovacoes.tratar(texto, progresso.usuarioAutenticado(), id, canal.nome());
             // "Modo local" e "qual modelo você está usando?" são do servidor, e vêm antes do
             // classificador: não gastam modelo nenhum, e a pendência em aberto continua esperando.
             java.util.Optional<TrocaDeModelo.Comando> trocaDeModelo =
                     decisaoPc.isPresent() || seletor == null ? java.util.Optional.empty()
                             : TrocaDeModelo.comando(texto);
+            // "Explode", "mais", "vista de cima" com o holograma aberto: o servidor resolve sem modelo.
+            // Nunca com pergunta pendente — "para" pode ser o "não" de um "Posso?", e quem decide
+            // isso é o classificador.
+            java.util.Optional<IntentoDoHolograma.Intento> rapido =
+                    decisaoPc.isPresent() || trocaDeModelo.isPresent() || holograma == null
+                            ? java.util.Optional.empty() : holograma.reconhecer(texto);
+            if (rapido.isPresent()
+                    && aprovacoes.pendenciaDe(progresso.usuarioAutenticado(), id).isPresent()) {
+                rapido = java.util.Optional.empty();
+            }
             // Só quando o texto não é um código nem uma frase fixa é que vale classificar: a
             // pergunta pendente é a única coisa que a mensagem pode estar respondendo, e sem
             // pendência em aberto nada disso roda — nem a lista, nem a chamada curta ao modelo.
-            String emAberto = decisaoPc.isPresent() || trocaDeModelo.isPresent() ? ""
+            String emAberto = decisaoPc.isPresent() || trocaDeModelo.isPresent() || rapido.isPresent() ? ""
                     : aprovacoes.pendenciaDe(progresso.usuarioAutenticado(), id).orElse("");
             Decisao decisao = emAberto.isEmpty() ? Decisao.OUTRO_ASSUNTO
                     : classificador.classificar(emAberto, texto);
@@ -417,12 +445,22 @@ public class Assistente {
             } else if (trocaDeModelo.isPresent()) {
                 resposta = TrocaDeModelo.atender(trocaDeModelo.get(), seletor, canal.nome());
                 turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
+            } else if (rapido.isPresent()) {
+                IntentoDoHolograma.Intento intento = rapido.get();
+                log.info("Holograma: caminho rápido '{}' -> {}", texto.strip(), intento.acao());
+                var entrada = json.createObjectNode().put("acao", intento.acao()).put("rapido", true);
+                if (!intento.valor().isEmpty()) entrada.put("valor", intento.valor());
+                resposta = ferramentas.executar(new Bloco.Chamada("rapido_" + id, "holograma", entrada),
+                        progresso, resultados::add).conteudo();
+                silenciosa = canal == Canal.HUD;
+                turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
             } else if (ComandoDeRepouso.reconhece(texto)) {
                 Bloco.Chamada chamada = new Bloco.Chamada("repouso_" + id, "controlar_pc",
                         json.createObjectNode().put("acao", "modo_repouso"));
                 resposta = ferramentas.executar(chamada, progresso, resultados::add).conteudo();
                 turno.add(Mensagem.texto(Mensagem.Papel.ASSISTENTE, resposta));
             } else {
+                if (holograma != null && holograma.ativo()) log.info("Holograma: caminho do modelo");
                 OuvinteProgresso comAnexo = new OuvinteProgresso() {
                     @Override public String idPedido() { return progresso.idPedido(); }
                     @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
@@ -485,7 +523,7 @@ public class Assistente {
                 }
             }
             RespostaConversa publica = new RespostaConversa(id, canal.nome(), resposta, publicados,
-                    confirmacao, agora.toString(), null, escuta, fala);
+                    confirmacao, agora.toString(), null, escuta, fala, silenciosa);
 
             // Só guardamos o turno se ele terminou bem, assim o histórico nunca fica "pela metade".
             if (progresso.memoriaEsquecida()) {

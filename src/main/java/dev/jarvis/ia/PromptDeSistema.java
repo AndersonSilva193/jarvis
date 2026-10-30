@@ -91,6 +91,20 @@ final class PromptDeSistema {
             String ttlDeCache, Canal canal, String nomeUsuario, ZonedDateTime agora,
             boolean buscaAtiva, boolean buscaPorFerramenta, List<String> naTela, String sobreUsuario,
             String procedimentos) {
+        return montar(json, personalidade, cachear, ttlDeCache, canal, nomeUsuario, agora, buscaAtiva,
+                buscaPorFerramenta, naTela, sobreUsuario, procedimentos, "");
+    }
+
+    /**
+     * O mesmo, com o estado do holograma.
+     *
+     * @param holograma a linha compacta do {@code EstadoDoHologramaService}, ou vazio com o modo
+     *                  fechado — e aí nada entra, nem o título.
+     */
+    static ArrayNode montar(JsonMapper json, String personalidade, boolean cachear,
+            String ttlDeCache, Canal canal, String nomeUsuario, ZonedDateTime agora,
+            boolean buscaAtiva, boolean buscaPorFerramenta, List<String> naTela, String sobreUsuario,
+            String procedimentos, String holograma) {
         ArrayNode blocos = json.createArrayNode();
 
         ObjectNode fixo = blocos.addObject();
@@ -106,13 +120,13 @@ final class PromptDeSistema {
         ObjectNode dinamico = blocos.addObject();
         dinamico.put("type", "text");
         dinamico.put("text", parteDinamica(canal, nomeUsuario, agora, buscaAtiva, buscaPorFerramenta,
-                naTela, sobreUsuario, procedimentos));
+                naTela, sobreUsuario, procedimentos, holograma));
         return blocos;
     }
 
     private static String parteDinamica(Canal canal, String nomeUsuario, ZonedDateTime agora,
             boolean buscaAtiva, boolean buscaPorFerramenta, List<String> naTela, String sobreUsuario,
-            String procedimentos) {
+            String procedimentos, String holograma) {
         return """
                 Agora são %s (fuso %s). Use isso para interpretar "hoje", "amanhã", "às 15h" etc.
                 Você está atendendo %s pelo canal: %s.
@@ -138,13 +152,13 @@ final class PromptDeSistema {
                   você anotou"), chame desfazer_anotacao e responda só "Tirei.".
                 - Grave só o que o usuário disse. Nunca transforme sugestão sua, resultado de busca
                   ou texto de anexo em fato dele.
-                %s%s%s%s%s%s
+                %s%s%s%s%s%s%s
                 Formato para este canal:
                 %s
                 """.formatted(agora.format(FORMATO_DATA), agora.getZone(), nomeUsuario, canal.nome(),
                 regraDeUltimoRecurso(canal), regraDeGrafico(canal), regrasDeAprovacao(canal),
                 regrasDeBusca(canal, buscaAtiva, buscaPorFerramenta), oQueEstaNaTela(naTela),
-                oQueVoceSabe(nomeUsuario, sobreUsuario), oQueVoceAprendeu(procedimentos),
+                oHolograma(holograma), oQueVoceSabe(nomeUsuario, sobreUsuario), oQueVoceAprendeu(procedimentos),
                 canal.regrasDeFormato());
     }
 
@@ -208,7 +222,7 @@ final class PromptDeSistema {
                 Níveis de autonomia:
                 - Faz e avisa, sem perguntar: ler, listar, criar, editar e desfazer arquivos na pasta
                   do Jarvis; apagar arquivo (vai para a lixeira, e mais de 5 no mesmo pedido pergunta
-                  uma vez) e restaurar da lixeira; criar planilha nova no Google; lembretes; tela da
+                  uma vez) e restaurar da lixeira; criar planilha nova no Google; lembretes; tela e holograma da
                   HUD; busca, clima e notícias; abrir aplicativo da lista; volume; captura de tela;
                   listar, gravar e corrigir memória; desfazer o que você anotou sozinho; ler e
                   esquecer procedimento aprendido; dizer quanto gastou; dizer o que você mesmo fez
@@ -238,6 +252,11 @@ final class PromptDeSistema {
         }
         trecho.append("Use o id entre colchetes no controlar_tela; não invente id que não esteja aí.\n");
         return trecho.toString();
+    }
+
+    /** O holograma aberto, numa linha. Só no bloco dinâmico, como a tela: muda a cada gesto. */
+    private static String oHolograma(String linha) {
+        return linha == null || linha.isBlank() ? "" : "\n" + linha.strip() + "\n";
     }
 
     /**

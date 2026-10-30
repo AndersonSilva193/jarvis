@@ -49,6 +49,10 @@ public class FalasService {
         // O modo LOCAL forçado caindo no Claude: uma vez por período de indisponibilidade.
         falas.put("ia_local_indisponivel",
                 "O PC não está disponível; estou usando o Claude por enquanto.");
+        // O holograma pedido pelo Telegram com a HUD fechada: gerado em segundo plano, para a galeria.
+        falas.put("holograma_na_galeria", "{objeto} está na galeria do holograma: {pecas} peças.");
+        falas.put("holograma_na_galeria_falhou",
+                "Não consegui montar {objeto} para a galeria. Tente de novo com a HUD aberta.");
         // A cota mensal do Tavily na buscar_na_web. Os números saem do MedidorDeCusto.
         falas.put("busca_cota_alta",
                 "A cota de buscas do Tavily está em {percentual}% este mês ({usadas} de {cota}).");

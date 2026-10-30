@@ -292,5 +292,9 @@ public class Ferramentas {
             dev.jarvis.conversa.OuvinteProgresso.avisar(
                     () -> eventos.publishEvent(TelaEvento.deComando(comando)));
         }
+        for (var comando : resultado.holograma()) {
+            dev.jarvis.conversa.OuvinteProgresso.avisar(
+                    () -> eventos.publishEvent(TelaEvento.deHolograma(comando)));
+        }
     }
 }
