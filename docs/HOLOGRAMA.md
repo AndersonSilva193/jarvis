@@ -231,6 +231,10 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 - [x] **Fase 5 — Gestos pela webcam e toque.** MediaPipe Hand Landmarker no navegador, arquivos
   servidos pela própria HUD, liga/desliga explícito, motor de gestos em TS puro, toque no celular,
   perfil leve, ajustes e gravação de landmarks. Só HUD. Detalhes na seção 10.
+- [x] **Fase 5B — Celular como controle (backend + HUD).** QR de uso único no PC, página
+  `/controle` no celular (câmera no perfil leve ou touchpad), WebSocket `/ws/holograma` com
+  validação e limite de taxa, queda e retomada em 30 s, Wake Lock, medida de ida e volta. Contrato
+  na seção 11.
 - [ ] **Fase 6 — Controle por voz/conversa.** Ações novas de tela para o holograma (girar,
   explodir, montar, fechar), estado do holograma no `POST /api/tela/estado`, frases do servidor.
 - [x] **Galeria (backend + HUD).** Objeto completo guardado em disco, cache pelo pedido
@@ -334,6 +338,8 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 | 15 | **Dois repositórios, dois deploys** (VPS e Vercel) | Backend novo com HUD velha | Sem problema: HUD ignora evento desconhecido; a ferramenta só promete o que a HUD conectada sabe mostrar — decidir se a HUD anuncia suporte no `POST /api/tela/estado` |
 | 16 | ~~**Semântica ambígua no formato**~~ | Resolvido na Fase 1 — ver seção 7. Falta levar ao prompt (Fase 2) que `pts` é relativo a `p` e que `rad` aceita `a` | — |
 | 17 | **O stream do exemplo exige `Bearer`** | `EventSource` não manda cabeçalho, e a rota ficou fora da exceção do `?token=` (pedido da Fase 1: "a mesma autenticação") | Fase 3 lê com `fetch` + `ReadableStream`; ou, se preferir `EventSource`, acrescentar a rota à exceção do `TokenHudFiltro` |
+| 18 | **QR fotografado ou visto por outra pessoa** | Quem abrir a URL em 5 min controla o holograma | O código é de uso único e morre ao entrar; a sessão do celular só manda gestos (nunca chama `/api`); "Desconectar" corta na hora; um celular por vez |
+| 19 | **Rede do celular (4G, Wi-Fi fraco)** | Ida e volta passa dos 150 ms, giro atrasado | A medida está na tela do `/controle` e no log; acima de 150 ms, WebRTC DataChannel (seção 11) |
 
 ---
 
@@ -706,3 +712,145 @@ grupo, no vazio reseta.
 (`pinca-arrastar-direita.sintetico.json`); as poses de teste vêm de `sintetizar-mao.ts`.
 Os limiares (pinça, parada, decisões) foram calibrados na mão sintética e devem ser conferidos
 nas primeiras gravações reais.
+
+---
+
+## 11. Celular como controle (Fase 5B)
+
+O celular vira o controle remoto do holograma que está na tela do PC: o PC mostra um QR, o celular
+abre `/controle`, e os gestos de lá (câmera ou touchpad) mexem na cena daqui pelo **mesmo**
+`ControlePorGestos` dos gestos locais.
+
+### Por que um WebSocket novo
+
+O SSE de `/api/eventos` só vai do servidor à HUD, roda num executor de thread única junto com a
+conversa e o briefing, e o `location /api/` do nginx força `Connection ""` (sem Upgrade). Do celular
+ao PC seriam ~30 `POST`/s, cada um uma requisição HTTP com CORS, e não haveria como medir ida e
+volta. Por isso `/ws/holograma`: WebSocket puro (Spring, sem STOMP), fora de `/api`.
+
+| Onde | O quê |
+|---|---|
+| `dev.jarvis.holograma.controle` | `BilhetesDoCanal`, `PareamentosDoControle` (só ids de sessão, testável sem rede), `ValidadorDeMensagemDoControle`, `LimiteDeTaxa` |
+| `dev.jarvis.web` | `CanalDoHologramaHandler` (papéis, repasse, códigos de fechamento, log da latência), `CanalDoHologramaConfig` (rota, origens, cópia da query), `CanalDoHologramaController` (bilhete) |
+| `jarvis-hud/src/app/controle/` | TS puro: `controle.modelos.ts` (formato, conversões, leitura), `agregador.ts`, `conexao.ts` (reconexão), `latencia.ts` |
+| `jarvis-hud/src/app/nucleo/` | `CanalDaHudService` (PC) e `CanalDoControleService` (celular) |
+| `jarvis-hud/src/app/componentes/holograma/` | `parear-celular.ts` (botão, QR, estado) e `controle-remoto.ts` (mensagem → mesma cena) |
+| `jarvis-hud/src/app/paginas/controle/` | A página do celular, rota lazy **sem** o guard de configuração |
+
+### Pareamento
+
+```
+PC: POST /api/holograma/controle/bilhete (Bearer)  → {"bilhete","validade":30}
+PC: wss://…/ws/holograma?bilhete=…                 → papel HUD
+PC: {"t":"parear"}                                 → {"t":"par","codigo","expira":300}
+PC mostra o QR: <origem da HUD>/controle?par=<codigo>&api=<URL da API>
+Celular: wss://…/ws/holograma?par=<codigo>         → {"t":"pareado","retomada"}
+PC recebe {"t":"controle","e":"conectado","retomada"}
+```
+
+- **Sem conta de usuário**: o Jarvis tem um dono e o "login" é o `HUD_TOKEN`. Decidido com o dono:
+  o celular **não** precisa do token. O código do QR é a credencial — 32 bytes sorteados,
+  base64url, **uso único**, 5 min, preso à sessão WebSocket da HUD que o pediu (um código novo
+  derruba o anterior). A sessão do celular só manda gestos; nada nela chama `/api`.
+- O `HUD_TOKEN` nunca vai em URL de socket: a HUD troca o Bearer por um bilhete de 30 s, uso único.
+- O `api=` vai no QR porque o celular não tem nada configurado. A página confere com `urlValida` e
+  recusa conteúdo misto. O `par` sai da barra de endereço logo ao entrar (`replaceUrl`): recarregar
+  usa a chave de retomada guardada no `sessionStorage` da aba.
+- **Um celular por vez**: com par, a HUD não recebe código novo (`{"t":"erro","e":"ocupado"}`).
+- Origens do handshake: as de `HUD_ORIGEM`, como o CORS. Sem origem configurada, só a mesma origem.
+
+### Mensagens
+
+Do celular, um objeto — ou um array de até 8, quando o mesmo intervalo de 33 ms juntou mais de um
+tipo. O servidor confere campo a campo (campo extra ou fora da faixa reprova o quadro inteiro) e
+**reescreve** antes de repassar. Nunca imagem, nunca landmarks.
+
+| Mensagem | Significado | Faixa |
+|---|---|---|
+| `{"t":"girar","dx","dy"}` | soma dos deslocamentos, frações da tela | ±1 |
+| `{"t":"soltar","vx","vy"}` | soltou o giro: inércia, frações/s | ±20 |
+| `{"t":"zoom","f"}` | produto dos fatores; > 1 aproxima | 0,5..2 |
+| `{"t":"explodir","v"}` | fator absoluto (câmera) | 0..1 |
+| `{"t":"explodir","dv"}` | soma ao fator atual (touchpad) | ±1 |
+| `{"t":"cursor","x","y"}` / `{"t":"cursorFim"}` | indicador apontando / parou | 0..1 |
+| `{"t":"selecionar"}` | indicador parado: a HUD seleciona na última posição do cursor | — |
+| `{"t":"resetar"}` | punho; toque duplo no touchpad | — |
+| `{"t":"mao","v"}` | mão entrou (1) / saiu (0): segura ou solta a rotação automática | 0, 1 |
+| `{"t":"toque","v"}` | dedo na tela (1) / fora (0): `comecar/terminarInteracao` | 0, 1 |
+| `{"t":"gesto","n"}` | rótulo do preview; letras, números e `.,…·%()-` | até 24 |
+| `{"t":"eco","n"}` | medida de ida e volta, a cada 2 s | inteiro |
+| `{"t":"latencia","p50","p95","k"}` | resumo a cada 30 ecos; **fica no log**, não vai à HUD | — |
+
+Da HUD: `parear`, `desconectar` e a resposta do `eco`. Do servidor: `par`, `controle` (`conectado`
+com `retomada` · `caiu` · `voltou` · `encerrado`) e `erro` à HUD; `pareado`, `hud` (`caiu` ·
+`voltou` · `encerrado`) e o `eco` devolvido ao celular.
+
+**Taxa:** o celular junta os deltas no `AgregadorDeEventos` (`girar` soma, `zoom` multiplica,
+`cursor` e `explodir v` ficam com o último; o discreto não fura a fila) e manda no máximo 30
+mensagens/s; o primeiro evento depois de um silêncio sai na hora. O servidor tem um balde de 40/s
+por conexão: o excesso é descartado e contado, e mais de 100 descartes (taxa ou formato) em 10 s
+fecham com 1008. Texto acima de 2 kB nem é montado (limite da sessão).
+
+### Queda, retomada e fechamento
+
+O servidor segura o par por **30 s** depois que qualquer lado cai. O celular volta sozinho com
+`?retomada=` (esperas de 0,5 → 1 → 2 → 4 s, repetindo 4 s, até 30 s da queda); a HUD volta com
+bilhete novo **e** a sua retomada. Passado o prazo, o par acaba (`encerrado`) e o celular é fechado
+com 4404. O "Sair" do celular fecha com 1000, e isso acaba o par na hora.
+
+| Código | Quando | O celular |
+|---|---|---|
+| 4401 | bilhete, código ou retomada inválido, usado ou vencido | "Este QR code já foi usado ou expirou." |
+| 4404 | a HUD não voltou em 30 s | "A HUD do PC não voltou." |
+| 4409 | já há celular | "Outro celular já está controlando o PC." |
+| 4000 | "Desconectar" no PC | "O PC desconectou este celular." |
+| 1008 | formato ou taxa | "O servidor recusou as mensagens deste aparelho." |
+
+Na HUD, celular conectado pausa a câmera do PC (o mouse segue sempre). Na queda — do celular ou do
+próprio canal —, o `ControleRemoto` desfaz o que ficou pela metade (cursor, rotação segurada, toque
+aberto), a câmera volta se estava ligada e a região viva diz "Celular desconectado — de volta ao
+mouse e à câmera."
+
+### O mesmo suavizamento
+
+O One Euro é do `MotorDeGestos`, que roda no celular exatamente como roda no PC (perfil leve: uma
+mão, zoom pela profundidade, 15 detecções/s). O resto é igual por construção: a HUD transforma cada
+mensagem de volta no `EventoDeGesto` (ou na intenção de toque) e chama o mesmo `ControlePorGestos`,
+com a sensibilidade e os eixos dos ajustes **do PC**, a mesma inércia e os mesmos limites da cena.
+O teste `controle.modelos.spec.ts` confere que a sequência local e a que passa pelo canal produzem
+as mesmas chamadas na cena, na câmera e no touchpad.
+
+### No celular
+
+`/controle` em tela cheia, estilo da HUD, dois modos (`aria-pressed`): **Touchpad** (o
+`ReconhecedorDeToque` da Fase 5 numa área sem cena; toque duplo reseta) e **Câmera**
+(`RastreioDeMaoService` + `MotorDeGestos`, com o perfil leve forçado por
+`PerfilDoAparelhoService.forcado` sem gravar nos ajustes do aparelho; a imagem não sai do
+celular). **Wake Lock** (`screen`) enquanto o controle está ativo, pedido de novo no
+`visibilitychange`; sem suporte, uma linha avisa.
+
+### nginx
+
+Precisa de bloco próprio, já em `deploy/nginx-jarvis.conf` (`location /ws/`): `proxy_http_version
+1.1`, `Upgrade $http_upgrade`, `Connection "upgrade"`, `proxy_read_timeout`/`proxy_send_timeout 1h`
+(o servidor manda ping a cada 25 s), `access_log off` (bilhete, código e retomada vão na query) e
+`403` fora de HTTPS. Na VPS, como o certbot reescreve o arquivo, o bloco tem de ser colado também no
+`server` de 443: `sudo nginx -t && sudo systemctl reload nginx`.
+
+### Latência
+
+Medida no caminho inteiro, celular → VPS → HUD → VPS → celular, pelo `eco`.
+
+| Onde | p50 | p95 | Como |
+|---|---|---|---|
+| Local (teste de integração, mesmo processo) | 1,06 ms | 1,49 ms | `CanalDoHologramaWsTest`, 200 ecos, 29/10/2026 |
+| VPS | *a medir depois do deploy* | | `HUD_TOKEN=… node scripts/medir-latencia-controle.mjs https://jarvis.barberagendaonline.store` e a linha "Ida e volta" do `/controle` |
+
+Estimativa enquanto o deploy não sai: o TCP até a VPS (`/api/saude`, do PC de desenvolvimento,
+29/10/2026) levou de 22 a 48 ms. O eco atravessa a VPS duas vezes, então o esperado é **~50–100 ms**
+no Wi-Fi de casa — abaixo do teto de 150 ms. Em 4G cada perna soma de 30 a 60 ms e pode passar.
+
+**Melhoria futura, se a medida da VPS passar de 150 ms:** WebRTC DataChannel. O WebSocket vira só
+a sinalização (oferta, resposta e candidatos ICE pelo mesmo par), e os gestos vão direto do celular
+ao PC pela rede local, sem passar pela VPS — com `ordered: false` e `maxRetransmits: 0` para giro e
+zoom, que valem mais novos do que completos.

@@ -35,6 +35,13 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- WebSocket puro (sem STOMP) para o celular controlar o holograma da HUD: /ws/holograma.
+             O SSE de /api/eventos só vai do servidor à HUD; o controle precisa dos dois sentidos. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
         <!-- Jackson 3 (padrão do Spring Boot 4) para montar e ler os JSONs das APIs -->
         <dependency>
             <groupId>tools.jackson.core</groupId>
