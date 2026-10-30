@@ -31,9 +31,15 @@ public class FalasDoHolograma {
     private final RandomGenerator sorteio;
     private final Map<Tipo, Integer> anterior = new EnumMap<>(Tipo.class);
 
+    /**
+     * {@code java.util.Random}, e não {@code RandomGenerator.getDefault()}: o padrão é o
+     * {@code L32X64MixRandom} do módulo {@code jdk.random}, que a imagem {@code eclipse-temurin:21-jre}
+     * não traz — o construtor estourava na subida e derrubava o contexto inteiro. Sorteio de frase não
+     * pede mais que isto, e o {@code Random} mora no {@code java.base}.
+     */
     @Autowired
     public FalasDoHolograma() {
-        this(RandomGenerator.getDefault());
+        this(new java.util.Random());
     }
 
     public FalasDoHolograma(RandomGenerator sorteio) {
