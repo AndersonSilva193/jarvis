@@ -101,6 +101,7 @@ public class HologramaService {
     static final String SEM_PECAS = "sem_pecas";
     private static final int TRECHO_DO_LOG = 300;
     static final String TEXTO_SUBSTITUIDO = "A geração foi substituída por outra.";
+    static final String TEXTO_LOCAL_INDISPONIVEL = "O gerador local não está disponível.";
     /** O motivo do {@code fim} incompleto quando a última chamada bateu no teto. */
     static final String MOTIVO_TETO = "o modelo bateu no teto de tokens";
 
@@ -247,6 +248,20 @@ public class HologramaService {
     }
 
     /**
+     * Uma geração medida, para o {@link BenchmarkDeHolograma}: o gerador pedido e <b>só</b> ele (com
+     * reserva, o local que caiu seria medido como Haiku), sem ninguém na HUD, e fora da galeria e da
+     * retomada — medir não pode trocar o objeto que o dono guardou nem o que ele pode continuar.
+     * Substitui a geração em andamento, como qualquer outra: há uma GPU só no PC.
+     *
+     * @param provedor {@code local} ou {@code anthropic}
+     * @param aoMedir  recebe os números quando a geração acaba, de qualquer jeito que acabe
+     */
+    public void medir(String objeto, DetalheHolograma detalhe, String provedor,
+            java.util.function.Consumer<MedidaDaGeracao> aoMedir) {
+        iniciar(new Geracao(novoId(), objeto, detalhe, provedor, DestinoDaGeracao.mudo(fim -> { }), aoMedir));
+    }
+
+    /**
      * Retoma a última geração: reenvia a meta e as peças a partir da {@code recebidas}-ésima (as que
      * a HUD não viu) e, se o objeto não estava completo, continua com o modelo. Volta {@code false}
      * quando não há o que retomar com esse id — outra geração tomou o lugar, ou passou a
@@ -361,9 +376,19 @@ public class HologramaService {
         private volatile String ultimaFalha = "";
         /** Os primeiros caracteres da resposta desta tentativa, só para o log de resposta vazia. */
         private final StringBuilder inicioDaResposta = new StringBuilder();
+        /** Não nulo numa geração do benchmark: sem reserva, sem galeria, sem retomada. */
+        private final java.util.function.Consumer<MedidaDaGeracao> aoMedir;
+        /** O motivo de o local nem ter sido tentado na medição. */
+        private volatile String indisponivel = "";
 
         Geracao(String id, String objeto, DetalheHolograma detalhe, String provedorEscolhido,
                 DestinoDaGeracao destino) {
+            this(id, objeto, detalhe, provedorEscolhido, destino, null);
+        }
+
+        Geracao(String id, String objeto, DetalheHolograma detalhe, String provedorEscolhido,
+                DestinoDaGeracao destino, java.util.function.Consumer<MedidaDaGeracao> aoMedir) {
+            this.aoMedir = aoMedir;
             this.id = id;
             this.objeto = objeto;
             this.detalhe = detalhe;
@@ -376,6 +401,7 @@ public class HologramaService {
 
         /** A retomada: mesma montagem, mesmo provedor, e o que já foi para a tela. */
         Geracao(Retomada retomada, int recebidas, DestinoDaGeracao destino) {
+            this.aoMedir = null;
             this.id = retomada.id();
             this.objeto = retomada.objeto();
             this.detalhe = retomada.detalhe();
@@ -454,7 +480,7 @@ public class HologramaService {
          * importa, e guardar esta por cima dela apagaria o que se poderia retomar de lá.
          */
         private void guardar(String fim) {
-            if (SUBSTITUIDO.equals(fim) || montagem.pecas() == 0) {
+            if (SUBSTITUIDO.equals(fim) || montagem.pecas() == 0 || aoMedir != null) {
                 return;
             }
             synchronized (montando) {
@@ -491,6 +517,9 @@ public class HologramaService {
          */
         private String gerarComReserva() throws InterruptedException {
             DisponibilidadeLocal.Situacao situacao = situacaoDoLocal();
+            if (aoMedir != null) {
+                return gerarSemReserva(situacao);
+            }
             if (LOCAL.equals(provedorEscolhido)) {
                 if (situacao.pode()) {
                     String fim = tentarLocal();
@@ -511,6 +540,19 @@ public class HologramaService {
             }
             avisar(SEM_RESPOSTA.equals(ultimaFalha) ? AVISO_HAIKU_MUDO : AVISO_HAIKU_FALHOU);
             fim = tentarLocal();
+            return fim != null ? fim : encerrarComErro(textoDaFalha());
+        }
+
+        /**
+         * A medição: o gerador pedido e só ele. O local fora de alcance nem é chamado — o relatório
+         * diz por quê, em vez de medir o Haiku no lugar dele.
+         */
+        private String gerarSemReserva(DisponibilidadeLocal.Situacao situacao) throws InterruptedException {
+            if (LOCAL.equals(provedorEscolhido) && !situacao.pode()) {
+                indisponivel = situacao.motivo();
+                return encerrarComErro(TEXTO_LOCAL_INDISPONIVEL);
+            }
+            String fim = LOCAL.equals(provedorEscolhido) ? tentarLocal() : tentarAnthropic(false);
             return fim != null ? fim : encerrarComErro(textoDaFalha());
         }
 
@@ -792,7 +834,7 @@ public class HologramaService {
 
         /** O objeto completo vai para a galeria, substituindo o do mesmo pedido. Falha só no log. */
         private void guardarNaGaleria() {
-            if (galeria == null || metaVista == null || pecasVistas.size() < GaleriaDeHologramas.MINIMO_DE_PECAS) {
+            if (galeria == null || aoMedir != null || metaVista == null || pecasVistas.size() < GaleriaDeHologramas.MINIMO_DE_PECAS) {
                 return;
             }
             naGaleria = galeria.salvar(id, objeto, detalhe, provedorUsado, modeloUsado, metaVista.meta(),
@@ -871,6 +913,30 @@ public class HologramaService {
             if (!descartadas.isEmpty()) {
                 log.info("Holograma '{}' {}: linhas descartadas (até 5): {}", curto(objeto), id, descartadas);
             }
+            if (aoMedir != null) {
+                try {
+                    aoMedir.accept(medida(fim, resumo, descartadas));
+                } catch (RuntimeException e) {
+                    log.warn("Holograma: quem media a geração falhou: {}", e.toString());
+                }
+            }
+        }
+
+        /** Os mesmos números da linha de log acima, para o benchmark. */
+        private MedidaDaGeracao medida(String fim, SaidaHolograma.Resumo resumo, List<String> descartadas) {
+            Long primeira = primeiraPeca < 0 ? null : Duration.ofNanos(primeiraPeca - inicio).toMillis();
+            String motivo = montagem.completo() ? "" : montagem.fim().map(SaidaHolograma.Fim::motivo).orElse(fim);
+            List<String> aceitas;
+            synchronized (montando) {
+                aceitas = List.copyOf(montagem.linhasAceitas());
+            }
+            int linhas = (int) aceitas.stream().filter(l -> !l.contains("\"meta\"")).count();
+            return new MedidaDaGeracao(objeto, detalhe.chave(), provedorEscolhido, provedorUsado, modeloUsado,
+                    primeira, Duration.ofNanos(System.nanoTime() - inicio).toMillis(), montagem.pecas(), linhas,
+                    chamadas, montagem.descartadas(), montagem.repetidas(), montagem.avisos(),
+                    resumo.tokensEntrada(), resumo.tokensSaida(), resumo.custoUsd(),
+                    montagem.completo() ? SaidaHolograma.COMPLETO : SaidaHolograma.INCOMPLETO, motivo,
+                    indisponivel, fim, List.copyOf(descartadas), String.join("\n", aceitas));
         }
     }
 

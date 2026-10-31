@@ -132,8 +132,11 @@ public final class HologramaValidator {
         }
 
         List<HologramaPeca> pecas = new ArrayList<>(copias);
+        String serie = null;
         for (int i = 0; i < copias; i++) {
             String id = unico(repeticao.copias() > 1 ? sufixado(idBase, "_" + (i + 1)) : idBase, avisos);
+            // A série é o id da primeira cópia, já único: dois "rep" com o mesmo id cru não se misturam.
+            if (copias > 1 && i == 0) serie = id;
             double[] onde = posicao.clone();
             double[] giro = rotacao;
             double[] afastamento = explosao.clone();
@@ -153,7 +156,7 @@ public final class HologramaValidator {
             pecas.add(new HologramaPeca(id, nome.isEmpty() ? id : nome,
                     grupo.isEmpty() ? GRUPO_PADRAO : grupo, forma, arredondado(limitado(onde, LIMITE_POSICAO)),
                     angulos(giro), tamanho.clone(), cor, afastamento, opacidade, contorno,
-                    copiaDe(pontos)));
+                    copiaDe(pontos), serie));
         }
         total += pecas.size();
         return new Validacao(pecas, avisos);

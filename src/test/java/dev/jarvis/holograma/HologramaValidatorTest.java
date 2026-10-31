@@ -144,6 +144,25 @@ class HologramaValidatorTest {
     }
 
     @Test
+    @DisplayName("as cópias de um rep/rad levam a série (o id da primeira); a peça avulsa, nada no JSON")
+    void serieDasCopias() {
+        validar("{\"id\":\"dente\",\"f\":\"box\",\"rad\":{\"n\":3,\"r\":2}}");
+        // O mesmo id cru de novo: as cópias viram dente_1_2... e a série é a delas, não a de cima.
+        List<HologramaPeca> segunda = validar("{\"id\":\"dente\",\"f\":\"box\",\"rep\":{\"n\":2,\"d\":[1,0,0]}}").pecas();
+        assertEquals(List.of(segunda.getFirst().id(), segunda.getFirst().id()),
+                segunda.stream().map(HologramaPeca::serie).toList());
+        assertFalse(segunda.getFirst().id().equals("dente_1"));
+        assertEquals(List.of("dente_1", "dente_1", "dente_1"), new HologramaValidator()
+                .validar(JSON.readTree("{\"id\":\"dente\",\"f\":\"box\",\"rad\":{\"n\":3,\"r\":2}}")).pecas().stream()
+                .map(HologramaPeca::serie).toList());
+
+        HologramaPeca avulsa = uma("{\"id\":\"bloco\",\"f\":\"box\"}");
+        assertEquals(null, avulsa.serie());
+        assertFalse(JSON.writeValueAsString(avulsa).contains("serie"));
+        assertTrue(JSON.writeValueAsString(segunda.getFirst()).contains("\"serie\":\"" + segunda.getFirst().id() + "\""));
+    }
+
+    @Test
     @DisplayName("rep com n 1 ou ausente não expande nem põe sufixo")
     void repDeUm() {
         assertEquals("solo", uma("{\"id\":\"solo\",\"rep\":{\"n\":1,\"d\":[1,0,0]}}").id());

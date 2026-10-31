@@ -179,6 +179,64 @@ class HologramaServiceTest {
         assertTrue(anthropic.corte.await(5, TimeUnit.SECONDS), "o ping não percebeu o cliente fora");
     }
 
+    // ---- falhas do modelo e da rede (Fase 7) -----------------------------------------------
+
+    @Test
+    void textoECercaDeMarkdownAntesDoJsonNaoAtrapalham() throws Exception {
+        Emissor emissor = new Emissor();
+        Falso anthropic = new Falso(List.of("Claro! Aqui está o objeto:\n```json\n", META, PECA, "```\n", FIM));
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", false);
+
+        servico.gerar("cubo", DetalheHolograma.RAPIDO, emissor);
+        emissor.esperar();
+
+        assertEquals(List.of("meta", "peca", "fim"), emissor.eventos());
+        assertTrue(emissor.corpo().contains("\"status\":\"completo\""), emissor.corpo());
+    }
+
+    @Test
+    void linhaPartidaEntreDeltasViraUmaPecaSo() throws Exception {
+        Emissor emissor = new Emissor();
+        // O stream corta onde quiser: no meio de um número, de uma chave, de uma cor.
+        Falso anthropic = new Falso(List.of(META, PECA.substring(0, 37), PECA.substring(37, 61), PECA.substring(61), FIM));
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", false);
+
+        servico.gerar("cubo", DetalheHolograma.RAPIDO, emissor);
+        emissor.esperar();
+
+        assertEquals(List.of("meta", "peca", "fim"), emissor.eventos());
+        assertTrue(emissor.corpo().contains("\"pecas\":1,\"avisos\":0"), emissor.corpo());
+    }
+
+    @Test
+    void aHudQueCaiNoMeioCortaOModeloEARetomadaTerminaOObjeto() throws Exception {
+        Emissor primeiro = new Emissor();
+        Falso anthropic = new Falso(List.of());
+        anthropic.porChamada = List.of(List.of(META, PECA, TOPO), List.of(FIM));
+        // A rede cai logo depois da primeira peça: a próxima escrita falha.
+        anthropic.depoisDoDelta = i -> {
+            if (i == 1) primeiro.foiEmbora = true;
+        };
+        servico = servico(anthropic, new Falso(List.of()), "anthropic", false);
+
+        servico.gerar("cubo", DetalheHolograma.NORMAL, primeiro);
+        assertTrue(anthropic.corte.await(5, TimeUnit.SECONDS), "a escrita que falhou não cortou o modelo");
+        java.util.regex.Matcher id = java.util.regex.Pattern.compile("\"id\":\"(h[0-9a-z]{8})\"").matcher(primeiro.corpo());
+        assertTrue(id.find(), primeiro.corpo());
+        assertEquals(List.of("meta", "peca"), primeiro.eventos(), "nada depois da queda, e nada estourou");
+
+        // A HUD volta com a peça que tem; o servidor reenvia o resto e o modelo termina.
+        Emissor volta = new Emissor();
+        long limite = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (!servico.continuar(id.group(1), 1, volta)) {
+            assertTrue(System.nanoTime() < limite, "a geração cortada não ficou para retomar");
+            Thread.sleep(10);
+        }
+        volta.esperar();
+        assertEquals(List.of("meta", "peca", "fim"), volta.eventos());
+        assertTrue(volta.corpo().contains("\"status\":\"completo\""), volta.corpo());
+    }
+
     @Test
     void umaGeracaoNovaSubstituiAAnterior() throws Exception {
         Emissor primeiro = new Emissor();
@@ -560,6 +618,8 @@ class HologramaServiceTest {
             chamadas++;
             ultimo = pedido;
             pedidos.add(pedido);
+            // Cada chamada é um stream novo: o corte de uma (a HUD que caiu) não fecha a da retomada.
+            cortado = false;
             List<String> deltas = porChamada.isEmpty() ? this.deltas
                     : porChamada.get(Math.min(chamadas, porChamada.size()) - 1);
             cancelamento.aoCancelar(() -> {

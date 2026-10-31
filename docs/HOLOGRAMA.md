@@ -168,6 +168,10 @@ Um objeto JSON por linha. Exemplo:
 
 ## 3. Prompt de geração
 
+*Este é o texto da Fase 0. O que vale é o arquivo `src/main/resources/holograma/holograma-prompt.txt`,
+que ganhou desde então `pts` relativos, `rad.a`, `ct` e, na Fase 7, a seção REPETIÇÃO, a escala e o
+eixo da altura (seção 16).*
+
 ```
 Você é o módulo de hologramas do JARVIS. Sua tarefa é descrever um objeto 3D esquemático usando apenas formas primitivas, no formato NDJSON (um objeto JSON por linha).
 
@@ -224,10 +228,12 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 - [x] **Geração com streaming (backend + agente + HUD).** `HologramaService` e
   `GET /api/holograma/gerar`, `ProvedorDeModelo.transmitir` na Anthropic e no local, parciais do
   `inferir` pelo E2, campo e Cancelar na HUD, varredura de "escaneando". Contrato na seção 8.
-- [ ] **Ferramenta e publicação.** `mostrar_holograma` para a conversa (Telegram e HUD) abrir um
-  holograma, eventos `holograma.*` no SSE geral, `GET /api/holograma/{id}` para recuperação.
-- [ ] **Fase 4 — Interação com as peças.** Vista explodida pelo `e`, destaque por grupo, nome da
-  peça ao passar/selecionar, teclado e `prefers-reduced-motion`.
+- [x] ~~**Ferramenta e publicação.**~~ Absorvida pela Fase 6 (a ferramenta `holograma`, com
+  `carregar` e `gerar_na_galeria`, e o `holograma.comando` no SSE geral) e pela galeria
+  (`GET /api/holograma/{id}/stream` reabre um objeto). Não existe `mostrar_holograma`.
+- [x] ~~**Fase 4 — Interação com as peças.**~~ Absorvida pela cena e pela Fase 6: vista explodida
+  pelo `e` (slider, botão, voz e gesto), destaque por grupo ao passar o mouse, nome da peça no painel,
+  seleção, Esc fecha e `prefers-reduced-motion` desliga entrada, giro e voo.
 - [x] **Fase 5 — Gestos pela webcam e toque.** MediaPipe Hand Landmarker no navegador, arquivos
   servidos pela própria HUD, liga/desliga explícito, motor de gestos em TS puro, toque no celular,
   perfil leve, ajustes e gravação de landmarks. Só HUD. Detalhes na seção 10.
@@ -241,7 +247,9 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 - [x] **Galeria (backend + HUD).** Objeto completo guardado em disco, cache pelo pedido
   normalizado, reprodução pelo mesmo SSE, lista/abrir/apagar/"Gerar de novo" e miniatura capturada
   pela HUD. Os exemplos viraram itens fixos da galeria. Contrato na seção 9.
-- [ ] **Fase 7 — Acabamento.** Medição de custo/tempo, desempenho e e2e.
+- [x] **Fase 7 — Acabamento.** Lotes instanciados acima de 120 peças com FPS medido antes e depois
+  (seção 13), benchmark dos dez objetos de referência nos dois geradores (seção 14), suíte de falhas
+  (seção 15), ajuste do prompt pelo benchmark (seção 16), configuração e testes (seções 17 e 18).
 
 ---
 
@@ -356,7 +364,7 @@ desconhecido (o nome casa `[a-z0-9_]{1,40}` antes de virar caminho de recurso).
 | Evento | `data` |
 |---|---|
 | `meta` | `{"nome","categoria","descricao"}` — sempre o primeiro, uma vez só. Na geração real leva também `id` (`h` + 8 caracteres), o que o "Continuar" devolve |
-| `peca` | `{"id","nome","grupo","forma","posicao":[3],"rotacao":[3],"tamanho":[..],"cor","explosao":[3],"opacidade","contorno","pontos":[[3]..]}` |
+| `peca` | `{"id","nome","grupo","forma","posicao":[3],"rotacao":[3],"tamanho":[..],"cor","explosao":[3],"opacidade","contorno","pontos":[[3]..],"serie"?}` — `serie` só nas cópias de um `rep`/`rad` (Fase 7, seção 13) |
 | `aviso` | `{"texto"}` — o que foi consertado ou descartado |
 | `fim` | `{"pecas","avisos","status","motivo"?}` — sempre o último. `status` é `completo` quando o modelo escreveu a linha de fim (ou o limite de 250 peças fechou) e `incompleto` quando quem fechou foi o servidor; aí vem o `motivo`, frase fixa em Java |
 
@@ -399,7 +407,9 @@ um aviso só diz que o resto foi descartado.
   girada, para dentes e elétrons se afastarem para fora. `r: 0` gira a peça no lugar.
 - **`rep` e `rad` juntos = hélice**: `rep.n` cópias, a cópia `i` deslocada `i·d` **e** girada
   `a + i·360/rad.n`. É como o DNA faz os pares de bases numa linha só.
-- Cópias recebem ids `id_1..id_n`.
+- Cópias recebem ids `id_1..id_n` e o campo `serie` com o id da primeira (`id_1`, ou o nome
+  desvirado, se o id cru se repetiu). A peça escrita uma vez só não leva o campo — o JSON fica igual
+  ao de antes, e a galeria gravada antes dele continua lendo.
 
 ### Geometria que a HUD tem de seguir (Fase 3)
 
@@ -501,8 +511,9 @@ objeto por cima do que já está na tela, então sai `erro` e as peças ficam. O
 
 `HOLOGRAMA_MODELO` é o modelo **da Anthropic** e não toca a conversa; no local quem escolhe é o
 `ollama.modelo` do PC, como sempre. `HOLOGRAMA_TEMPERATURA` (0,4) só vai ao local, preso em 0..1
-pelo agente: os modelos atuais da Anthropic recusam `temperature` com HTTP 400.
-`HOLOGRAMA_MAX_TOKENS` (8000) prende o teto de cada nível (o `detalhado` de 16000 cai para 8000).
+pelo agente: os modelos atuais da Anthropic recusam `temperature` com HTTP 400. O teto de saída é por
+nível (`HOLOGRAMA_MAX_TOKENS_RAPIDO`/`_NORMAL`/`_DETALHADO`) e também só vale na Anthropic: o
+agente não manda `num_predict`, e o local para no `ollama.contexto` (8192, prompt incluso).
 
 ### O gasto no `fim` e no log
 
@@ -661,7 +672,13 @@ Só com o holograma aberto **e** "Gestos" ligado; fechar o holograma desliga e s
 mudanças: os quadros vão por callback, e signals só mudam com o estado. Desliga sozinha após 2 min
 sem mão; aba oculta solta a câmera e a volta religa sem perguntar. Sem HTTPS, sem câmera, permissão
 negada ou câmera ocupada → frase curta acima da barra de controles, botão solto, toque e mouse
-seguem. Nenhuma imagem é copiada nem enviada; a gravação guarda só pontos.
+seguem. Nenhuma imagem é enviada; a gravação guarda só pontos.
+
+**Pouca luz** (Fase 7): sem mão à vista, uma vez por segundo o quadro é reduzido a 32×24 num canvas
+fora da página e o brilho médio (luma Rec. 709) é medido; abaixo de 40 de 255 em duas amostras
+seguidas, o indicador troca "Câmera ligada" por "Pouca luz · acenda uma luz" (`role=status`), e volta
+acima de 55. Com mão detectada não se mede: a luz basta. A amostra é a única cópia do quadro, é
+sobrescrita no segundo seguinte e nunca é codificada. Regras em `gestos/luz.ts`.
 
 | Perfil | Câmera | Detecções/s | Mãos | Bloom | pixelRatio | Segmentos |
 |---|---|---|---|---|---|---|
@@ -979,3 +996,295 @@ e "Feito"-curto no Telegram. Log: `Holograma: caminho rápido 'mais' -> explodir
 - O arrasto do mouse no canvas continua no OrbitControls, dentro da cena; ele só avisa
   (`aoArrastar`) para a vista nomeada virar `livre`.
 - A HUD passou a narrar `resposta.fala || resposta.texto` e a calar a `silenciosa`.
+
+---
+
+## 13. Desempenho: lotes instanciados (Fase 7)
+
+Cada peça avulsa custa **duas** chamadas de desenho (a malha translúcida e o contorno). Um objeto de
+250 peças são 500 chamadas por quadro só na cena, antes dos passes do bloom — é o que pesa num
+celular, e a maior parte dessas peças são cópias de um `rep`/`rad` (dentes, parafusos, elos, aletas).
+
+**A regra:** passou de `LIMIAR_DE_INSTANCIAS` (**120**) peças, as cópias de uma mesma série viram um
+`LoteDaSerie` (`componentes/holograma/lote-instanciado.ts`): a malha é um `InstancedMesh` e o
+contorno, um `LineSegments` sobre `InstancedBufferGeometry` que lê **a mesma** matriz por instância.
+Duas chamadas por série, em vez de duas por cópia. Abaixo de 120 nada muda.
+
+- **A série vem do servidor**, no campo `serie` da peça (seção 7), e não de um palpite pelo id. A HUD
+  não sabe o total de peças de antemão (o objeto chega em stream), então ao cruzar o limiar as séries
+  que já estão na tela trocam a peça avulsa pelo lote no meio da montagem, e as cópias seguintes já
+  nascem no lote. O estado da animação é da `PecaNaCena`, não do desenho: a entrada não reinicia.
+- **Nada do comportamento muda.** Entrada, flash, explosão, destaque, filtros (isolar, esconder),
+  hover, seleção, toque duplo e miniatura valem por cópia. A cópia escondida vira escala zero; o raio
+  devolve o `instanceId` e a cena o traduz para a peça.
+- **Cor e opacidade por instância** num atributo RGBA `corDaInstancia` que o shader `basic` do
+  Three.js (o mesmo da malha e da linha) multiplica no `diffuse` e no `opacity`. Multiplicar só a cor
+  daria a mesma luz no blending aditivo, mas não a mesma névoa: cada carcaça translúcida somaria a
+  cor de fundo inteira, e um motor com dezenas delas ficaria azulado. Os trechos de shader
+  substituídos são do Three.js 0.186; o `lote-instanciado.spec.ts` os confere contra o pacote
+  instalado, para uma atualização que os renomeie quebrar o teste e não a tela.
+- **Fica avulsa:** a `line` (linha contínua, que o `InstancedMesh` não desenha) e a peça sem série.
+- **Enquadramento:** as matrizes do lote só são escritas no quadro, e o `centralizar` pode vir antes
+  dele; ele escreve as matrizes primeiro, e mede peça a peça (a caixa do contorno instanciado é a de
+  uma cópia na origem e puxaria o enquadramento para o centro).
+
+### A medida
+
+Abra a HUD com **`?medir=1`**: a cena publica, uma vez por segundo, "N fps · M chamadas · P peças ·
+S séries instanciadas" no canto de baixo (fora do leitor de tela). **`?instancias=0`** desliga os
+lotes — é o "antes". As chamadas somam o quadro inteiro (cena, bloom e saída).
+
+`e2e/desempenho.spec.ts` monta um objeto sintético de **250 peças, 218 delas em seis séries**, e
+mede os dois modos no Chrome sem vsync (`--disable-gpu-vsync --disable-frame-rate-limit`; com vsync
+os dois batem no teto do monitor e a comparação não diz nada), com a CPU cheia e com a CPU 4× mais
+lenta (CDP `Emulation.setCPUThrottlingRate`, aproximando um celular). Medido em 30/10/2026 no PC de
+desenvolvimento (Windows 11, Chrome, 1440×1000, mediana de 6 segundos, três rodadas):
+
+| CPU | Antes (`?instancias=0`) | Depois | Chamadas por quadro |
+|---|---|---|---|
+| cheia | 285–300 fps | 1042–1102 fps | 535 → 111 |
+| 4× mais lenta | 53–58 fps | 128–141 fps | 535 → 111 |
+
+As capturas dos dois modos (`cena-avulsa.png` e `cena-instanciada.png`, nos anexos do teste) são
+iguais em cor, contorno, preenchimento e enquadramento. O número que vale para o celular de verdade
+se mede nele: `?medir=1` funciona em qualquer aparelho.
+
+---
+
+## 14. Benchmark dos geradores (Fase 7)
+
+Dez objetos de referência, que cobrem mecânica, biologia, química, arquitetura, anatomia, astronomia
+e eletrônica (`BenchmarkDeHolograma.OBJETOS`): motor V8, DNA, átomo de carbono, torre Eiffel, coração
+humano, sistema solar, drone quadricóptero, guitarra, prédio de 10 andares e teclado mecânico.
+
+### Como roda
+
+| Rota | O que faz |
+|---|---|
+| `POST /api/holograma/benchmark?detalhe=normal&provedores=local,anthropic` | Começa e volta **202** com o andamento; **409** se já há um rodando (com o andamento dele); 400 para nível ou gerador desconhecido (`haiku` vale como `anthropic`) |
+| `GET /api/holograma/benchmark` | `{rodando, feitas, total, atual, relatorio, markdown}` — o último relatório pronto fica até o próximo |
+
+Bearer como o resto de `/api`. Quem dispara é o `scripts/benchmark-holograma.mjs`
+(`HUD_TOKEN=... node scripts/benchmark-holograma.mjs <url-da-api> [--detalhe normal] [--provedores local,anthropic]`),
+que acompanha a cada 10 s e grava o Markdown na pasta atual. Na VPS ficam `<data>.json` e `<data>.md`
+em `HOLOGRAMA_PASTA/benchmark/`.
+
+- **O caminho é o da HUD**: `HologramaService.medir` usa o mesmo prompt, provedor, stream, montagem e
+  continuação. Tira só três coisas: a **reserva** (o local que caiu seria medido como Haiku), a
+  **galeria** (medir não pode trocar o objeto que o dono guardou) e a **retomada**.
+- **Um de cada vez**, objeto por objeto, alternando os geradores: há uma GPU só no PC. Gerar pela HUD
+  no meio corta a medição em andamento, que entra no relatório como `substituido`.
+- Local fora de alcance (PC desligado, `IA_LOCAL_ATIVA=false`) não é tentado: a linha sai
+  "indisponível (motivo)" e fica fora dos piores — é ambiente, não resultado do prompt.
+- **Os números são os da linha de log de fim de geração** (seção 8): 1ª peça, total, peças (cópias
+  expandidas), linhas aceitas (como o modelo as escreveu), linhas com `rep`/`rad`, descartadas,
+  chamadas (inicial + continuações), tokens, custo, status e motivo. O JSON guarda também o NDJSON
+  aceito de cada geração — é o que se lê para ajustar o prompt — e até cinco linhas descartadas.
+- **Piores**, do mais grave ao menos: sem peça; incompleto; com linha descartada (pela fração);
+  objeto pobre (menos linhas de peça do que o piso do nível: 13, 28 ou 58).
+
+Sem a VPS, o gerador local se mede nesta máquina com `BenchmarkComOllamaTest` (seção 18): o mesmo
+`BenchmarkDeHolograma` e o mesmo `HologramaService`, com um provedor de teste (`OllamaDireto`) que
+manda ao Ollama o corpo que o agente do PC monta. Falta só o salto do E2, de milissegundos.
+
+### Resultados de 30/10/2026
+
+**Local** (`qwen3.5:9b`, Q4_K_M, `num_ctx` 8192, temperatura 0,4, nível `normal`, Ollama do PC de
+desenvolvimento pelo `BenchmarkComOllamaTest`), com o prompt antes e depois do ajuste da seção 16. Uma
+amostra por objeto — o modelo varia de uma geração para outra, então diferença de poucas linhas não é
+sinal:
+
+| Objeto | 1ª peça antes → depois | Total | Peças | Linhas (com rep/rad) | Status depois |
+|---|---|---|---|---|---|
+| motor V8 | 64,5 s* → 5,2 s | 121,5 → 56,3 s | 29 → 28 | 29 → 28 (0) | completo |
+| DNA | 4,1 → 5,2 s | 35,4 → 67,2 s | 16 → 32 | 16 → 32 (0) | completo |
+| átomo de carbono | 3,6 → 4,8 s | 41,0 → 27,3 s | 23 → 13 | 23 → 13 (0) | completo |
+| torre Eiffel | 3,9 → 4,4 s | 54,6 → 132,6 s | 24 → **151** | 24 → 61 (**30**) | completo |
+| coração humano | 4,1 → 4,8 s | 58,4 → 24,4 s | 21 → 15 | 21 → 10 (2) | completo |
+| sistema solar | 3,4 → 4,3 s | 32,5 → 31,0 s | 18 → 18 | 18 → 18 (0) | completo |
+| drone quadricóptero | 4,8 → 2,7 s | 33,2 → 29,3 s | 13 → 16 | 13 → 16 (0) | completo |
+| guitarra | 5,2 → 4,6 s | 162,0 → **55,3 s** | 64 → **122** | 64 → 29 (**23**) | completo |
+| prédio de 10 andares | 5,4 → 2,7 s | 76,5 → 432,0 s | 27 → 99 | 27 → 99 (0), 3 chamadas | completo |
+| teclado mecânico | 4,2 → 2,9 s | 180,0 → 174,0 s | 78 → 77 | 78 → 77 (0), 3 chamadas | incompleto (contexto) |
+| **soma / mediana** | 4,2 → 4,6 s | 58,4 → 56,3 s | **313 → 571** | rep/rad: 0 → 55 linhas | 9/10 → 9/10 |
+
+\* O primeiro pedido carregou o modelo na GPU.
+
+Antes, **peças = linhas em todas as gerações**: o Qwen nunca usava `rep`/`rad`. Zero linhas descartadas
+nas duas rodadas — o formato não é o problema dele; a forma é.
+
+**Anthropic (Haiku): não medido aqui.** A chave mora no `.env` da VPS; a medida é o
+`scripts/benchmark-holograma.mjs` contra a API depois do deploy (seção 18), e a tabela acima vira
+comparação dos dois geradores no mesmo relatório.
+
+---
+
+## 15. Falhas que não podem travar a HUD (Fase 7)
+
+| Falha | Onde é tratada | Teste |
+|---|---|---|
+| Texto (ou cerca de markdown) antes do JSON | `HologramaLineParser` descarta a linha e ela conta em `descartadas` | `HologramaServiceTest.textoECercaDeMarkdownAntesDoJsonNaoAtrapalham`, `BenchmarkDeHologramaTest`, e2e "lixo antes e no meio do stream" |
+| Linha cortada no meio | No servidor, `BufferDeLinhas` junta os deltas até a quebra de linha; a meia linha do fim é descartada e a continuação segue sem ela. Na HUD, `LeitorSse` + `TextDecoder` em modo stream juntam o evento partido, até no meio de um caractere UTF-8 | `linhaPartidaEntreDeltasViraUmaPecaSo`, `oTetoDeTokensPedeAContinuacaoComOQueJaChegou`, e2e "evento partido em dois pacotes" |
+| Stream interrompido | Servidor: `erro` + `fim` incompleto, as peças ficam. HUD: corpo que acaba sem `fim`, ou `fetch` que falha com peça na tela, vira `incompleto` com **Continuar** | `haikuQueCaiNoMeioMantemAsPecas…`, `streamQueAcabaSemFimTambemContinua`, e2e "o servidor derruba a conexão no meio" (com o Continuar mandando `recebidas=2`) |
+| 0 peças | Servidor: `erro` "O modelo não devolveu um objeto válido." (com reserva, o outro gerador tenta antes). HUD: estado legível, sem Continuar, Gerar de volta | `respostaSemNenhumaPeca…` (os dois), e2e "objeto sem nenhuma peça" (também o stream que fecha sem nada) |
+| HUD desconecta no meio | Servidor: a escrita que falha (ou o `:gerando` a cada 3 s) corta o modelo e guarda a retomada por 30 min. HUD: 15 s sem byte viram `incompleto`, e o `fetch` abortado fecha o socket do lado do servidor | `aHudQueCaiNoMeioCortaOModeloEARetomadaTerminaOObjeto`, `oClienteQueSaiCortaOModeloAntesDaPrimeiraPeca`, e2e "conexão muda" |
+| Câmera negada ou ocupada | `RastreioDeMaoService.explicar`: frase curta, botão solto, mouse e toque seguem | e2e `holograma.spec.ts` (negada) e `falhas.spec.ts` (ocupada) |
+| Pouca luz | `gestos/luz.ts`: "Pouca luz · acenda uma luz" em vez de "Sem mão" para sempre (seção 10) | `luz.spec.ts`, e2e "câmera escura" com um Y4M quase preto como webcam falsa |
+
+Todo e2e de falha termina em `aindaResponde`: a cena ainda desenha um quadro, Explodir/Montar
+responde e o botão Gerar (ou Cancelar) está habilitado, sem `pageerror`. O `falhas.spec.ts` sobe um
+servidor HTTP de verdade no próprio teste, porque o `route.fulfill` do Playwright entrega o corpo
+inteiro de uma vez e não sabe partir um evento nem derrubar o socket no meio.
+
+---
+
+## 16. O ajuste do prompt (Fase 7)
+
+### O que o benchmark mostrou
+
+Os piores da primeira rodada (prompt antigo, Qwen) e o que as linhas cruas diziam:
+
+1. **Teclado mecânico: incompleto, 78 linhas em 180 s.** Escrevia `switch_1`, `switch_2`… à mão, uma
+   linha por tecla, até estourar o prazo. Peças = linhas em todos os dez objetos: `rep`/`rad` nunca
+   eram usados. A regra existia, mas era uma frase abstrata no meio de "ORDEM E ESTRUTURA".
+2. **Drone (13), DNA (16), sistema solar (18), coração (21): objetos magros**, abaixo das 30 linhas do
+   nível `normal`. O nível falava em "linhas" sem dizer que `rep` conta como uma.
+3. **Escala real em vez de maquete**: base do teclado com `"s":[36,1,20]` num cubo de −5 a 5 — o
+   validador prende em 8, e a base fica do tamanho das teclas.
+4. **Altura no eixo errado**: a base saía em `"p":[0,0,-2.5]` em quase todas as amostras — o
+   "apoiado em y = −2" ia para o z, e o objeto deitava contra o fundo.
+5. **Nomes em snake_case** (`"n":"switch_azul"`, `"nome":"teclado_mecanico"`): é o que aparece na
+   tela e o que a voz usa para achar a peça.
+
+### O diff
+
+```diff
+-NÍVEL DE DETALHE: {{DETALHE}}  (rapido = 15 a 30 linhas | normal = 30 a 60 linhas | detalhado = 60 a 110 linhas)
++NÍVEL DE DETALHE: {{DETALHE}}  (rapido = 15 a 30 linhas de peça | normal = 30 a 60 | detalhado = 60 a 110)
++Uma linha com "rep" ou "rad" conta como UMA linha, por mais cópias que gere. Chegue ao número do nível com peças DIFERENTES (subconjuntos, eixos, suportes, juntas, parafusos, encaixes), nunca com cópias escritas à mão.
+@@ REGRAS DE SAÍDA
+-- Cada linha precisa ser JSON válido e completo por si só.
++- Cada linha precisa ser JSON válido e completo por si só. Toda peça tem "p", "s" e "c".
++
++REPETIÇÃO (use sempre que houver peças iguais)
++- Iguais em fila (teclas, degraus, andares, janelas, trastes, dentes em linha): UMA linha com "rep":{"n":quantidade,"d":[dx,dy,dz]}, sendo "d" o passo de uma cópia para a seguinte.
++- Iguais em círculo ou em volta de um centro, mesmo que sejam só 3 ou 4 (pás, raios, braços, pernas, rodas, colunas, parafusos de um flange, elétrons): UMA linha com "rad":{"n":quantidade,"r":raio,"ax":"y"} em volta de "p"; "a" opcional é o ângulo inicial em graus.
++- "rep" e "rad" juntos formam uma hélice (escada caracol, pares de bases).
++- A linha com rep ou rad já é a primeira cópia: não escreva a peça avulsa antes dela.
++- "rep" com "d":[0,0,0] põe todas as cópias no mesmo lugar: em volta de um centro é "rad".
++- Nome terminado em número ("Braço 1", "Motor 2", "Tecla 3") ou id terminado em _1, _2, _3 é sinal de repetição à mão: troque por UMA linha com rep ou rad.
++- Exemplo, oito janelas de um vagão numa linha: {"t":"p","id":"janela",...,"rep":{"n":8,"d":[0.8,0,0]}}
++- Exemplo, as quatro pernas de uma mesa numa linha (em volta do centro, a 45° dos lados): {"t":"p","id":"perna",...,"rad":{"n":4,"r":1.7,"ax":"y","a":45}}
+@@ ECONOMIA
+-- ids curtos (até 16 caracteres, ex.: "pe_ne", "arco_1") e nomes (n) curtos, de até 3 palavras.
++- ids curtos (até 16 caracteres, ex.: "pe_ne", "arco") e nomes (n) curtos, de até 3 palavras.
+@@
+-COORDENADAS
++COORDENADAS E ESCALA
+ - Y aponta para cima. O objeto inteiro cabe no cubo de -5 a 5, centralizado na origem e apoiado perto de y = -2.
++- "p" é [x, y, z] e a altura é o SEGUNDO número: a base de um objeto fica em "p":[0,-2,0], nunca em [0,0,-2]. O terceiro número é profundidade (frente e trás).
++- É uma maquete, não o tamanho real: a maior medida do objeto inteiro fica entre 6 e 8 unidades. Nenhum número de "s" passa de 8 (um teclado tem 8 de largura, não 12 nem 36), e as peças pequenas ficam proporcionais a ele.
+@@ ORDEM E ESTRUTURA
+-- Use "rep" ({"n":4,"d":[dx,dy,dz]}) para peças repetidas em linha e "rad" (...) para peças em círculo em volta de "p". (...) Nunca escreva a mesma peça várias vezes à mão.
+-- Nomes (n) em português; ids em snake_case sem acento, únicos.
++- Nomes ("n" e o "nome" da meta) em português, como se fala, com espaços e acentos: "Tecla de espaço", "Pá da hélice". Nunca snake_case nos nomes.
++- ids e grupos em snake_case sem acento; ids únicos.
+@@ ESTILO
+-- Paleta neon: #38bdf8 (ciano), ... Use uma cor por grupo.
++- Use só esta paleta neon: #38bdf8 (ciano), ... Uma cor por grupo.
+```
+
+### Por quê, linha a linha
+
+- **REPETIÇÃO virou seção com exemplos de linha inteira.** Modelo pequeno copia exemplo melhor do
+  que segue regra; a regra antiga cabia numa frase e não tinha nenhum. Os exemplos são de objetos
+  **fora** do benchmark (vagão, mesa), para não ensinar a resposta da prova. O "arco_1" saiu do exemplo
+  de id porque ensinava exatamente o sufixo numérico que denuncia a cópia à mão.
+- **O sinal do nome com número** ("Braço 1", `_1`) é a forma mais concreta de o modelo perceber a
+  repetição no instante em que a está escrevendo — foi o padrão de todas as cópias à mão nas amostras.
+- **O caso "3 ou 4 em volta do centro"** e o `d` nulo vieram das sondas do drone: braços e motores à
+  mão, depois `rep` com `"d":[0,0,0]`, que empilha as quatro cópias no mesmo ponto.
+- **"Linhas de peça" e "rep conta como uma"** separam o tamanho pedido do número de cópias, para o
+  nível ser cumprido com partes diferentes.
+- **Altura no segundo número, com o par certo e o errado**: foi o defeito mais sistemático das
+  sondas, e o único que um exemplo só resolveu de vez.
+- **Maquete de 6 a 8**: o teto de 8 já era do validador; dizer ao modelo evita a peça presa e
+  desproporcional.
+- **Nomes como se fala e só a paleta**: "Pistão esquerdo" é o que a voz resolve e a tela mostra.
+
+### O que mudou, e o que não
+
+Pelo benchmark (seção 14): peças de 313 para 571, linhas com `rep`/`rad` de **0 para 55**, a torre
+Eiffel e a guitarra passaram a usar repetição (151 e 122 peças; a guitarra caiu de 162 para 55 s),
+o DNA dobrou, os nomes saem em português e a base no chão. **Não resolveu** o teclado nem o prédio:
+o prédio escreveu a mesma linha `"id":"janela"` noventa vezes (o validador renomeia para `janela_2`…
+e conta cada uma como repetida) e o teclado escreveu `switch_coluna_1…73` — exatamente o padrão que a
+regra nova descreve. Os dois agora usam as três chamadas e o teclado ainda fecha incompleto. Coração e
+átomo saíram mais magros nesta amostra.
+
+*Ressalva:* o exemplo de escala cita "teclado" e o de nome cita "Tecla de espaço", e o teclado é um
+dos dez objetos do benchmark. Não ajudou o teclado nesta rodada, mas, se for comparar prompts no
+futuro, troque esses dois exemplos por objetos fora da lista.
+
+**Próximo passo, se o local virar o gerador padrão:** a repetição à mão é o que estoura prazo e
+contexto, e prompt não a elimina num modelo de 9B. O servidor já a enxerga (a mesma forma e o mesmo
+tamanho em linhas seguidas, ou ids com sufixo crescente) e poderia cortá-la — parar a geração depois de
+N cópias à mão, ou reescrever o pedido de continuação dizendo qual peça repetir com `rep`. Isso muda o
+contrato da montagem, e fica para decidir junto. O prompt vale também para o Haiku, que é o gerador
+padrão: rode o `scripts/benchmark-holograma.mjs` logo depois do deploy. As regras novas são genéricas,
+mas só a medida diz se não pioraram nada lá.
+
+---
+
+## 17. Como configurar
+
+Tudo no `.env` da VPS (`JarvisProperties` → `application.yml` → `.env.example`), mais o agente do PC
+para o gerador local:
+
+| Variável | Padrão | Para quê |
+|---|---|---|
+| `HOLOGRAMA_PROVEDOR` | `anthropic` | Gerador padrão; o outro é a reserva antes da primeira peça. A HUD escolhe por pedido (`?provedor=haiku\|local`) |
+| `HOLOGRAMA_MODELO` | `claude-haiku-5-5` | Modelo da Anthropic só do holograma; vazio usa o `ANTHROPIC_MODELO` |
+| `HOLOGRAMA_TEMPERATURA` | `0.4` | Só o local; a Anthropic recusa o campo |
+| `HOLOGRAMA_MAX_TOKENS_RAPIDO` / `_NORMAL` / `_DETALHADO` | 4000 / 8000 / 16000 | Teto de saída por chamada na Anthropic; acima dele vêm até duas continuações |
+| `HOLOGRAMA_PRECO_ENTRADA_USD` / `_SAIDA_USD` | 0.10 / 0.50 | Só a estimativa do selo e do log; o custo real é o do `MedidorDeCusto` (`Origem.HOLOGRAMA`) |
+| `HOLOGRAMA_PASTA` | `/data/jarvis/holograma` | Galeria (volume `holograma`) e, em `benchmark/`, os relatórios do benchmark |
+| `IA_LOCAL_ATIVA` | `false` | Chave mestra do gerador local; desligada, o local nunca é tentado, nem como reserva |
+
+No PC (`jarvis-agente-pc/config.properties`): `ollama.ativo=true`, `ollama.modelo` (o gerador local
+é o que estiver ali), `ollama.contexto=8192` e `ollama.timeoutSegundos` (no stream, inatividade).
+
+Na HUD não há configuração do holograma além da URL e do token da API. Parâmetros de URL só para
+medir: `?medir=1` e `?instancias=0` (seção 13). nginx: nada a mudar (seção 8).
+
+---
+
+## 18. Como testar
+
+```bash
+# Backend: tudo, ou só o holograma
+mvn -q -B package
+mvn -B test -Dtest='Holograma*Test,BenchmarkDeHologramaTest,GaleriaDeHologramasTest,MontagemDeHologramaTest'
+
+# HUD (no repositório irmão jarvis-hud)
+npx ng test --watch=false                                  # unitários (Vitest)
+npx playwright test e2e/falhas.spec.ts --reporter=list     # as falhas da seção 15
+npx playwright test e2e/desempenho.spec.ts --reporter=list # FPS antes e depois (seção 13)
+npx playwright test e2e/gestos.spec.ts                     # MediaPipe de verdade com câmera falsa
+
+# Benchmark do gerador local nesta máquina, sem a VPS (precisa do Ollama com o modelo)
+mvn -B test -Dtest=BenchmarkComOllamaTest -Dbenchmark.ollama=http://127.0.0.1:11434 -Dbenchmark.detalhe=normal
+
+# Benchmark de verdade, na VPS, com os dois geradores (seção 14)
+HUD_TOKEN=... node scripts/benchmark-holograma.mjs https://jarvis.barberagendaonline.store
+```
+
+Na mão: abrir a HUD, Holograma, gerar "motor V8" no nível Detalhado e conferir que as peças chegam
+uma a uma, que o Explodir afasta cada grupo para o seu lado e que o selo mostra gerador, peças e
+custo; com `?medir=1`, conferir o FPS e as séries instanciadas num objeto grande.
+
+**Falhas conhecidas que não são desta fase:** dois e2e de `holograma.spec.ts` ("monta o exemplo
+pelo stream" e "explica o token recusado") ainda procuram os botões de exemplo que a galeria
+substituiu, e o `controle.spec.ts` "mostra o QR, aplica os gestos do celular…" para em "Vista
+explodida = 0" esperando 60. Os três falham igual no código anterior à Fase 7 (conferido em
+30/10/2026 com as mudanças da fase guardadas no `git stash`).
