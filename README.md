@@ -494,8 +494,12 @@ originais locais não estão disponíveis. Google Sheets nativo não faz parte d
 #### Editar
 
 `editar_arquivo` edita `.txt`, `.md`, `.json` e `.xlsx` diretamente na `pastaArquivos` do agente.
-Use o ID e `versaoEsperada` (SHA-256) de `listar_arquivos`/`ler_arquivo` e leia o
-arquivo antes de propor operações. São aceitas `substituir_trecho` (uma ocorrência
+O servidor guarda ID e `versaoEsperada` (SHA-256) do arquivo selecionado por usuário,
+conversa e canal. `ler_arquivo` permite omitir `id`; `editar_arquivo` permite omitir
+`id` e `versaoEsperada` para usar esse vínculo. Chamadas com os campos explícitos
+continuam aceitas, mas outro ID exige selecionar e ler o novo arquivo, e uma versão
+divergente exige releitura. Leia o arquivo antes de propor operações.
+São aceitas `substituir_trecho` (uma ocorrência
 exata), `substituir_todas_ocorrencias` (busca literal, com opção de ignorar maiúsculas),
 `acrescentar_ao_final` e `substituir_conteudo` (somente após leitura integral
 e pedido explícito de reescrita). O agente devolve prévia limitada e `editId`; o servidor também
@@ -513,10 +517,20 @@ somente um escalar existente. O agente recusa JSON inválido, chaves repetidas, 
 ausente e tipo divergente. A serialização pode mudar espaços e apresentação lexical.
 Não há inserção, remoção, merge nem patch arbitrário de JSON.
 
-Pedidos como “edite esse arquivo” usam somente o único anexo TXT/MD da resposta
-imediatamente anterior do mesmo usuário e canal, entregue há no máximo dez minutos.
-Sem essa referência, o Jarvis pede o nome exato. Se a edição falhar, o mesmo pedido
-não cria um arquivo substituto. IDs e hashes ficam fora das mensagens comuns.
+Pedidos como “edite esse arquivo”, “nessa planilha” e complementos como “R$ 6” podem
+usar o alvo selecionado de TXT/MD/JSON/XLSX sem repetir seu nome. Criação confirmada,
+leitura e seleção única no catálogo estabelecem o vínculo; listas ambíguas não escolhem
+um alvo nem reutilizam silenciosamente o anterior. A criação recupera o ID pelo nome
+exato confirmado pelo PC; se a consulta falhar, o nome fica pendente para a próxima leitura.
+O vínculo acompanha o histórico salvo, sobrevive à compactação, à expiração dos turnos
+e ao restart, e é removido ao limpar a conversa ou substituído ao selecionar outro arquivo.
+A prova de leitura vale dez minutos e precisa ser renovada após reiniciar, editar ou
+desfazer. Edição confirmada atualiza a versão mesmo quando a entrega do anexo falha.
+Resultado incerto exige consultar `status_operacao_pc` até haver estado final e depois reler;
+não há repetição automática da gravação. Tarefas agendadas não herdam esse vínculo.
+Se a edição falhar, o mesmo pedido não cria um arquivo substituto. IDs e hashes ficam
+fora das mensagens comuns. A restrição do catálogo para arquivos alterados externamente
+continua valendo: esta continuidade não força sobrescrita nem atualiza esse catálogo.
 
 No XLSX, leia a versão atual e use `buscaValor` em `ler_arquivo` para localizar a célula;
 `buscaCabecalho`, `tabela` e `aba` restringem a busca. Havendo mais de uma correspondência,

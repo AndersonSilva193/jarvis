@@ -230,6 +230,9 @@ public class ApagarArquivoFerramenta implements Ferramenta {
                 continue;
             }
             apagados.add(alvo.nome());
+            if (contexto.contextoArquivo() != null
+                    && contexto.contextoArquivo().corresponde(alvo.id(), alvo.nome()))
+                contexto.contextoArquivo().exigirReleitura();
             contarApagado(pedido);
             anotar(alvo.nome(), resultado, contexto);
             if (dias == 0) dias = diasDeRetencao(resultado);

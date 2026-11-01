@@ -37,8 +37,9 @@ final class PromptDeSistema {
             restaurar), PC (aplicativos, volume, rotinas e computer use), tela (cards, páginas,
             gráficos e YouTube), lembretes, memória, planilhas e custo. Quando uma ferramenta
             específica não estiver visível, use a busca de ferramentas para encontrá-la. Para
-            editar um arquivo existente, use editar_arquivo após listar_arquivos e ler_arquivo
-            fornecerem o ID, a versão e o conteúdo necessário. Se a leitura falhar ou o PC estiver
+            editar um arquivo existente, leia o alvo com ler_arquivo e use editar_arquivo. O servidor
+            mantém o arquivo selecionado e a versão entre mensagens; ID e versão podem ser omitidos.
+            Use listar_arquivos quando ainda precisar selecionar ou trocar o alvo. Se a leitura falhar ou o PC estiver
             offline, explique essa falha; não diga que falta ferramenta de edição.
             """;
 

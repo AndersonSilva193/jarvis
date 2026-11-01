@@ -479,9 +479,13 @@ O agente guarda backup protegido, revalida hash antes do move atômico e recusa
 conflitos. A janela residual contra editores externos sem lock impede prometer
 compare-and-swap perfeito. O expurgo configurável de backups limita desfazer.
 `substituir_todas_ocorrencias` troca todas as correspondências literais, com opção
-de ignorar maiúsculas, e a prévia informa a contagem. “Esse arquivo” só referencia
-o único anexo TXT/MD da resposta anterior do mesmo usuário e canal, por dez minutos;
-nomes explícitos são comparados exatamente. O **nome falado** — o nome sem extensão, como
+de ignorar maiúsculas, e a prévia informa a contagem. O `ContextoArquivo`, pertencente
+ao `Assistente`, guarda o alvo real por usuário autenticado, chat e canal. ID, nome,
+formato e versão vêm do catálogo/leitor ou de edição confirmada, nunca da narrativa
+do modelo. `ler_arquivo` pode omitir ID; `editar_arquivo` pode omitir ID e versão.
+“Esse arquivo”, “nessa planilha” e complementos como “R$ 6” podem usar o mesmo alvo
+TXT/MD/JSON/XLSX sem repetir o nome. Seleção ambígua não conserva o alvo anterior;
+nome explícito diferente exige localizar e ler o novo arquivo. O **nome falado** — o nome sem extensão, como
 “assistentes ia mais usados 2026” — vale para todo formato editável, e não só para planilha;
 quem garante que ele aponta para um arquivo só é o `apelidoUnico` que o agente calcula contra o
 catálogo **inteiro**, de modo que `relatorio.md` ao lado de `relatorio.xlsx` torna o apelido
@@ -490,6 +494,17 @@ cria outro documento. Leituras paginadas da mesma versão podem comprovar leitur
 integral para reescrita; registros de leitura expiram em dez minutos. A VPS confere também os
 intervalos efetivamente entregues ao modelo, pois o agente pode ter marcado como lido um trecho
 que o limite de resultado encurtou.
+O vínculo vai no `contextosArquivos` do histórico, separado dos turnos que expiram ou
+são compactados; registros antigos sem esse campo continuam legíveis. Limpar/esquecer a
+conversa remove o vínculo. Após restart, edição ou desfazer, a identidade permanece, mas
+é obrigatório reler. A versão confirmada vem do `dados.versao` do resultado de aplicação,
+inclusive sem anexo. Operação em andamento/incerta fica vinculada ao ID do comando até
+`status_operacao_pc` observar estado final; só então uma releitura libera nova edição.
+Se o modelo falhar depois de um efeito real, salva-se o contexto atualizado com os turnos
+anteriores completos, sem guardar o turno incompleto. Tarefa agendada não herda esse estado.
+O resumo do alvo entra somente no system dinâmico, uma vez por turno; nunca nas definições
+das ferramentas nem na personalidade. O protocolo do PC e a recusa a arquivos alterados
+externamente não mudam.
 `desfazer_edicao` pode omitir `editId` para a última edição original concluída
 enquanto a instância do servidor permanecer ativa.
 

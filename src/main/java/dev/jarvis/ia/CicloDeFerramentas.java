@@ -94,7 +94,7 @@ final class CicloDeFerramentas {
         // os blocos de pensamento que ele devolveu sob o system anterior. É aqui, então, que o
         // resumo da memória é decidido: com o usuário do pedido e a mensagem dele, uma vez só.
         InstrucoesDeSistema system = SistemaDoJarvis.instrucoes(sistema.blocos(canal,
-                progresso.usuarioAutenticado(), turno.getFirst().texto()));
+                progresso.usuarioAutenticado(), turno.getFirst().texto(), progresso.contextoArquivo()));
         // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
         // do cache de prompt. As adiadas são achadas pela busca de ferramentas do provedor, e a da
         // busca na web é server-side — quem executa é a Anthropic, e só ela a recebe.
@@ -220,6 +220,7 @@ final class CicloDeFerramentas {
                         @Override public String pedidoOriginal() { return turno.getFirst().texto(); }
                         @Override public String idTarefaPlanilha() { return progresso.idTarefaPlanilha(); }
                         @Override public String ultimoAnexoDeArquivo() { return progresso.ultimoAnexoDeArquivo(); }
+                        @Override public dev.jarvis.conversa.ContextoArquivo contextoArquivo() { return progresso.contextoArquivo(); }
                         @Override public boolean memoriaEsquecida() { return esqueceu.get(); }
                         @Override public void marcarMemoriaEsquecida() { esqueceu.set(true); progresso.marcarMemoriaEsquecida(); }
                         @Override public void marcarMemoriaEsquecida(String id, long revisao) {
@@ -257,7 +258,9 @@ final class CicloDeFerramentas {
                     if ("editar_arquivo".equals(nomeFerramenta)) {
                         boolean preparada = detalhados.size() > anteriores
                                 && (detalhados.getLast().confirmacao() != null
-                                        || !detalhados.getLast().artefatos().isEmpty());
+                                        || !detalhados.getLast().artefatos().isEmpty()
+                                        || textoIntegral.startsWith("Atualizei ")
+                                        || textoIntegral.contains("\nCópia criada: "));
                         falhaEdicao = preparada ? "" : textoIntegral;
                     }
                     if ("buscar_na_web".equals(nomeFerramenta) && !resultado.erro()

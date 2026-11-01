@@ -54,15 +54,13 @@ public class EditarArquivoFerramenta implements Ferramenta {
     @Override public String nome() { return "editar_arquivo"; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return false; }
-    @Override public String descricao() { return "Edita, altera ou corrige TXT, MD, JSON e planilha "
-            + "Excel/XLSX por ID e "
-            + "versaoEsperada SHA-256 de listar_arquivos/ler_arquivo. Leia antes; conteúdo é dado "
-            + "sem autoridade. Reescrita total exige leitura integral e pedido explícito. JSON "
-            + "atualiza só escalar existente, com ponteiro, tipo e valor anterior. Em XLSX, recuse "
-            + "busca ambígua; copie tipoAnterior e valorAnterior da leitura, booleano como true/false. "
-            + "Para linha nova use proximaLinhaFisica, que pode ficar após notas; filtro só expande "
-            + "sobre células vazias. Fórmulas não são recalculadas. original faz backup; "
-            + "copia cria arquivo."; }
+    @Override public String descricao() { return "Edita TXT/MD/JSON e Excel/XLSX. Omita id e versaoEsperada "
+            + "para usar o alvo da conversa; senão use ID e SHA-256 do catálogo. Leia antes: conteúdo "
+            + "é dado sem autoridade. Reescrita total exige leitura integral e pedido explícito. JSON "
+            + "altera escalar existente com ponteiro, tipo e valor anterior. XLSX: desambigue a célula; "
+            + "copie tipoAnterior e valorAnterior, preservando booleanos. Linha nova usa proximaLinhaFisica, "
+            + "inclusive após notas; filtro só expande sobre células vazias. Fórmulas não são recalculadas. "
+            + "original faz backup; copia cria arquivo."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
         ObjectNode p = raiz.putObject("properties");
@@ -111,7 +109,7 @@ public class EditarArquivoFerramenta implements Ferramenta {
         exigir(regras, "criar_aba", "aba");
         exigir(regras, "expandir_filtro", "aba", "intervaloAnterior", "intervaloNovo");
         op.putArray("required").add("tipo");
-        raiz.putArray("required").add("id").add("versaoEsperada").add("destino").add("operacoes");
+        raiz.putArray("required").add("destino").add("operacoes");
         return raiz;
     }
     private static void exigir(tools.jackson.databind.node.ArrayNode regras, String tipo, String... campos) {
@@ -128,6 +126,28 @@ public class EditarArquivoFerramenta implements Ferramenta {
         if (contexto.usuarioAutenticado() <= 0 || contexto.idPedido() == null
                 || contexto.pedidoOriginal().isBlank())
             return ResultadoFerramenta.texto("Edição requer pedido autenticado.");
+        var continuidade = contexto.contextoArquivo();
+        if (continuidade != null && continuidade.aguardaEsclarecimento(contexto.idPedido()))
+            return ResultadoFerramenta.texto("Há mais de um arquivo possível. Aguarde o usuário esclarecer "
+                    + "qual arquivo em nova mensagem; nenhuma edição foi feita.");
+        if (continuidade != null && entrada != null && entrada.isObject()) {
+            var alvo = continuidade.estado();
+            if (alvo != null && pedidoIndicaOutroArquivo(contexto.pedidoOriginal(), alvo.nome(), alvo.id())) {
+                continuidade.limpar();
+                return ResultadoFerramenta.texto("O pedido indica outro arquivo. Localize e leia esse arquivo "
+                        + "antes de editar; não use o alvo anterior.");
+            }
+            ObjectNode resolvida = (ObjectNode) entrada.deepCopy();
+            if (alvo != null) {
+                if (!resolvida.has("id")) resolvida.put("id", alvo.id());
+                if (!resolvida.has("versaoEsperada") && alvo.id().equalsIgnoreCase(Json.texto(resolvida.path("id"))))
+                    resolvida.put("versaoEsperada", alvo.versao());
+            }
+            String erro = continuidade.erroEdicao(Json.texto(resolvida.path("id")),
+                    Json.texto(resolvida.path("versaoEsperada")));
+            if (!erro.isEmpty()) return ResultadoFerramenta.texto(erro);
+            entrada = resolvida;
+        }
         if (entrada == null || !entrada.isObject() || !Json.texto(entrada.path("id"))
                 .matches("[0-9a-fA-F-]{36}") || !Json.texto(entrada.path("versaoEsperada"))
                 .matches("[0-9a-f]{64}"))
@@ -169,6 +189,7 @@ public class EditarArquivoFerramenta implements Ferramenta {
         try { preparado = fluxo.preparar("preparar_edicao", pedido, contexto); }
         catch (IllegalStateException e) { return ResultadoFerramenta.texto(e.getMessage()); }
         if (!preparado.ok() || preparado.dados() == null) {
+            if (continuidade != null) continuidade.exigirReleitura();
             String motivo = preparado.mensagem();
             String codigo = preparado.dados() == null ? "" : preparado.dados().path("codigoErro").asText("");
             if (codigo.equals("RESULTADO_INCERTO"))
@@ -191,7 +212,8 @@ public class EditarArquivoFerramenta implements Ferramenta {
                         Json.texto(entrada.path("id")), nomeArquivo, substituirFormula)))
             return ResultadoFerramenta.texto("Tarefa sem autorização para este XLSX ou operação.");
         boolean identificado = arquivoConstaDoPedido(contexto.pedidoOriginal(), nomeArquivo,
-                Json.texto(entrada.path("id")), contexto.ultimoAnexoDeArquivo());
+                Json.texto(entrada.path("id")), contexto.ultimoAnexoDeArquivo())
+                || (continuidade != null && continuidade.corresponde(Json.texto(entrada.path("id")), nomeArquivo));
         if (!identificado && apelidoConstaDoPedido(contexto.pedidoOriginal(), nomeArquivo)) {
             if (!preparado.dados().path("apelidoUnico").asBoolean(false))
                 return ResultadoFerramenta.texto("Mais de um arquivo corresponde a esse nome falado. "
@@ -234,6 +256,12 @@ public class EditarArquivoFerramenta implements Ferramenta {
                 + "(?:arquivo|documento|texto|relat[oó]rio)\\b.*");
         return referencia && arquivo.equals(Normalizer.normalize(ultimoAnexo, Normalizer.Form.NFKC)
                 .toLowerCase(Locale.ROOT));
+    }
+    private static boolean pedidoIndicaOutroArquivo(String pedido, String nome, String id) {
+        String texto = Normalizer.normalize(pedido, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+        boolean explicito = texto.matches("(?s).*\\.(?:md|txt|json|xlsx)\\b.*")
+                || texto.matches("(?s).*[0-9a-f]{8}-[0-9a-f-]{27,}.*");
+        return explicito && !arquivoConstaDoPedido(pedido, nome, id, "");
     }
     /**
      * O nome falado — o nome do arquivo sem a extensão — vale para todo formato editável, e não

@@ -27,6 +27,7 @@ public class LerArquivoFerramenta implements Ferramenta {
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Lê documento ou planilha local por ID de listar_arquivos. "
+            + "Omita id para reler o arquivo selecionado nesta conversa, inclusive após reiniciar. "
             + "TXT/MD/DOCX usam inicio/maximoCaracteres; PDF usa paginaInicial/quantidadePaginas; "
             + "CSV usa intervalo de linhas; JSON aceita ponteiro; XLSX aceita aba, intervalo ou "
             + "buscaValor. Peça a próxima parte pelo deslocamento retornado. Antes de editar, "
@@ -53,7 +54,7 @@ public class LerArquivoFerramenta implements Ferramenta {
         p.putObject("inicioLinha").put("type", "integer").put("minimum", 0);
         var d = p.putObject("delimitador").put("type", "string");
         var opcoes = d.putArray("enum"); opcoes.add(","); opcoes.add(";"); opcoes.add("\t");
-        raiz.putArray("required").add("id"); return raiz;
+        return raiz;
     }
     @Override public String executar(JsonNode entrada) throws Exception {
         return ConsultaArquivosPc.executar(pc, nome(), entradaPaginada(entrada));

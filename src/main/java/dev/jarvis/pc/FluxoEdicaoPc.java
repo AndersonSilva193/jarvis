@@ -75,6 +75,7 @@ public class FluxoEdicaoPc {
         try {
             var futuro = operacoes.enfileirar(comando, Duration.ofSeconds(30),
                     Duration.ofMinutes(2), contexto.canal(), contexto.usuarioAutenticado());
+            if (contexto.contextoArquivo() != null) contexto.contextoArquivo().operacaoPendente(comando.id());
             if ("aplicar_edicao".equals(acao) && original)
                 ultimasEdicoes.put(contexto.usuarioAutenticado(),
                         new UltimaEdicao(editId, comando.id()));
@@ -84,6 +85,20 @@ public class FluxoEdicaoPc {
             return ResultadoFerramenta.texto("Ainda em andamento; avisarei o resultado.");
         } catch (RuntimeException e) {
             return ResultadoFerramenta.texto("Não apliquei: " + e.getMessage());
+        }
+        if (contexto.contextoArquivo() != null) {
+            boolean incerto = resultado.dados() != null
+                    && "RESULTADO_INCERTO".equals(Json.texto(resultado.dados().path("codigoErro")));
+            if (!incerto) contexto.contextoArquivo().operacaoTerminou(comando.id());
+            if (resultado.ok() && "aplicar_edicao".equals(acao) && original) {
+                String nomeConfirmado = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
+                contexto.contextoArquivo().editado(nomeConfirmado,
+                        resultado.dados() == null ? "" : Json.texto(resultado.dados().path("versao")));
+            } else if (resultado.ok() && "aplicar_edicao".equals(acao) && !original) {
+                contexto.contextoArquivo().criado(resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", ""));
+            }
+            // Desfazer e cópia exigem uma nova leitura antes de qualquer alteração seguinte.
+            contexto.contextoArquivo().exigirReleitura();
         }
         if (!resultado.ok())
             return ResultadoFerramenta.texto("Não apliquei: " + resultado.mensagem());

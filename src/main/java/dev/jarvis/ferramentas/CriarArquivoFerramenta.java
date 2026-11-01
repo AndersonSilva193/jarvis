@@ -84,6 +84,9 @@ public class CriarArquivoFerramenta implements Ferramenta {
         if (entrada.path("pesquisaAtual").asBoolean(false) && !progresso.pesquisaFeita())
             return ResultadoFerramenta.texto("Faça a busca web antes de criar documento sobre fatos atuais.");
         if (!pc.online()) return ResultadoFerramenta.texto("O agente do PC está offline; não criei o arquivo.");
+        // Uma tentativa de criar outro arquivo não pode deixar o alvo anterior como fallback
+        // se a criação falhar ou ainda estiver em andamento.
+        if (progresso.contextoArquivo() != null) progresso.contextoArquivo().limpar();
         ComandoPc comando = new ComandoPc(java.util.UUID.randomUUID().toString(), "criar_arquivo", "",
                 Instant.now().toString(), entrada.deepCopy());
         dev.jarvis.pc.ResultadoPc resultado;
@@ -112,6 +115,15 @@ public class CriarArquivoFerramenta implements Ferramenta {
         String nome = resultado.mensagem();
         if (nome.isBlank() || nome.contains("/") || nome.contains("\\") || !nome.endsWith("." + formato))
             nome = Json.texto(entrada.path("nome")) + "." + formato;
+        if (progresso.contextoArquivo() != null
+                && dev.jarvis.conversa.ContextoArquivo.nomeValido(resultado.mensagem())) {
+            progresso.contextoArquivo().criado(resultado.mensagem());
+            try { ConsultaArquivosPc.resolverPendente(pc, progresso, json.createObjectNode()); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); throw e; }
+            catch (Exception consultaFalhou) {
+                // A criação já foi confirmada. O nome fica pendente para a próxima leitura.
+            }
+        }
         String mime = switch (formato) {
             case "md" -> "text/markdown";
             case "txt" -> "text/plain";

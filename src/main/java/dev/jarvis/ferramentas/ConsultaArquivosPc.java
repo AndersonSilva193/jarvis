@@ -8,7 +8,10 @@ import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.conversa.OuvinteProgresso;
+import dev.jarvis.conversa.ContextoArquivo;
+import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /** Chamada comum às duas consultas de arquivos, preservando o timeout da fila. */
 final class ConsultaArquivosPc {
@@ -30,8 +33,76 @@ final class ConsultaArquivosPc {
 
     static String executar(PcService pc, String acao, JsonNode entrada,
             OuvinteProgresso progresso) throws Exception {
+        ContextoArquivo contexto = progresso.contextoArquivo();
+        if (contexto != null && contexto.aguardaEsclarecimento(progresso.idPedido()))
+            return "A seleção de arquivo está ambígua. Peça ao usuário um detalhe para distinguir "
+                    + "o arquivo em nova mensagem; não escolha um resultado silenciosamente.";
+        if (contexto != null && "listar_arquivos".equals(acao) && entrada != null
+                && !Json.texto(entrada.path("nome")).isBlank()) contexto.limpar();
+        if (contexto != null && "ler_arquivo".equals(acao) && entrada != null && entrada.isObject()) {
+            var alvo = contexto.estado();
+            if (alvo != null && !alvo.operacaoPendente().isEmpty())
+                return "Consulte status_operacao_pc com id=" + alvo.operacaoPendente()
+                        + " antes de reler ou editar: o resultado da gravação ainda é incerto.";
+            ObjectNode pedido = (ObjectNode) entrada.deepCopy();
+            if (!pedido.has("id")) {
+                String erro = resolverPendente(pc, progresso, pedido);
+                if (!erro.isEmpty()) return erro;
+                alvo = contexto.estado();
+                if (alvo == null || alvo.id().isEmpty())
+                    return "Nenhum arquivo selecionado. Use listar_arquivos para localizar o arquivo.";
+                pedido.put("id", alvo.id());
+            } else if (alvo != null && pedido.path("id").isString()
+                    && !alvo.id().equalsIgnoreCase(pedido.path("id").asText())) {
+                contexto.limpar();
+            }
+            Resposta resposta = consultar(pc, acao, pedido, progresso);
+            if (!resposta.temDados()) {
+                contexto.exigirReleitura();
+                return resposta.recado();
+            }
+            if (!Json.texto(resposta.dados().path("id")).equalsIgnoreCase(Json.texto(pedido.path("id")))) {
+                contexto.exigirReleitura();
+                return "O PC devolveu outro ID na leitura; não selecionei esse resultado.";
+            }
+            if (!contexto.registrar(resposta.dados(), true)
+                    && java.util.Set.of("txt", "md", "json", "xlsx")
+                            .contains(Json.texto(resposta.dados().path("formato")))) {
+                contexto.exigirReleitura();
+                return "Leitura sem ID, nome ou versão válidos; não há versão verificada para editar.";
+            }
+            return resposta.dados().toString();
+        }
         Resposta resposta = consultar(pc, acao, entrada, progresso);
+        if (contexto != null && "listar_arquivos".equals(acao) && resposta.temDados()) {
+            JsonNode dados = resposta.dados();
+            JsonNode arquivos = dados.path("arquivos");
+            if (dados.path("total").asInt(-1) == 1 && arquivos.isArray() && arquivos.size() == 1
+                    && !dados.path("temMais").asBoolean(false)) {
+                if (!contexto.registrar(arquivos.get(0), false)) contexto.limpar();
+            } else if (dados.path("total").asInt(0) > 1) contexto.selecaoAmbigua(progresso.idPedido());
+            else contexto.limpar();
+        }
         return resposta.temDados() ? resposta.dados().toString() : resposta.recado();
+    }
+
+    /** A criação só devolve o nome; a identidade permanente é recuperada do catálogo real. */
+    static String resolverPendente(PcService pc, OuvinteProgresso progresso, ObjectNode modelo) throws Exception {
+        ContextoArquivo contexto = progresso.contextoArquivo();
+        var alvo = contexto == null ? null : contexto.estado();
+        if (alvo == null || !alvo.id().isEmpty()) return "";
+        for (int pagina = 1; pagina <= 10; pagina++) {
+            var pedido = modelo.deepCopy().removeAll().put("nome", alvo.nome()).put("pagina", pagina)
+                    .put("tamanhoPagina", 50);
+            Resposta resposta = consultar(pc, "listar_arquivos", pedido, progresso);
+            if (!resposta.temDados()) return resposta.recado();
+            for (JsonNode arquivo : resposta.dados().path("arquivos"))
+                if (alvo.nome().equals(Json.texto(arquivo.path("nome"))) && contexto.registrar(arquivo, false))
+                    return "";
+            if (!resposta.dados().path("temMais").asBoolean(false)) break;
+        }
+        return "O arquivo criado ainda não foi localizado pelo nome exato no catálogo. "
+                + "Consulte listar_arquivos; não use um arquivo de nome semelhante.";
     }
 
     static Resposta consultar(PcService pc, String acao, JsonNode entrada,

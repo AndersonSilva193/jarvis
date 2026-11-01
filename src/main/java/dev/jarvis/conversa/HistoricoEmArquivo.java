@@ -61,7 +61,10 @@ public class HistoricoEmArquivo {
 
     /** O que estava salvo de um chat. Turnos e trocas já filtrados pela validade. */
     public record Salvo(long chatId, long usuario, List<List<ObjectNode>> turnos,
-            List<RegistroConversas.Troca> trocas) { }
+            List<RegistroConversas.Troca> trocas, List<ContextoArquivo.Salvo> contextosArquivos) {
+        public Salvo(long chatId, long usuario, List<List<ObjectNode>> turnos,
+                List<RegistroConversas.Troca> trocas) { this(chatId, usuario, turnos, trocas, List.of()); }
+    }
 
     private final Path pasta;
     private final Duration validade;
@@ -155,10 +158,23 @@ public class HistoricoEmArquivo {
                 log.warn("Troca salva ignorada por estar inválida: {}", e.getMessage());
             }
         }
-        if (turnos.isEmpty() && trocas.isEmpty()) {
+        List<ContextoArquivo.Salvo> contextos = new ArrayList<>();
+        for (JsonNode no : raiz.path("contextosArquivos")) {
+            try {
+                var salvo = json.treeToValue(no, ContextoArquivo.Salvo.class);
+                if (salvo.usuario() <= 0 || !List.of("hud", "telegram").contains(salvo.canal())) continue;
+                ContextoArquivo validado = new ContextoArquivo();
+                validado.restaurar(salvo.alvo());
+                if (validado.estado() != null)
+                    contextos.add(new ContextoArquivo.Salvo(salvo.usuario(), salvo.canal(), validado.estado()));
+            } catch (RuntimeException invalido) {
+                log.warn("Contexto de arquivo salvo ignorado por estar inválido");
+            }
+        }
+        if (turnos.isEmpty() && trocas.isEmpty() && contextos.isEmpty()) {
             return null;
         }
-        return new Salvo(chatId, (long) Json.numero(raiz.path("usuario")), turnos, trocas);
+        return new Salvo(chatId, (long) Json.numero(raiz.path("usuario")), turnos, trocas, contextos);
     }
 
     /** Sem data ou com data torta o turno é tratado como expirado: em dúvida, não restaura. */
@@ -176,6 +192,11 @@ public class HistoricoEmArquivo {
      */
     public void agendar(long chatId, long usuario, List<List<ObjectNode>> turnos,
             List<RegistroConversas.Troca> trocas) {
+        agendar(chatId, usuario, turnos, trocas, List.of());
+    }
+
+    public void agendar(long chatId, long usuario, List<List<ObjectNode>> turnos,
+            List<RegistroConversas.Troca> trocas, List<ContextoArquivo.Salvo> contextos) {
         if (!ligado()) {
             return;
         }
@@ -183,7 +204,7 @@ public class HistoricoEmArquivo {
         // gravação não pode ler uma lista que muda embaixo dela.
         String conteudo;
         try {
-            conteudo = montar(usuario, turnos, trocas);
+            conteudo = montar(usuario, turnos, trocas, contextos);
         } catch (RuntimeException e) {
             log.warn("Não consegui montar o histórico do chat {} para gravar: {}", chatId, e.getMessage());
             return;
@@ -233,16 +254,17 @@ public class HistoricoEmArquivo {
     public void gravarAgora(long chatId, long usuario, List<List<ObjectNode>> turnos,
             List<RegistroConversas.Troca> trocas) throws IOException {
         if (ligado()) {
-            ArquivoAtomico.gravar(arquivoDe(chatId), montar(usuario, turnos, trocas));
+            ArquivoAtomico.gravar(arquivoDe(chatId), montar(usuario, turnos, trocas, List.of()));
         }
     }
 
     private String montar(long usuario, List<List<ObjectNode>> turnos,
-            List<RegistroConversas.Troca> trocas) {
+            List<RegistroConversas.Troca> trocas, List<ContextoArquivo.Salvo> contextos) {
         String agora = Instant.now().toString();
         ObjectNode raiz = json.createObjectNode();
         raiz.put("usuario", usuario);
         raiz.put("gravadoEm", agora);
+        raiz.set("contextosArquivos", json.valueToTree(contextos));
         ArrayNode lista = raiz.putArray("turnos");
         for (List<ObjectNode> turno : turnos) {
             ObjectNode no = lista.addObject();

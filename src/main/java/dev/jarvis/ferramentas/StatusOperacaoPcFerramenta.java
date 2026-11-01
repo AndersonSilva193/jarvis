@@ -45,8 +45,21 @@ public class StatusOperacaoPcFerramenta implements Ferramenta {
         String id = Json.texto(entrada.path("id"));
         String texto = executar(entrada);
         if (!id.matches("[0-9a-fA-F-]{36}")) return ResultadoFerramenta.texto(texto);
+        var estado = operacoes.estado(id).orElse(null);
+        var contextoArquivo = progresso.contextoArquivo();
+        boolean eraPendente = contextoArquivo != null && contextoArquivo.estado() != null
+                && contextoArquivo.estado().operacaoPendente().equals(id);
+        if (contextoArquivo != null && estado != null
+                && List.of("concluído", "falhou", "cancelado", "expirado").contains(estado.estado()))
+            contextoArquivo.operacaoTerminou(id);
         var resultado = operacoes.resultado(id).orElse(null);
         if (resultado == null) return ResultadoFerramenta.texto(texto);
+        if (contextoArquivo != null && resultado.ok() && estado != null && "concluído".equals(estado.estado())) {
+            String nome = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
+            if ("criar_arquivo".equals(estado.acao())) contextoArquivo.criado(nome);
+            else if (eraPendente && "aplicar_edicao".equals(estado.acao()))
+                contextoArquivo.editado(nome, resultado.dados() == null ? "" : Json.texto(resultado.dados().path("versao")));
+        }
         List<ResultadoFerramenta.Artefato> anexos = new ArrayList<>();
         if (resultado.temImagem() && Files.isRegularFile(operacoes.arquivoDeImagem(id)))
             anexos.add(new ResultadoFerramenta.Artefato(operacoes.arquivoDeImagem(id),

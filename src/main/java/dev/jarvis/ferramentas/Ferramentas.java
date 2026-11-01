@@ -243,6 +243,7 @@ public class Ferramentas {
                 @Override public String pedidoOriginal() { return progresso.pedidoOriginal(); }
                 @Override public String idTarefaPlanilha() { return progresso.idTarefaPlanilha(); }
                 @Override public String ultimoAnexoDeArquivo() { return progresso.ultimoAnexoDeArquivo(); }
+                @Override public dev.jarvis.conversa.ContextoArquivo contextoArquivo() { return progresso.contextoArquivo(); }
                 @Override public boolean memoriaEsquecida() { return progresso.memoriaEsquecida(); }
                 @Override public void marcarMemoriaEsquecida() { progresso.marcarMemoriaEsquecida(); }
                 @Override public void marcarMemoriaEsquecida(String id, long revisao) {

@@ -112,6 +112,8 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
                     + "confira com listar_arquivos.");
 
         JsonNode dados = resultado.dados();
+        if (contexto.contextoArquivo() != null && !contexto.contextoArquivo().registrar(dados, false))
+            contexto.contextoArquivo().limpar();
         String nome = Json.texto(dados.path("nome"));
         String aviso = Json.texto(dados.path("aviso"));
         // Restaurar é "faz e avisa": o arquivo volta sem perguntar, então o diário é o que deixa

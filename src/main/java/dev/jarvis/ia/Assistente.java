@@ -79,6 +79,8 @@ public class Assistente {
     /** O caminho rápido do holograma. Nulo nos construtores antigos: tudo vai ao modelo. */
     private final AtalhoDoHolograma holograma;
     private final ReentrantLock execucao = new ReentrantLock(true);
+    private record ChaveArquivo(long chatId, long usuario, String canal) { }
+    private final Map<ChaveArquivo, ContextoArquivo> contextosArquivos = new HashMap<>();
     /**
      * O pedido que está sendo atendido agora, ou nulo. Serve a duas perguntas de quem está na borda
      * de entrada: "tem pedido em andamento?" e "marque-o como interrompido". Um campo basta porque
@@ -281,6 +283,11 @@ public class Assistente {
             }
             if (salvo.usuario() > 0) usuarioPorChat.put(salvo.chatId(), salvo.usuario());
             conversas.restaurar(salvo.chatId(), salvo.trocas());
+            for (var contexto : salvo.contextosArquivos()) {
+                ContextoArquivo restaurado = new ContextoArquivo();
+                restaurado.restaurar(contexto.alvo());
+                contextosArquivos.put(new ChaveArquivo(salvo.chatId(), contexto.usuario(), contexto.canal()), restaurado);
+            }
             chats++;
         }
         if (chats > 0) log.info("Histórico restaurado de {} conversa(s) em {}", chats, arquivo.pasta());
@@ -365,6 +372,8 @@ public class Assistente {
         EmAndamento marca = new EmAndamento(chatId, progresso.usuarioAutenticado(),
                 new java.util.concurrent.atomic.AtomicBoolean());
         emAndamento.set(marca);
+        List<ContextoArquivo.Salvo> contextosAntes = contextosDoChat(chatId);
+        boolean historicoGravado = false;
         try {
             if (canal == Canal.HUD && progresso.idPedido() != null && !conversas.pendente(chatId, id))
                 throw new IllegalStateException("Pedido encerrado pela limpeza do histórico");
@@ -372,6 +381,10 @@ public class Assistente {
             if (progresso.usuarioAutenticado() > 0) usuarioPorChat.put(chatId, progresso.usuarioAutenticado());
             String ultimoAnexo = progresso.usuarioAutenticado() > 0
                     ? ultimoAnexoDeArquivo(conversas.historico(chatId), canal, Instant.now()) : "";
+            ContextoArquivo contextoArquivo = progresso.usuarioAutenticado() > 0
+                    && (canal == Canal.HUD || canal == Canal.TELEGRAM)
+                    ? contextosArquivos.computeIfAbsent(new ChaveArquivo(chatId, progresso.usuarioAutenticado(),
+                            canal.nome()), chave -> new ContextoArquivo()) : null;
             Deque<List<Mensagem>> historico = historicos.computeIfAbsent(chatId, chave -> new ArrayDeque<>());
             // O que terminou enquanto ninguém conversava — a tarefa no PC manda o aviso direto ao
             // Telegram — entra aqui, antes do pedido novo, que é a ordem em que aconteceu. Sem
@@ -465,6 +478,7 @@ public class Assistente {
                     @Override public String idPedido() { return progresso.idPedido(); }
                     @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
                     @Override public String ultimoAnexoDeArquivo() { return ultimoAnexo; }
+                    @Override public ContextoArquivo contextoArquivo() { return contextoArquivo; }
                     @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
                         progresso.ferramenta(nome, descricao, passo, total);
                     }
@@ -530,6 +544,7 @@ public class Assistente {
                 for (var entrada : new ArrayList<>(usuarioPorChat.entrySet())) {
                     if (entrada.getValue() == progresso.usuarioAutenticado()) {
                         historicos.remove(entrada.getKey());
+                        contextosArquivos.keySet().removeIf(chave -> chave.chatId() == entrada.getKey());
                         conversas.limpar(entrada.getKey());
                         // Apagar do disco aqui, e não num agendamento: o Jarvis só diz "esqueci"
                         // depois de o arquivo ter saído do volume.
@@ -537,6 +552,7 @@ public class Assistente {
                     }
                 }
                 historicos.remove(chatId);
+                contextosArquivos.keySet().removeIf(chave -> chave.chatId() == chatId);
                 arquivo.apagar(chatId);
                 conversas.concluirSemHistorico(chatId, publica);
             } else if (interrompido) {
@@ -554,7 +570,8 @@ public class Assistente {
                 // Turno concluído, e só agora: nada do que deu erro no meio chega ao disco. A
                 // gravação em si sai numa thread virtual, fora do caminho da resposta.
                 arquivo.agendar(chatId, usuarioPorChat.getOrDefault(chatId, 0L),
-                        historico.stream().map(this::paraDisco).toList(), conversas.trocas(chatId));
+                        historico.stream().map(this::paraDisco).toList(), conversas.trocas(chatId), contextosDoChat(chatId));
+                historicoGravado = true;
                 // O anotador recebe o texto do usuário e a resposta final sem os avisos — nunca saída
                 // de ferramenta: ela é dado de terceiros, e memória entra no prompt de toda conversa.
                 if (anotador != null) {
@@ -568,7 +585,18 @@ public class Assistente {
                 }
             }
             return publica;
-        } finally { emAndamento.compareAndSet(marca, null); execucao.unlock(); }
+        } finally {
+            try {
+                // O PC pode ter salvo antes de uma falha posterior do modelo. Guarda o alvo real,
+                // mas só os turnos que já haviam concluído; nunca persiste o turno incompleto.
+                var contextosDepois = contextosDoChat(chatId);
+                if (!historicoGravado && !contextosAntes.equals(contextosDepois)
+                        && (historicos.containsKey(chatId) || !contextosDepois.isEmpty()))
+                    arquivo.agendar(chatId, usuarioPorChat.getOrDefault(chatId, 0L),
+                            historicos.getOrDefault(chatId, new ArrayDeque<>()).stream().map(this::paraDisco).toList(),
+                            conversas.trocas(chatId), contextosDepois);
+            } finally { emAndamento.compareAndSet(marca, null); execucao.unlock(); }
+        }
     }
 
     /**
@@ -655,9 +683,17 @@ public class Assistente {
         execucao.lock();
         try {
             historicos.remove(chatId);
+            contextosArquivos.keySet().removeIf(chave -> chave.chatId() == chatId);
             conversas.limpar(chatId);
             arquivo.apagar(chatId);
         } finally { execucao.unlock(); }
+    }
+
+    private List<ContextoArquivo.Salvo> contextosDoChat(long chatId) {
+        return contextosArquivos.entrySet().stream()
+                .filter(e -> e.getKey().chatId() == chatId && e.getValue().estado() != null)
+                .map(e -> new ContextoArquivo.Salvo(e.getKey().usuario(), e.getKey().canal(), e.getValue().estado()))
+                .toList();
     }
 
     /**

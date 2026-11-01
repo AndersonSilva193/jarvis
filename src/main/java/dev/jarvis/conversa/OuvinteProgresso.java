@@ -11,6 +11,8 @@ public interface OuvinteProgresso {
     default String idTarefaPlanilha() { return ""; }
     /** Nome do único TXT/MD anexado na resposta anterior autenticada deste canal. */
     default String ultimoAnexoDeArquivo() { return ""; }
+    /** Vínculo privado desta conversa; ausente em tarefas agendadas e pedidos não autenticados. */
+    default ContextoArquivo contextoArquivo() { return null; }
     /** Exclusão concluída neste pedido; o turno não deve permanecer no histórico. */
     default boolean memoriaEsquecida() { return false; }
     default void marcarMemoriaEsquecida() { }
