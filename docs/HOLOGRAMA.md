@@ -317,7 +317,7 @@ Se o objeto for abstrato ou não tiver forma física, represente-o de forma simb
 
 11. ~~**Comandos por voz entram no `ComandoTela.ACOES`**~~ **Substituída na Fase 6 (seção 12):**
     uma ferramenta `holograma` própria, com evento `holograma.comando` pelo mesmo `EventosHud.aoTela`,
-    e estado em `POST /api/holograma/estado` — o corpo (até 250 peças) e a cadência (300 ms) são
+    e estado em `POST /api/holograma/estado` — o corpo (até 400 peças) e a cadência (300 ms) são
     outros, e o `EstadoTela` da HUD velha continua igual.
 
 12. **Biblioteca em disco** (Fase 7) com `ArquivoAtomico`, chave pelo `Texto.normalizar` do objeto
@@ -366,7 +366,7 @@ desconhecido (o nome casa `[a-z0-9_]{1,40}` antes de virar caminho de recurso).
 | `meta` | `{"nome","categoria","descricao"}` — sempre o primeiro, uma vez só. Na geração real leva também `id` (`h` + 8 caracteres), o que o "Continuar" devolve |
 | `peca` | `{"id","nome","grupo","forma","posicao":[3],"rotacao":[3],"tamanho":[..],"cor","explosao":[3],"opacidade","contorno","pontos":[[3]..],"serie"?}` — `serie` só nas cópias de um `rep`/`rad` (Fase 7, seção 13) |
 | `aviso` | `{"texto"}` — o que foi consertado ou descartado |
-| `fim` | `{"pecas","avisos","status","motivo"?}` — sempre o último. `status` é `completo` quando o modelo escreveu a linha de fim (ou o limite de 250 peças fechou) e `incompleto` quando quem fechou foi o servidor; aí vem o `motivo`, frase fixa em Java |
+| `fim` | `{"pecas","avisos","status","motivo"?}` — sempre o último. `status` é `completo` quando o modelo escreveu a linha de fim (ou o limite de 400 peças fechou) e `incompleto` quando quem fechou foi o servidor; aí vem o `motivo`, frase fixa em Java |
 
 A geração real (Fase 2) passa pela **mesma** `MontagemDeHolograma`, então a HUD que entende o
 exemplo entende o modelo.
@@ -393,7 +393,7 @@ quebrado, JSON que não é objeto e `t` desconhecido. Tolera vírgula no fim e `
 | `n` | até 60 caracteres; vazio → o id |
 | `g` | snake_case; vazio → `geral` |
 
-Limite de **250 peças** por objeto, contando as cópias: a linha que estoura entra pela metade, e
+Limite de **400 peças** por objeto, contando as cópias: a linha que estoura entra pela metade, e
 um aviso só diz que o resto foi descartado.
 
 ### Repetição
@@ -519,7 +519,7 @@ agente não manda `num_predict`, e o local para no `ollama.contexto` (8192, prom
 
 O `fim` ganha `provedor`, `modelo`, `tokensEntrada`, `tokensSaida` e `custoUsd` — os tokens vêm do
 `usage` da API e o custo é `HOLOGRAMA_PRECO_ENTRADA_USD`/`HOLOGRAMA_PRECO_SAIDA_USD` (0,10 e 0,50
-por milhão). Campo que não se sabe **fica de fora**: stream cortado (limite de 250 peças, prazo,
+por milhão). Campo que não se sabe **fica de fora**: stream cortado (limite de 400 peças, prazo,
 cliente) não recebe o `usage`, e o local não cobra da API. A HUD mostra o selo "Haiku · 86 peças ·
 US$0,002" com isso. O custo real continua no `MedidorDeCusto` (`Origem.HOLOGRAMA`); este é só a
 estimativa por geração. O item da galeria guarda provedor e modelo, não o gasto.
@@ -530,7 +530,7 @@ Um `Cancelamento` só, que fecha o `InputStream` da Anthropic ou cancela o `infe
 
 | Motivo | Quando | O que a HUD recebe |
 |---|---|---|
-| `limite` | a montagem chegou a 250 peças | `fim` |
+| `limite` | a montagem chegou a 400 peças | `fim` |
 | `tempo` | 180 s desde o pedido | `erro` + `fim` |
 | `cliente` | o ping ou um `send` falhou, ou o emitter fechou | nada (não há quem ouça) |
 | `substituido` | chegou outra geração (há uma cena e uma GPU só) | `erro` + `fim` |
@@ -947,7 +947,7 @@ perguntar. Peça com o nome do próprio grupo não vira segunda opção.
 ### O estado, do lado do modelo
 
 `POST /api/holograma/estado` (Bearer, `HologramaEstadoController`, `EstadoDoHologramaDto` validado à
-mão — ids e grupos `[a-z0-9_]{1,40}`, até 250 peças, explosão 0..1, vista conhecida). O retrato vale
+mão — ids e grupos `[a-z0-9_]{1,40}`, até 400 peças, explosão 0..1, vista conhecida). O retrato vale
 10 minutos. Com o modo aberto e a HUD conectada, o `SistemaDoJarvis` põe uma linha no bloco
 **dinâmico** (teto de 420 caracteres, 12 grupos):
 
@@ -1002,7 +1002,7 @@ e "Feito"-curto no Telegram. Log: `Holograma: caminho rápido 'mais' -> explodir
 ## 13. Desempenho: lotes instanciados (Fase 7)
 
 Cada peça avulsa custa **duas** chamadas de desenho (a malha translúcida e o contorno). Um objeto de
-250 peças são 500 chamadas por quadro só na cena, antes dos passes do bloom — é o que pesa num
+400 peças são 800 chamadas por quadro só na cena, antes dos passes do bloom — é o que pesa num
 celular, e a maior parte dessas peças são cópias de um `rep`/`rad` (dentes, parafusos, elos, aletas).
 
 **A regra:** passou de `LIMIAR_DE_INSTANCIAS` (**120**) peças, as cópias de uma mesma série viram um
@@ -1048,6 +1048,12 @@ desenvolvimento (Windows 11, Chrome, 1440×1000, mediana de 6 segundos, três ro
 As capturas dos dois modos (`cena-avulsa.png` e `cena-instanciada.png`, nos anexos do teste) são
 iguais em cor, contorno, preenchimento e enquadramento. O número que vale para o celular de verdade
 se mede nele: `?medir=1` funciona em qualquer aparelho.
+
+Essa medida é de quando o teto era 250. Em 03/11/2026 ele subiu para **400** — um objeto detalhado
+da galeria batia em 250 por causa de cópias de `rep`/`rad`, que o lote desenha quase de graça. O
+prompt e os tetos de tokens não mudaram: o que cresce é o espaço para cópias, não o número de peças
+diferentes. Peça **avulsa** continua custando duas chamadas cada; o `e2e/desempenho.spec.ts` da HUD
+ainda monta 250 e precisa de uma rodada com 400 para a tabela acima valer no teto novo.
 
 ---
 

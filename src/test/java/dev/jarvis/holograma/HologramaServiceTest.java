@@ -88,7 +88,8 @@ class HologramaServiceTest {
     void oLimiteDePecasCortaOModelo() throws Exception {
         Emissor emissor = new Emissor();
         String sessenta = "{\"t\":\"p\",\"id\":\"dente\",\"f\":\"box\",\"rep\":{\"n\":60,\"d\":[0.01,0,0]}}\n";
-        Falso anthropic = new Falso(List.of(META, sessenta, sessenta, sessenta, sessenta, sessenta, sessenta));
+        Falso anthropic = new Falso(List.of(META, sessenta, sessenta, sessenta, sessenta, sessenta, sessenta,
+                sessenta, sessenta));
         anthropic.esperarCorte = true;
         servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
 
@@ -96,7 +97,7 @@ class HologramaServiceTest {
         emissor.esperar();
 
         assertTrue(anthropic.cortado, "o stream do modelo não foi fechado");
-        assertTrue(emissor.corpo().contains("\"pecas\":250"), emissor.corpo());
+        assertTrue(emissor.corpo().contains("\"pecas\":400"), emissor.corpo());
         assertFalse(emissor.eventos().contains("erro"));
         assertEquals("fim", emissor.eventos().get(emissor.eventos().size() - 1));
     }
@@ -447,7 +448,9 @@ class HologramaServiceTest {
     void streamCortadoNaoInventaTokensNemCusto() throws Exception {
         Emissor emissor = new Emissor();
         String sessenta = "{\"t\":\"p\",\"id\":\"dente\",\"f\":\"box\",\"rep\":{\"n\":60,\"d\":[0.01,0,0]}}\n";
-        Falso anthropic = new Falso(List.of(META, sessenta, sessenta, sessenta, sessenta, sessenta));
+        // Sete lotes de 60 passam do teto de 400: é o limite que corta o stream.
+        Falso anthropic = new Falso(List.of(META, sessenta, sessenta, sessenta, sessenta, sessenta, sessenta,
+                sessenta));
         anthropic.esperarCorte = true;
         servico = servico(anthropic, new Falso(List.of()), "anthropic", true);
 

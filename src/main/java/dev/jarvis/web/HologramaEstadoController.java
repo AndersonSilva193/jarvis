@@ -15,7 +15,7 @@ import dev.jarvis.holograma.EstadoDoHologramaService;
  * Por onde a HUD conta ao servidor como está o holograma: aberto, o objeto, as peças, a explosão, a
  * seleção. É o que faz o Jarvis entender "explode mais" e "o que é essa peça?".
  *
- * <p>Separado do {@code /api/tela/estado} de propósito: o corpo é outro (até 250 peças), a HUD o
+ * <p>Separado do {@code /api/tela/estado} de propósito: o corpo é outro (até 400 peças), a HUD o
  * manda com outra cadência (300 ms), e o retrato das janelas continua igual para a HUD velha.
  */
 @RestController

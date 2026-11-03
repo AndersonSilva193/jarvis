@@ -18,8 +18,8 @@ public record EstadoDoHologramaDto(Boolean aberto, Objeto objeto, Boolean gerand
 
     public record PecaDto(String id, String nome, String grupo) { }
 
-    /** O teto da montagem; a HUD nunca tem mais que isso na cena. */
-    static final int MAX_PECAS = 250;
+    /** O teto da montagem; a HUD nunca tem mais que isso na cena. O mesmo número, nunca uma cópia dele. */
+    static final int MAX_PECAS = dev.jarvis.holograma.HologramaValidator.MAX_PECAS;
     private static final int MAX_NOME = 80;
     private static final int MAX_FILTRO = 60;
     private static final String ID = "[a-z0-9_]{1,40}";

@@ -54,7 +54,7 @@ public class GaleriaDeHologramas {
     public static final int MINIMO_DE_PECAS = 8;
     /** Acima disso o mais antigo sai: a galeria é atalho, não arquivo morto. */
     static final int MAX_ITENS = 60;
-    /** 250 peças com pontos cabem com folga. */
+    /** 400 peças com pontos cabem com folga: 250 deram 64 kB. */
     private static final long MAX_BYTES_OBJETO = 1_000_000;
     /** Uma miniatura de 256 px em PNG tem dezenas de kB; isto é teto de sanidade. */
     public static final int MAX_BYTES_MINIATURA = 300_000;

@@ -13,7 +13,7 @@ import java.util.Set;
  *
  * <p>É o que deixa o modelo entender "disso", "essa peça", "mais" e "volta": a linha compacta vai
  * ao bloco <b>dinâmico</b> do system, e as peças ficam só aqui, para a ferramenta resolver o alvo.
- * Elas nunca vão ao prompt — um motor detalhado tem 250.
+ * Elas nunca vão ao prompt — um motor detalhado chega a 400.
  *
  * @param objetoId   o id da geração ou do item da galeria; vazio sem objeto
  * @param explosao   o fator atual, 0..1

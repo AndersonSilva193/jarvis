@@ -43,7 +43,8 @@ import tools.jackson.databind.JsonNode;
  */
 public final class HologramaValidator {
 
-    public static final int MAX_PECAS = 250;
+    /** Contando as cópias. Era 250, e objeto detalhado batia nele com dentes e parafusos de {@code rep}. */
+    public static final int MAX_PECAS = 400;
     static final double LIMITE_POSICAO = 6;
     static final double TAMANHO_MINIMO = 0.01;
     static final double TAMANHO_MAXIMO = 8;

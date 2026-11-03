@@ -279,20 +279,21 @@ class HologramaValidatorTest {
     }
 
     @Test
-    @DisplayName("limite de 250: a linha que estoura entra pela metade e o resto é descartado, avisando uma vez")
+    @DisplayName("limite de 400: a linha que estoura entra pela metade e o resto é descartado, avisando uma vez")
     void limiteDoObjeto() {
-        for (int i = 0; i < 4; i++) {
+        assertEquals(400, HologramaValidator.MAX_PECAS);
+        for (int i = 0; i < 6; i++) {
             assertEquals(60, validar("{\"id\":\"lote" + i + "\",\"rep\":{\"n\":60,\"d\":[0.01,0,0]}}").pecas().size());
         }
-        var estouro = validar("{\"id\":\"lote4\",\"rep\":{\"n\":60,\"d\":[0.01,0,0]}}");
-        assertEquals(10, estouro.pecas().size());
+        var estouro = validar("{\"id\":\"lote6\",\"rep\":{\"n\":60,\"d\":[0.01,0,0]}}");
+        assertEquals(40, estouro.pecas().size());
         assertEquals(2, estouro.avisos().size(), estouro.avisos().toString());
         assertEquals(HologramaValidator.MAX_PECAS, validador.total());
 
         var depois = validar("{\"id\":\"mais_uma\"}");
         assertTrue(depois.pecas().isEmpty());
         assertTrue(depois.avisos().isEmpty());
-        assertEquals(51, validador.descartadasPeloLimite());
+        assertEquals(21, validador.descartadasPeloLimite());
     }
 
     @Test
