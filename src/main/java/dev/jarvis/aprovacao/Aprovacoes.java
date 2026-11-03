@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import dev.jarvis.autonomia.AcaoAutonoma;
+import dev.jarvis.autonomia.Concessao;
+import dev.jarvis.autonomia.Concessoes;
 import dev.jarvis.autonomia.Nivel;
 import dev.jarvis.autonomia.PoliticaDeAutonomia;
 import dev.jarvis.conversa.Confirmacao;
@@ -55,6 +57,12 @@ import dev.jarvis.diario.TipoDeAcao;
  * já ({@link Nivel#FAZ_E_AVISA}), abrir a pendência ({@link Nivel#PERGUNTA}) ou recusar
  * ({@link Nivel#PROIBIDO}). Os dois caminhos que executam passam pelo mesmo {@link #rodar}, então o
  * diário continua sendo anotado num lugar só — agora dizendo se houve pergunta.
+ *
+ * <p><b>A permissão aprendida nasce aqui</b>, porque é aqui que o "sim" acontece. Cada pendência
+ * aberta pelo {@link #encaminhar} carrega a ação e o alvo; o {@link #rodar} conta o "sim" nas
+ * {@link Concessoes} e, na terceira vez seguida sem "não", acrescenta à resposta a oferta de parar de
+ * perguntar — que é uma pendência {@link #TIPO_CONCEDER_PERMANENTE} como outra qualquer, decidida
+ * pelo {@code ClassificadorDeResposta}. O "não" chega pelo {@link #recusarPendente}.
  */
 @Component
 public class Aprovacoes {
@@ -84,6 +92,13 @@ public class Aprovacoes {
      */
     public static final String TIPO_PC_LIXEIRA = "pc_lixeira";
 
+    /**
+     * A oferta "quer que eu pare de perguntar?". O "sim" grava uma concessão permanente; o "não"
+     * cala a oferta por 30 dias. Fora do {@link #tipoNoDiario}: quem anota é a própria
+     * {@link Concessoes}, como {@code concessao_criada}.
+     */
+    public static final String TIPO_CONCEDER_PERMANENTE = "conceder_permanente";
+
     /** O quanto a aprovação espera pelo usuário. Quanto mais grave a ação, menos tempo em aberto. */
     public enum Risco {
         COMUM(Duration.ofMinutes(10)),
@@ -105,9 +120,27 @@ public class Aprovacoes {
      */
     public record Encaminhamento(Nivel nivel, String texto, Confirmacao confirmacao) { }
 
+    /**
+     * @param acao      a ação do catálogo, só nas pendências abertas pelo {@link #encaminhar}; é
+     *                  o que conta o "sim" e o "não" para a permissão aprendida
+     * @param aoRecusar o que roda num "não" explícito, além de contar a recusa; pode ser nulo
+     */
     private record Pendente(String tipo, String descricao, String pergunta, Risco risco,
             String codigo, long usuario, String pedidoOrigem, Instant expira,
-            Supplier<ResultadoAprovado> executar) { }
+            Supplier<ResultadoAprovado> executar, AcaoAutonoma acao, String alvo,
+            Runnable aoRecusar) {
+
+        Pendente(String tipo, String descricao, String pergunta, Risco risco, String codigo,
+                long usuario, String pedidoOrigem, Instant expira, Supplier<ResultadoAprovado> executar) {
+            this(tipo, descricao, pergunta, risco, codigo, usuario, pedidoOrigem, expira, executar,
+                    null, null, null);
+        }
+
+        Pendente daAcao(AcaoAutonoma acao, String alvo) {
+            return new Pendente(tipo, descricao, pergunta, risco, codigo, usuario, pedidoOrigem,
+                    expira, executar, acao, alvo == null || alvo.isEmpty() ? null : alvo, aoRecusar);
+        }
+    }
 
     private final SecureRandom sorteio = new SecureRandom();
     private final Clock relogio;
@@ -165,19 +198,29 @@ public class Aprovacoes {
             Supplier<ResultadoAprovado> executar) {
         if (usuario <= 0 || pedidoOrigem == null || pedidoOrigem.isBlank())
             throw new IllegalArgumentException("pedido autenticado necessario");
-        Nivel nivel = politica.nivel(acao, alvo);
+        PoliticaDeAutonomia.Decisao decisao = politica.decidir(acao, alvo);
+        Nivel nivel = decisao.nivel();
         return switch (nivel) {
             case PROIBIDO -> new Encaminhamento(nivel, "Não posso " + acao.oQue(alvo)
                     + ": a minha configuração de autonomia proíbe. Nada foi feito.", null);
             case PERGUNTA -> {
-                Confirmacao confirmacao = pedirComResultado(tipo, descricao, pergunta, risco,
-                        usuario, pedidoOrigem, executar);
+                Confirmacao confirmacao;
+                synchronized (this) {
+                    confirmacao = pedirComResultado(tipo, descricao, pergunta, risco, usuario,
+                            pedidoOrigem, executar);
+                    pendente = pendente.daAcao(acao, alvo);
+                }
                 yield new Encaminhamento(nivel, confirmacao.pergunta(), confirmacao);
             }
             case FAZ_E_AVISA -> {
                 Pendente agora = new Pendente(tipo, descricao, pergunta, risco, "", usuario,
                         pedidoOrigem, relogio.instant(), executar);
-                yield new Encaminhamento(nivel, rodar(agora, canal, false), null);
+                String texto = rodar(agora, canal, false, null);
+                Concessao liberou = decisao.concessao();
+                if (liberou != null && politica.concessoes() != null) {
+                    politica.concessoes().marcarUso(liberou.id(), usuario, canal);
+                }
+                yield new Encaminhamento(nivel, texto, null);
             }
         };
     }
@@ -253,6 +296,7 @@ public class Aprovacoes {
                 "confirmo(?: pc| rotina)? [0-9]{6}|cancelar|cancelo [0-9]{6}"))
             return Optional.empty();
         Pendente executar = null;
+        Pendente recusada = null;
         synchronized (this) {
             Pendente p = pendente;
             if (p == null) return Optional.of("Não há aprovação pendente. Nenhuma ação foi executada; "
@@ -266,17 +310,22 @@ public class Aprovacoes {
             }
             if (recebido.equals("cancelar") || recebido.equals("cancelo " + p.codigo())) {
                 pendente = null;
-                return Optional.of("Operação cancelada.");
+                recusada = p;
+            } else {
+                String esperado = p.tipo().equals("rotina") ? "confirmo rotina " + p.codigo()
+                        : "confirmo pc " + p.codigo();
+                if (!fraseDeConfirmacao && !recebido.equals(esperado)
+                        && !recebido.equals("confirmo " + p.codigo()))
+                    return Optional.of("Código incorreto; a operação continua pendente até expirar ou ser cancelada.");
+                pendente = null;
+                executar = p;
             }
-            String esperado = p.tipo().equals("rotina") ? "confirmo rotina " + p.codigo()
-                    : "confirmo pc " + p.codigo();
-            if (!fraseDeConfirmacao && !recebido.equals(esperado)
-                    && !recebido.equals("confirmo " + p.codigo()))
-                return Optional.of("Código incorreto; a operação continua pendente até expirar ou ser cancelada.");
-            pendente = null;
-            executar = p;
         }
-        return Optional.of(rodar(executar, canal, true));
+        if (recusada != null) {
+            aoRecusar(recusada);
+            return Optional.of("Operação cancelada.");
+        }
+        return Optional.of(rodar(executar, canal, true, pedidoAtual));
     }
 
     /**
@@ -316,7 +365,7 @@ public class Aprovacoes {
             executar = pendente;
             pendente = null;
         }
-        return Optional.of(rodar(executar, canal, true));
+        return Optional.of(rodar(executar, canal, true, pedidoAtual));
     }
 
     /**
@@ -332,9 +381,12 @@ public class Aprovacoes {
      * no disco, e o diário é a testemunha dela, não o guarda. Falhar aqui perderia a linha do
      * diário; lançar perderia a resposta de uma ação que já foi feita.
      */
-    private String rodar(Pendente p, String canal, boolean perguntada) {
+    private String rodar(Pendente p, String canal, boolean perguntada, String pedidoAtual) {
         ResultadoAprovado resultado = p.executar().get();
         String resposta = resultado.texto();
+        if (perguntada && p.acao() != null && resultado.executada()) {
+            resposta += oferecer(p, canal, pedidoAtual);
+        }
         TipoDeAcao tipo = tipoNoDiario(p.tipo());
         if (diario != null && tipo != null && resultado.executada()) {
             try {
@@ -346,6 +398,69 @@ public class Aprovacoes {
             }
         }
         return resposta;
+    }
+
+    /**
+     * Conta o "sim" e, se é a terceira vez seguida, abre a oferta de parar de perguntar e devolve a
+     * frase a acrescentar; senão, vazio. Nunca derruba a ação, que já aconteceu.
+     *
+     * <p>Não oferece quando o {@code autonomia.md} tem linha para a ação (a concessão não teria
+     * efeito) nem quando outra pendência ocupou o lugar. Quem decide piso, bloqueio e contagem são as
+     * {@link Concessoes}: chave CRITICO nunca chega à oferta.
+     */
+    private String oferecer(Pendente p, String canal, String pedidoAtual) {
+        Concessoes concessoes = politica.concessoes();
+        if (concessoes == null || pedidoAtual == null || pedidoAtual.isBlank()) return "";
+        try {
+            AcaoAutonoma acao = p.acao();
+            String alvo = p.alvo();
+            if (!concessoes.registrarAprovacao(acao, alvo) || politica.arquivoDecide(acao, alvo))
+                return "";
+            String oQue = acao.oQue(alvo);
+            Instant agora = relogio.instant();
+            Pendente oferta = new Pendente(TIPO_CONCEDER_PERMANENTE,
+                    "Parar de perguntar antes de " + oQue,
+                    "Quer que eu pare de perguntar antes de " + oQue + "?", Risco.COMUM,
+                    String.format("%06d", sorteio.nextInt(1_000_000)), p.usuario(), pedidoAtual,
+                    agora.plus(Risco.COMUM.validade()),
+                    () -> concederPermanente(concessoes, acao, alvo, p.usuario(), canal),
+                    null, null, () -> concessoes.recusarOferta(acao, alvo));
+            synchronized (this) {
+                if (pendente != null && agora.isBefore(pendente.expira())) return "";
+                pendente = oferta;
+            }
+            concessoes.registrarOferta(acao, alvo);
+            return "\n\nÉ a terceira vez que você aprova " + oQue + ". Quer que eu pare de perguntar?";
+        } catch (RuntimeException e) {
+            log.warn("Não consegui avaliar a permissão aprendida: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    private static ResultadoAprovado concederPermanente(Concessoes concessoes, AcaoAutonoma acao,
+            String alvo, long usuario, String canal) {
+        try {
+            Concessao c = concessoes.conceder(acao, alvo, Concessao.Escopo.PERMANENTE, null, null,
+                    Concessao.Origem.APRENDIDA,
+                    Concessoes.APROVACOES_PARA_OFERECER + " aprovações seguidas e um sim à oferta",
+                    usuario, canal);
+            return new ResultadoAprovado("Combinado: não pergunto mais antes de " + c.oQue()
+                    + ". Diga 'volta a perguntar' para cancelar.", null, true);
+        } catch (java.io.IOException | IllegalArgumentException e) {
+            return new ResultadoAprovado("Não consegui gravar a permissão; continuo perguntando.",
+                    null, false);
+        }
+    }
+
+    /** O "não" explícito: roda o {@code aoRecusar} e zera a sequência daquela ação. */
+    private void aoRecusar(Pendente p) {
+        try {
+            if (p.aoRecusar() != null) p.aoRecusar().run();
+            Concessoes concessoes = politica.concessoes();
+            if (concessoes != null && p.acao() != null) concessoes.registrarRecusa(p.acao(), p.alvo());
+        } catch (RuntimeException e) {
+            log.warn("Não consegui registrar a recusa: {}", e.getMessage());
+        }
     }
 
     /**
@@ -364,6 +479,24 @@ public class Aprovacoes {
             case "tarefa_planilha" -> TipoDeAcao.TAREFA_PLANILHA;
             default -> null;
         };
+    }
+
+    /**
+     * O "não" à pendência: cancela como o {@link #cancelarPendente} e conta a recusa — zera a
+     * sequência da permissão aprendida, e numa oferta a cala por 30 dias. O ajuste ("pode, mas só
+     * a pasta src") não é recusa e continua pelo {@link #cancelarPendente}.
+     */
+    public Cancelamento recusarPendente(long usuario, String pedidoAtual) {
+        Pendente recusada;
+        synchronized (this) {
+            if (pendente == null) return Cancelamento.INEXISTENTE;
+            if (pendenciaDe(usuario, pedidoAtual).isEmpty())
+                return pendente == null ? Cancelamento.INEXISTENTE : Cancelamento.RECUSADA;
+            recusada = pendente;
+            pendente = null;
+        }
+        aoRecusar(recusada);
+        return Cancelamento.CANCELADA;
     }
 
     /** Como o {@link #cancelarTarefaPendente}, mas para qualquer tipo de pendência. */

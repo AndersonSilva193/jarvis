@@ -68,7 +68,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva, aviso antecipado e volta ao navegador), `DiarioDeVoz` (o uso por dia, de onde sai a projeção), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `CatalogoDoPc` (os apps e as rotinas que o PC anunciou, em disco), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
-| `dev.jarvis.autonomia` | `PoliticaDeAutonomia` (lê `config/autonomia.md` e decide, para cada ação do catálogo, faz e avisa / pergunta / proibido), `AcaoAutonoma` (o catálogo fechado, com padrão e piso) e `Nivel` |
+| `dev.jarvis.autonomia` | `PoliticaDeAutonomia` (lê `config/autonomia.md` e decide, para cada ação do catálogo, faz e avisa / pergunta / proibido), `AcaoAutonoma` (o catálogo fechado, com padrão e piso), `Nivel`, `Concessoes`/`Concessao` (as permissões que o dono deu, em `DIARIO_PASTA/concessoes.json`) e `ClassificadorDeConcessao` (a segunda leitura de "pode fazer X sem me perguntar") |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`), `ValidadorDeEsquema` (o subconjunto de JSON Schema que os `esquemaEntrada()` usam) e `Texto` |
@@ -124,10 +124,10 @@ algum filtro passar a depender de estado, que é exatamente o bug que este aviso
 
 ## O provedor de modelo
 
-**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são sete:
+**Chamador novo fala com `ProvedorDeModelo`, nunca com `ClaudeClient`.** Hoje são oito:
 `CicloDeFerramentas`, `NarradorDeBriefing`, `InicializacaoService`, `ClassificadorDeResposta`,
-`AnotadorDeMemoria`, `RevisorDeProcedimentos` e `AnthropicBusca` (esta pede o `@Primary`: busca
-nativa é da Anthropic por construção). O `HologramaService` é o oitavo, e o único que transmite:
+`ClassificadorDeConcessao`, `AnotadorDeMemoria`, `RevisorDeProcedimentos` e `AnthropicBusca` (esta pede o `@Primary`: busca
+nativa é da Anthropic por construção). O `HologramaService` é o nono, e o único que transmite:
 pede o `ProvedorAnthropic` e o `ProvedorLocal` pelo nome e escolhe entre eles (ver "O holograma").
 O pedido e a resposta estão no formato neutro de `dev.jarvis.ia.provedor`, e
 quem traduz é o `ProvedorAnthropic`. Ele é **só tradução**: repetição, cache da conversa, TTL,
@@ -1294,7 +1294,12 @@ Os 35 dias de uso guardados, a janela de 7 dias da média e os 2 dias mínimos s
 
 ### O diário de ações
 
-`DIARIO_PASTA` (`jarvis.diario.pasta`, volume `diario`) é a única configuração do diário. Os 30 dias
+`DIARIO_PASTA` (`jarvis.diario.pasta`, volume `diario`) é a única configuração do diário. Ao lado
+dele, no mesmo bloco, mora `CONCESSAO_TEMPORARIA_MAX_DIAS` (`jarvis.diario.concessao-temporaria-max-dias`,
+padrão 7), porque o `concessoes.json` fica nessa pasta. O `Diario` ganhou o construtor de
+compatibilidade de um argumento **e** o `@ConstructorBinding` no canônico: record aninhado com dois
+construtores sem a anotação fica **nulo** no binding, sem erro — é o que acontece hoje com o
+`Historico`, cujos `HISTORICO_*` caem nos fallbacks do `JarvisProperties`. Os 30 dias
 de retenção e as 500 ações por dia são **constantes** do `DiarioDeAcoes` e do `DiaDoDiario`, pela
 regra que o `MedidorDeCusto` já documenta: não vale um componente num record construído por posição
 em dezenas de testes para um número que ninguém vai querer mexer.
@@ -1452,6 +1457,35 @@ As duas configurações novas entram nos três lugares de sempre: `JarvisPropert
   refletem a política — editar o arquivo derrubaria o cache de `tools`. `minhas_permissoes` responde
   "o que você pode fazer sem me perguntar?". Ação nova que precise de aprovação entra no catálogo
   com padrão e piso escolhidos de propósito; o que fica fora dele é *faz e avisa* por desenho.
+- **Concessões: o dono libera por mensagem, o servidor grava.** A ordem completa é piso > arquivo >
+  `Concessoes` > padrão. As concessões moram em `DIARIO_PASTA/concessoes.json` (troca atômica e
+  `.bak`; ilegível vale "sem concessões", que é voltar a perguntar), cada uma com chave, alvo
+  opcional, escopo (`ATE` um instante, `PERMANENTE` ou `TAREFA`, este só para o 7.5 — guardado, mas
+  não vale em conversa), origem (`temporaria`, `aprendida`, `plano`), evidência e data. **Linha
+  explícita no `autonomia.md`, mesmo em `pergunta_antes`, trava a ação contra concessão** — por isso
+  o arquivo versionado não lista mais as sete ações. O piso é conferido de novo na consulta: JSON
+  editado à mão não libera desligar, reiniciar nem computer use.
+  - *Temporária*: `conceder_permissao(chave, alvo?, ate, evidencia)` só grava com as quatro travas —
+    mensagem atual autenticada de conversa privada (`telegram`/`hud`, usuário > 0, `idPedido`);
+    `evidencia` literal do `pedidoOriginal` pela `Texto.normalizar`, sem a nota de AJUSTE do
+    servidor; o `ClassificadorDeConcessao` (apoio, sem ferramentas, system mínimo, JSON
+    `{"concede","ate"}`) dizendo `sim` com prazo legível — dúvida não grava; e prazo = o menor entre
+    o do modelo, o do classificador e `CONCESSAO_TEMPORARIA_MAX_DIAS`. A resposta é montada em Java
+    ("Combinado: até <quando>, <ação> sem perguntar. Diga 'volta a perguntar' para cancelar.") e
+    não há pergunta de volta: a frase do dono já é a aprovação.
+  - *Aprendida*: o `rodar` do `Aprovacoes` conta cada "sim" a pendência aberta pelo `encaminhar`
+    (que agora carrega ação e alvo); "não" explícito (`recusarPendente`, ou a frase `cancelar`)
+    zera a sequência — o AJUSTE não é recusa. Na 3ª seguida em 30 dias, com piso que permite, sem
+    linha no arquivo e sem bloqueio, a resposta ganha "É a terceira vez que você aprova <ação>. Quer
+    que eu pare de perguntar?" e nasce a pendência COMUM `conceder_permanente`, decidida pelo
+    `ClassificadorDeResposta` como qualquer outra: sim grava `PERMANENTE`, não cala a oferta por
+    30 dias. Oferecer zera a sequência; oferta ignorada volta depois de mais três "sim".
+  - *Revogar*: `revogar_permissao` sem aprovação (reduzir autonomia é sempre seguro); com alvo leva
+    também a concessão da ação inteira, e revogar cala a oferta por 30 dias. `minhas_permissoes`
+    lista as ativas com prazo, e diz "sem efeito" quando o arquivo trava.
+  - *Diário*: `CONCESSAO_CRIADA`, `CONCESSAO_USADA` (só o primeiro uso, marcado no `encaminhar`),
+    `CONCESSAO_EXPIRADA` (na consulta seguinte ao prazo, ou num tique de 10 min) e
+    `CONCESSAO_REVOGADA`. Nenhuma é autônoma: a ação liberada já entra como feita sem pergunta.
 - **A VPS só busca URL que ela provou ser pública.** O `abrir_pagina` é a única ferramenta que
   acessa um endereço ditado pelo modelo, e ele passa pelo `GuardaSsrf`: só http/https, DNS
   resolvido e conferido contra loopback, faixas privadas, link-local (inclusive o
@@ -1515,7 +1549,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   `/data/voz` e o uso de voz por dia em `/data/voz/uso` (35 dias, mais o marcador do período já
   avisado); o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
   Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
-  `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou; e a
+  `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou, o `freio.json` e
+  o `concessoes.json` com as permissões que o dono deu; e a
   disponibilidade dos sites em `PROATIVO_PASTA` (volume `proativo`), um JSON por data por 30 dias; e
   a galeria de hologramas em `HOLOGRAMA_PASTA` (volume `holograma`), um JSON e um PNG por objeto, até 60.
   Todos usam a troca atômica do `ArquivoAtomico`.

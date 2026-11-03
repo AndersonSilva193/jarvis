@@ -156,6 +156,9 @@ jarvis:
     # Um JSON por dia com o que o Jarvis fez sozinho e o que fez depois de um "sim",
     # 30 dias guardados. Volume nomeado "diario".
     pasta: ${DIARIO_PASTA:/data/jarvis/diario}
+    # Prazo máximo, em dias, de uma permissão temporária dada por mensagem ("até sexta pode...").
+    # As concessões ficam em concessoes.json, nesta mesma pasta.
+    concessao-temporaria-max-dias: ${CONCESSAO_TEMPORARIA_MAX_DIAS:7}
   proativo:
     # Faixa em que o Jarvis não fala sem ser chamado. Cruza a meia-noite; o que acontecer dentro
     # dela é entregue junto, numa mensagem, no fim. Mesma hora nos dois lados = sem silêncio.

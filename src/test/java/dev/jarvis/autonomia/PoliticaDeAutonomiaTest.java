@@ -206,6 +206,8 @@ class PoliticaDeAutonomiaTest {
         var politica = new PoliticaDeAutonomia(doRepositorio);
         for (AcaoAutonoma acao : AcaoAutonoma.values()) {
             assertEquals(acao.padrao(), politica.nivel(acao, null), acao.chave());
+            // Linha no arquivo trava a ação contra concessão: o versionado não pode trazer nenhuma.
+            assertFalse(politica.arquivoDecide(acao, null), acao.chave());
         }
         assertEquals("", politica.resumo());
     }

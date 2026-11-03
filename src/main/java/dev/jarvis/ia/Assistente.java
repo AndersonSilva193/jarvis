@@ -437,7 +437,7 @@ public class Assistente {
                 switch (decisao) {
                     case SIM -> decisaoPc = aprovacoes.executarPendente(usuario, id, canal.nome());
                     case NAO -> {
-                        aprovacoes.cancelarPendente(usuario, id);
+                        aprovacoes.recusarPendente(usuario, id);
                         decisaoPc = java.util.Optional.of("Certo, não fiz.");
                     }
                     case AJUSTE -> {

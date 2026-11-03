@@ -10,7 +10,10 @@ Só contam as linhas "## <seção>" e, dentro de uma seção, as linhas que come
 espaço. Cada item é uma chave do catálogo, ou chave:alvo quando a ação aceita alvo. Todo o
 resto (como este parágrafo) é comentário.
 
-Ordem de decisão: piso do código, depois este arquivo, depois o padrão do código.
+Ordem de decisão: piso do código, depois este arquivo, depois as permissões que você me deu
+por mensagem ("até sexta pode rodar as rotinas sem perguntar"), depois o padrão do código.
+Uma linha aqui, em qualquer seção, vence essas permissões: para que eu pergunte sempre antes
+de uma ação, mesmo que você me libere por mensagem, escreva a linha em pergunta_antes.
 A linha com alvo vence a linha sem alvo. A mesma ação em duas seções fica com a mais
 rigorosa. Linha que não serve (chave desconhecida, alvo inválido, tentativa de baixar o piso)
 é ignorada e aparece num WARN do log; o Jarvis nunca cai por causa deste arquivo. Sem este
@@ -41,16 +44,10 @@ Executa na hora e anota no diário de ações como feito sem pergunta; aparece n
 
 ## pergunta_antes
 
-Abre uma pergunta de aprovação e só executa depois do "sim" do dono. Hoje é o padrão de
-todas as ações do catálogo.
-
-- rotina.rodar
-- computer_use.iniciar
-- pc.desligar
-- pc.reiniciar
-- arquivo.apagar_lote
-- planilha.agendar
-- memoria.esquecer
+Abre uma pergunta de aprovação e só executa depois do "sim" do dono. Já é o padrão de
+todas as ações do catálogo, então não precisa listar nada aqui. Linha nesta seção serve para
+travar: a ação passa a perguntar sempre, e nenhuma permissão dada por mensagem a libera.
+Exemplo: "- arquivo.apagar_lote" (sem as aspas) logo abaixo deste parágrafo.
 
 ## proibido
 

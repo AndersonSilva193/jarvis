@@ -10,7 +10,8 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * "O que você pode fazer sem me perguntar?": a política de autonomia em português corrido.
  *
- * <p>O texto vem inteiro da {@link PoliticaDeAutonomia}, que é quem decide de verdade; a ferramenta
+ * <p>O texto vem inteiro da {@link PoliticaDeAutonomia}, que é quem decide de verdade — inclusive
+ * as concessões ativas, com prazo, que ela consulta; a ferramenta
  * não tem lista própria, senão poderia contar ao dono uma regra que o código não segue. A descrição
  * é constante de propósito: a política muda quando o {@code autonomia.md} muda, e a definição da
  * ferramenta está no prefixo do cache de prompt.
@@ -36,8 +37,9 @@ public class MinhasPermissoesFerramenta implements Ferramenta {
     @Override
     public String descricao() {
         return "Diz o que você faz sozinho, o que pergunta antes e o que nunca faz, conforme a "
-                + "configuração de autonomia em vigor. Use para 'o que você pode fazer sem me "
-                + "perguntar?' e parecidas; responda com as próprias palavras, curto.";
+                + "configuração de autonomia em vigor, e as permissões que o usuário te deu, com "
+                + "prazo. Use para 'o que você pode fazer sem me perguntar?' e parecidas; responda "
+                + "com as próprias palavras, curto.";
     }
 
     @Override

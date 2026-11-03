@@ -42,7 +42,16 @@ public enum TipoDeAcao {
 
     // ---- o que o dono pediu com todas as letras, sem pergunta no meio
     // Não é autônoma: quem disse "modo local" sabe que trocou, e a seção do briefing é para o resto.
-    TROCA_DE_MODELO("troca_de_modelo", "troca de modelo", "trocas de modelo", false);
+    TROCA_DE_MODELO("troca_de_modelo", "troca de modelo", "trocas de modelo", false),
+
+    // ---- as permissões que o dono deu (Concessoes). Nenhuma é autônoma: criar e revogar foram
+    // pedidos dele, e a ação que uma permissão libera já entra no diário como feita sem pergunta —
+    // contar o uso aqui também a mostraria duas vezes na seção do briefing.
+    CONCESSAO_CRIADA("concessao_criada", "permissão concedida", "permissões concedidas", false),
+    CONCESSAO_USADA("concessao_usada", "permissão usada pela primeira vez",
+            "permissões usadas pela primeira vez", false),
+    CONCESSAO_EXPIRADA("concessao_expirada", "permissão expirada", "permissões expiradas", false),
+    CONCESSAO_REVOGADA("concessao_revogada", "permissão revogada", "permissões revogadas", false);
 
     private final String chave;
     private final String singular;

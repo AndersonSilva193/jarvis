@@ -63,7 +63,7 @@ class ContextoDaAplicacaoTest {
 
     @Test
     void metadadosEDescricoesDasFerramentas() throws Exception {
-        assertEquals(49, ferramentasRegistradas.size());
+        assertEquals(51, ferramentasRegistradas.size());
         java.util.List<String> longas = new java.util.ArrayList<>();
         for (Ferramenta ferramenta : ferramentasRegistradas) {
             assertNotNull(ferramenta.grupo(), ferramenta.nome());
@@ -75,6 +75,14 @@ class ContextoDaAplicacaoTest {
                 longas.add(ferramenta.nome() + "=" + ferramenta.descricao().length());
         }
         assertTrue(longas.isEmpty(), "Descrições acima de 600: " + longas);
+    }
+
+    @Test
+    @DisplayName("o prazo máximo da permissão temporária vem do application.yml")
+    void concessaoTemporariaLigada() {
+        // O acessor devolve 7 mesmo sem binding; o campo cru só vem preenchido se o yml casou.
+        assertEquals(Integer.valueOf(7), props.diario().concessaoTemporariaMaxDias());
+        assertEquals("/data/jarvis/diario", props.diario().pasta());
     }
 
     @Test

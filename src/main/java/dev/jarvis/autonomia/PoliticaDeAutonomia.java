@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -39,8 +40,11 @@ import dev.jarvis.config.JarvisProperties;
  * <b>único</b> WARN por recarga. Arquivo ausente ou ilegível vale os padrões, que são o
  * comportamento de antes do arquivo existir.
  *
- * <p>O arquivo é só leitura. Permissão que o próprio Jarvis venha a gravar mora em outro lugar, e
- * terá de passar por aqui para respeitar os mesmos pisos.
+ * <p>O arquivo é só leitura. A permissão que o próprio Jarvis grava — temporária, aprendida ou de
+ * plano — mora nas {@link Concessoes}, e entra <b>depois</b> do arquivo e antes do padrão: a ordem
+ * inteira é piso &gt; arquivo &gt; concessão &gt; padrão. Uma linha explícita no arquivo, mesmo
+ * {@code pergunta_antes}, trava a ação contra concessão; e o piso continua acima de tudo, então nada
+ * libera desligar, reiniciar ou o computer use.
  */
 @Service
 public class PoliticaDeAutonomia {
@@ -78,6 +82,8 @@ public class PoliticaDeAutonomia {
 
     /** Null quando não há arquivo nenhum: só os padrões, para teste e para quem monta à mão. */
     private final Path arquivo;
+    /** Null para quem monta à mão sem concessões: o comportamento de antes delas. */
+    private final Concessoes concessoes;
 
     private Regras regras = Regras.VAZIAS;
     /** Data de modificação do que está em memória. Null enquanto valem só os padrões. */
@@ -85,13 +91,27 @@ public class PoliticaDeAutonomia {
     /** Para avisar só na transição para os padrões, e não a cada consulta. */
     private boolean nosPadroes;
 
-    @Autowired
     public PoliticaDeAutonomia(JarvisProperties props) {
-        this(props.arquivoDaPersonalidade().resolveSibling(NOME_DO_ARQUIVO));
+        this(props, null);
+    }
+
+    @Autowired
+    public PoliticaDeAutonomia(JarvisProperties props, Concessoes concessoes) {
+        this(props.arquivoDaPersonalidade().resolveSibling(NOME_DO_ARQUIVO), concessoes);
     }
 
     public PoliticaDeAutonomia(Path arquivo) {
+        this(arquivo, null);
+    }
+
+    public PoliticaDeAutonomia(Path arquivo, Concessoes concessoes) {
         this.arquivo = arquivo;
+        this.concessoes = concessoes;
+    }
+
+    /** As concessões que esta política consulta, ou null. É por aqui que o {@code Aprovacoes} as acha. */
+    public Concessoes concessoes() {
+        return concessoes;
     }
 
     /** Sem arquivo: o comportamento de antes desta classe existir. */
@@ -102,23 +122,54 @@ public class PoliticaDeAutonomia {
     // ---------------------------------------------------------------- decisão
 
     /**
+     * O que decidiu: o nível e, quando foi uma concessão que liberou, qual — é por ela que o
+     * {@code Aprovacoes} anota o primeiro uso.
+     */
+    public record Decisao(Nivel nivel, Concessao concessao) { }
+
+    /**
      * O nível daquela ação, para aquele alvo.
      *
      * @param alvo o nome da rotina, por exemplo; nulo ou vazio quando a ação não tem alvo. Alvo em
      *             ação que não aceita alvo é ignorado.
      */
     public Nivel nivel(AcaoAutonoma acao, String alvo) {
-        return nivel(regras(), acao, alvo);
+        return decidir(acao, alvo).nivel();
     }
 
-    private static Nivel nivel(Regras regras, AcaoAutonoma acao, String alvo) {
+    /** Como o {@link #nivel}, dizendo também qual concessão liberou, se foi uma. */
+    public Decisao decidir(AcaoAutonoma acao, String alvo) {
+        Regras atuais = regras();
+        String alvoAceito = acao.aceitaAlvo() && alvo != null && !alvo.isEmpty() ? alvo : null;
+        if (doArquivo(atuais, acao, alvoAceito) == null && concessoes != null) {
+            var concessao = concessoes.vigente(acao, alvoAceito);
+            // O piso é conferido de novo aqui, e não só na gravação: um JSON editado à mão não pode
+            // liberar desligar o PC.
+            if (concessao.isPresent() && Nivel.FAZ_E_AVISA.peloMenos(acao.piso())) {
+                return new Decisao(Nivel.FAZ_E_AVISA, concessao.get());
+            }
+        }
+        return new Decisao(nivel(atuais, acao, alvoAceito), null);
+    }
+
+    /**
+     * Se o arquivo tem linha para esta ação (com o alvo ou sem). É o que trava uma concessão, e o que
+     * faz o {@code Aprovacoes} não oferecer uma permanente que não teria efeito.
+     */
+    public boolean arquivoDecide(AcaoAutonoma acao, String alvo) {
+        return doArquivo(regras(), acao, acao.aceitaAlvo() && alvo != null && !alvo.isEmpty() ? alvo : null) != null;
+    }
+
+    private static Nivel doArquivo(Regras regras, AcaoAutonoma acao, String alvo) {
         Nivel escolhido = null;
         if (acao.aceitaAlvo() && alvo != null && !alvo.isEmpty()) {
             escolhido = regras.doAlvo(acao, alvo);
         }
-        if (escolhido == null) {
-            escolhido = regras.porAcao().get(acao);
-        }
+        return escolhido != null ? escolhido : regras.porAcao().get(acao);
+    }
+
+    private static Nivel nivel(Regras regras, AcaoAutonoma acao, String alvo) {
+        Nivel escolhido = doArquivo(regras, acao, alvo);
         if (escolhido == null) {
             escolhido = acao.padrao();
         }
@@ -152,7 +203,30 @@ public class PoliticaDeAutonomia {
             texto.append("- ").append(rotuloDoPrompt(linha.getKey())).append(": ")
                     .append(emFrase(linha.getValue())).append(".\n");
         }
+        List<String> liberadas = new ArrayList<>();
+        for (Concessao c : emVigor()) {
+            liberadas.add(c.oQue() + " (" + concessoes.prazo(c) + ")");
+        }
+        if (!liberadas.isEmpty()) {
+            texto.append("- Faz e avisa, por permissão do dono: ").append(emFrase(liberadas))
+                    .append(".\n");
+        }
         return texto.toString();
+    }
+
+    /** As concessões que de fato liberam algo agora: sem linha do arquivo por cima, piso permitindo. */
+    private List<Concessao> emVigor() {
+        if (concessoes == null) return List.of();
+        Instant agora = concessoes.agora();
+        List<Concessao> vigentes = new ArrayList<>();
+        for (Concessao c : concessoes.ativas()) {
+            AcaoAutonoma acao = c.acao();
+            if (acao != null && c.valeNaConversa(agora) && !arquivoDecide(acao, c.alvo())
+                    && acao.piso() == Nivel.FAZ_E_AVISA) {
+                vigentes.add(c);
+            }
+        }
+        return vigentes;
     }
 
     /**
@@ -193,7 +267,35 @@ public class PoliticaDeAutonomia {
         texto.append(PROIBIDOS_FIXOS).append(".\n");
         texto.append("Desligar, reiniciar e usar a tela do PC nunca acontecem sem pergunta, "
                 + "qualquer que seja a configuração.");
+        texto.append(permissoesDadas());
         return texto.toString();
+    }
+
+    /**
+     * As concessões ativas, com prazo, para a {@code minhas_permissoes}. A que o arquivo trava é
+     * dita como sem efeito: contar ao dono uma permissão que o código não segue seria mentir.
+     */
+    private String permissoesDadas() {
+        if (concessoes == null) return "";
+        List<String> itens = new ArrayList<>();
+        Instant agora = concessoes.agora();
+        for (Concessao c : concessoes.ativas()) {
+            AcaoAutonoma acao = c.acao();
+            String item = c.oQue() + ", " + concessoes.prazo(c);
+            if (acao != null && arquivoDecide(acao, c.alvo())) {
+                item += switch (nivel(acao, c.alvo())) {
+                    case PROIBIDO -> " (sem efeito: a configuração proíbe)";
+                    case PERGUNTA -> " (sem efeito: a configuração manda perguntar)";
+                    case FAZ_E_AVISA -> " (a configuração já libera)";
+                };
+            } else if (!c.valeNaConversa(agora)) {
+                item += " (só dentro da tarefa)";
+            }
+            itens.add(item);
+        }
+        if (itens.isEmpty()) return "";
+        return "\nPermissões que você me deu: " + String.join("; ", itens)
+                + ". Diga 'volta a perguntar' para cancelar.";
     }
 
     private static String rotuloDoPrompt(Nivel nivel) {

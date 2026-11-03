@@ -475,8 +475,25 @@ public record JarvisProperties(
      * <p>Só a pasta é configurável. Os 30 dias de retenção e o teto de ações por dia são constantes
      * do {@code DiarioDeAcoes}, pela mesma regra do {@code MedidorDeCusto}: não vale um componente
      * num record construído por posição em dezenas de testes para um número que ninguém vai mexer.
+     *
+     * <p>O {@code concessaoTemporariaMaxDias} mora aqui porque as concessões de autonomia são
+     * gravadas nesta mesma pasta ({@code concessoes.json}, ao lado do {@code freio.json}). Nulo ou
+     * não positivo vale 7.
      */
-    public record Diario(String pasta) { }
+    public record Diario(String pasta, Integer concessaoTemporariaMaxDias) {
+
+        /**
+         * Com dois construtores o Spring não escolhe sozinho e deixa o bloco inteiro nulo, sem erro
+         * nenhum — o {@code DIARIO_PASTA} seria ignorado. A anotação diz qual é o do binding.
+         */
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Diario { }
+
+        /** A aridade de antes das concessões, pelo motivo de sempre: construção por posição. */
+        public Diario(String pasta) {
+            this(pasta, null);
+        }
+    }
 
     /**
      * Os avisos que o Jarvis manda sem ter sido chamado.
@@ -676,6 +693,15 @@ public record JarvisProperties(
     public Path pastaDoDiario() {
         String caminho = diario == null ? null : diario.pasta();
         return Path.of(caminho == null || caminho.isBlank() ? "/data/jarvis/diario" : caminho);
+    }
+
+    /**
+     * O prazo máximo de uma permissão temporária ("até sexta pode..."), em dias. Pedido acima disso
+     * é cortado, nunca recusado: o dono disse que podia, e o corte aparece na resposta.
+     */
+    public int concessaoTemporariaMaxDias() {
+        Integer dias = diario == null ? null : diario.concessaoTemporariaMaxDias();
+        return dias == null || dias <= 0 ? 7 : dias;
     }
 
     /** Pasta da galeria de hologramas, no volume montado em /data/jarvis/holograma. */
