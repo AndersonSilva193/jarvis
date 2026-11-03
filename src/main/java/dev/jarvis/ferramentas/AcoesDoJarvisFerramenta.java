@@ -155,7 +155,7 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
                             : quando.format(HORA))
                     .append(" — [").append(acao.id()).append("] ").append(acao.descricao())
                     .append(acao.reversivel() ? " (" + acao.estadoDesfazer() + ")" : "")
-                    .append(acao.tipo().autonoma() ? "" : " (aprovado)").append('.');
+                    .append(acao.semPergunta() ? "" : " (aprovado)").append('.');
         }
         int sobrando = recentes.size() - MAX_LINHAS;
         if (sobrando > 0) {

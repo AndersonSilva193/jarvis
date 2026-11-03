@@ -3,6 +3,7 @@ package dev.jarvis.ferramentas;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -52,13 +53,11 @@ public class RodarRotinaFerramenta implements Ferramenta {
         try {
             String pergunta = "Vou rodar a rotina " + nome + " no seu PC; ela executa código na sua "
                     + "máquina e eu aviso quando terminar. Posso?";
-            var confirmacao = aprovacoes.pedir("rotina", "Executar rotina " + nome,
-                    pergunta, Aprovacoes.Risco.COMUM,
-                    contexto.usuarioAutenticado(), contexto.idPedido(), () ->
-                            iniciar(nome, pedidoConfirmado, contexto));
-            return new ResultadoFerramenta(pergunta,
-                    java.util.List.of(), java.util.List.of(),
-                    confirmacao, java.util.List.of(), java.util.List.of());
+            // Perguntar, fazer ou recusar é da política, por rotina: o nome é o alvo.
+            return ResultadoFerramenta.de(aprovacoes.encaminhar(AcaoAutonoma.ROTINA_RODAR, nome,
+                    "rotina", "Executar rotina " + nome, pergunta, Aprovacoes.Risco.COMUM,
+                    contexto.usuarioAutenticado(), contexto.idPedido(), contexto.canal(),
+                    Aprovacoes.frase(() -> iniciar(nome, pedidoConfirmado, contexto))));
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             return ResultadoFerramenta.texto(recusa.getMessage());
         }

@@ -19,10 +19,15 @@ import java.time.Instant;
  * tem volta ou não precisa de uma. Não é falada: quem vai ao ouvido do dono é a {@code descricao},
  * e um UUID lido em voz alta não ajuda ninguém. Como a descrição, é <b>dado real</b> de quem
  * executou, nunca texto escrito pelo modelo.
+ *
+ * <p>O {@code perguntada} diz se a ação passou por "Posso?". É por linha, e não pelo tipo, porque a
+ * {@code PoliticaDeAutonomia} pode liberar uma rotina sem pergunta: o mesmo {@link TipoDeAcao#ROTINA}
+ * aparece ora aprovado, ora feito sozinho. Nulo é linha de antes do campo existir, e aí quem decide
+ * é o {@link TipoDeAcao#autonoma()}, como sempre decidiu.
  */
 public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao,
         OrigemDaAcao origem, String referencia, String id, long usuario, Desfazer desfazer,
-        String estadoDesfazer, String comandoDesfazer) {
+        String estadoDesfazer, String comandoDesfazer, Boolean perguntada) {
 
     /** O corte da descrição. Um nome de arquivo com caminho longo caberia; um parágrafo, não. */
     public static final int MAX_DESCRICAO = 120;
@@ -44,14 +49,19 @@ public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao
 
     public AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
             String referencia) {
-        this(instante, tipo, descricao, origem, referencia, novoId(), 0, null, "disponivel", "");
+        this(instante, tipo, descricao, origem, referencia, novoId(), 0, null, "disponivel", "", null);
     }
 
     public static String novoId() { return "a" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12); }
     public boolean reversivel() { return usuario > 0 && desfazer != null; }
     public AcaoRegistrada comEstado(String estado, String comando) {
         return new AcaoRegistrada(instante, tipo, descricao, origem, referencia, id, usuario,
-                desfazer, estado, comando);
+                desfazer, estado, comando, perguntada);
+    }
+
+    /** Feita sem "Posso?". É o filtro da seção "o que fiz sozinho" e do "(aprovado)". */
+    public boolean semPergunta() {
+        return perguntada == null ? tipo.autonoma() : !perguntada;
     }
 
     /** Ação sem nada para desfazer, que é a maioria. Mantém quem monta a linha com quatro campos. */

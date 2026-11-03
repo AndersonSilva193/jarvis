@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.memoria.EsquecimentosDeMemoria;
 import dev.jarvis.memoria.MemoriaService;
@@ -51,9 +52,9 @@ public class EsquecerMemoriaFerramenta extends FerramentaMemoria {
 
     @Override public String descricao() {
         return "Esquece ou apaga para sempre um registro da memória pelo ID de "
-                + "buscar_memoria. Registros parecidos exigem escolha do usuário. A ferramenta "
-                + "só faz a pergunta de aprovação: chame uma vez e espere a resposta em "
-                + "linguagem natural, sem pedir palavra, código nem frase exata. Não diga que apagou antes. "
+                + "buscar_memoria. Registros parecidos exigem escolha do usuário. Chame uma vez: "
+                + "se devolver uma pergunta de aprovação, espere a resposta em linguagem natural, "
+                + "sem pedir palavra, código nem frase exata, e não diga que apagou antes. "
                 + "O servidor executa a aprovação sem outra chamada da ferramenta. Para desfazer "
                 + "uma anotação sua feita agora há pouco, use desfazer_anotacao.";
     }
@@ -79,11 +80,10 @@ public class EsquecerMemoriaFerramenta extends FerramentaMemoria {
         String pergunta = "Vou apagar da memória: '" + assunto + ": " + curto(r.conteudo())
                 + "'. Posso?";
         try {
-            var confirmacao = aprovacoes.pedir("memoria", "esquecer " + assunto, pergunta,
-                    Aprovacoes.Risco.COMUM, u, pedido(progresso),
-                    () -> apagar(u, id, revisao, assunto));
-            return new ResultadoFerramenta(pergunta, List.of(), List.of(), confirmacao,
-                    List.of(), List.of());
+            return ResultadoFerramenta.de(aprovacoes.encaminhar(AcaoAutonoma.MEMORIA_ESQUECER, null,
+                    "memoria", "esquecer " + assunto, pergunta, Aprovacoes.Risco.COMUM, u,
+                    pedido(progresso), progresso.canal(),
+                    Aprovacoes.frase(() -> apagar(u, id, revisao, assunto))));
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             return resposta(recusa.getMessage());
         }

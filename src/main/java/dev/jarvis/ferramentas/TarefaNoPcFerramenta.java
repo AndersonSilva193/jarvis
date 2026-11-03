@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import dev.jarvis.computer.TarefasComputerUse;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -74,11 +75,11 @@ public class TarefaNoPcFerramenta implements Ferramenta {
             long usuario = contexto.usuarioAutenticado();
             String canal = contexto.canal();
             String pergunta = "Vou usar o monitor principal para: " + objetivo + ". Posso?";
-            var confirmacao = aprovacoes.pedir("computer", "Tarefa no monitor principal: " + objetivo,
-                    pergunta, Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(),
-                    () -> tarefas.iniciar(objetivo, canal, usuario));
-            return new ResultadoFerramenta(pergunta,
-                    List.of(), List.of(), confirmacao, List.of(), List.of());
+            // O piso do computer use é PERGUNTA: a política só pode perguntar ou recusar aqui.
+            return ResultadoFerramenta.de(aprovacoes.encaminhar(AcaoAutonoma.COMPUTER_USE_INICIAR,
+                    null, "computer", "Tarefa no monitor principal: " + objetivo, pergunta,
+                    Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(), canal,
+                    Aprovacoes.frase(() -> tarefas.iniciar(objetivo, canal, usuario))));
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             return ResultadoFerramenta.texto(recusa.getMessage());
         }

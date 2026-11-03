@@ -60,7 +60,12 @@ public enum TipoDeAcao {
         return chave;
     }
 
-    /** Feita sem perguntar. É o filtro da seção "o que fiz sozinho" do briefing. */
+    /**
+     * Feita sem perguntar, pelo tipo. Quem filtra a seção "o que fiz sozinho" é o
+     * {@link AcaoRegistrada#semPergunta()}, que só cai aqui em linha anterior ao campo
+     * {@code perguntada}: com a {@code PoliticaDeAutonomia}, o mesmo tipo pode ser feito com ou sem
+     * pergunta.
+     */
     public boolean autonoma() {
         return autonoma;
     }

@@ -1,6 +1,6 @@
 # Handoff
 
-Para o SDE: implementar ADR-001 conforme `specs/2026-11-03-politica-de-autonomia-design.md` e
-`decisions/architect/politica-de-autonomia.md`. Pontos sensíveis: não mexer nas `descricao()` além do
-texto neutro (cache), manter o `rodar` do `Aprovacoes` como único ponto que anota no diário, e não
-quebrar os construtores usados por testes.
+Para DevOps/dono: branch local `feat/politica-de-autonomia`, não enviada. Para entregar: merge,
+`docker compose up -d --build`. O `config/autonomia.md` chega pelo volume `./config:/app/config:ro` já
+existente — sem variável nova. Na partida, procurar no log "Autonomia carregada de /app/config/autonomia.md".
+As descrições de 4 ferramentas mudaram: o primeiro pedido depois do deploy escreve o cache de novo.

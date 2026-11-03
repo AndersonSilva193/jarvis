@@ -144,7 +144,8 @@ class DiarioEmArquivo {
                 Json.texto(no.path("referencia")),
                 no.has("id") ? Json.texto(no.path("id")) : "antigo-" + dia + "-" + indice,
                 Json.numero(no.path("usuario")), Desfazer.ler(no.path("desfazer")),
-                Json.texto(no.path("estadoDesfazer")), Json.texto(no.path("comandoDesfazer")));
+                Json.texto(no.path("estadoDesfazer")), Json.texto(no.path("comandoDesfazer")),
+                no.path("perguntada").isBoolean() ? no.path("perguntada").asBoolean() : null);
     }
 
     /** Grava o dia inteiro. Lança {@link IOException} para quem chamou decidir o que logar. */
@@ -173,6 +174,10 @@ class DiarioEmArquivo {
             // centenas delas é peso no JSON do dia sem dizer nada.
             if (!acao.referencia().isBlank()) {
                 no.put("referencia", acao.referencia());
+            }
+            // Nulo não vai: a linha volta a ser decidida pelo tipo, que é o que ela era.
+            if (acao.perguntada() != null) {
+                no.put("perguntada", acao.perguntada());
             }
         }
 

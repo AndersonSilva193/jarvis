@@ -123,14 +123,31 @@ public class DiarioDeAcoes {
     public String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
             long usuario, Desfazer desfazer) {
         return registrar(tipo, descricao, origem, usuario, desfazer,
-                desfazer instanceof Desfazer.Lixeira d ? d.idLixeira() : "");
+                desfazer instanceof Desfazer.Lixeira d ? d.idLixeira() : "", null);
+    }
+
+    /**
+     * Como o {@link #registrar(TipoDeAcao, String, OrigemDaAcao, long, Desfazer)}, dizendo se a
+     * ação passou por "Posso?". É o que o {@code Aprovacoes} usa, porque é ele quem sabe: a mesma
+     * rotina pode ter sido aprovada ou liberada pela {@code PoliticaDeAutonomia}.
+     */
+    public String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+            long usuario, Desfazer desfazer, boolean perguntada) {
+        return registrar(tipo, descricao, origem, usuario, desfazer,
+                desfazer instanceof Desfazer.Lixeira d ? d.idLixeira() : "", perguntada);
     }
 
     private String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
             long usuario, Desfazer desfazer, String referencia) {
+        return registrar(tipo, descricao, origem, usuario, desfazer, referencia, null);
+    }
+
+    private String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+            long usuario, Desfazer desfazer, String referencia, Boolean perguntada) {
         try {
             AcaoRegistrada acao = new AcaoRegistrada(relogio.instant(), tipo, descricao, origem,
-                    referencia, AcaoRegistrada.novoId(), usuario, desfazer, "disponivel", "");
+                    referencia, AcaoRegistrada.novoId(), usuario, desfazer, "disponivel", "",
+                    perguntada);
             synchronized (trava) {
                 virarSePrecisar(hojeLocal());
                 if (!dia.somar(acao) && dia.descartadas() == 1) {
@@ -326,7 +343,7 @@ public class DiarioDeAcoes {
         LocalDate inicio = LocalDate.ofInstant(desde, props.zona());
         for (DiaDoDiario estado : estadosDe(inicio, hojeLocal())) {
             for (AcaoRegistrada acao : estado.acoes()) {
-                if (acao.tipo().autonoma() && acao.instante().isAfter(desde)
+                if (acao.semPergunta() && acao.instante().isAfter(desde)
                         && !acao.instante().isAfter(agora)) {
                     contagem.merge(acao.tipo(), 1, Integer::sum);
                 }
@@ -529,7 +546,7 @@ public class DiarioDeAcoes {
 
         /** Só o que foi feito sem perguntar. */
         public List<AcaoRegistrada> autonomas() {
-            return acoes.stream().filter(acao -> acao.tipo().autonoma()).toList();
+            return acoes.stream().filter(AcaoRegistrada::semPergunta).toList();
         }
     }
 }

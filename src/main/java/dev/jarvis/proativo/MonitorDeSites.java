@@ -15,6 +15,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
+import dev.jarvis.autonomia.Nivel;
 import dev.jarvis.briefing.fontes.SitesService;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.pc.OperacoesPcService;
@@ -145,7 +147,8 @@ public class MonitorDeSites {
     }
 
     /**
-     * Registra a aprovação da rotina e devolve a pergunta, ou vazio se ela não pode ser feita.
+     * Encaminha a rotina pela política e devolve o que entra no aviso: a pergunta, o que saiu da
+     * rotina que rodou sozinha, ou vazio se ela não pode ou não deve ser oferecida.
      *
      * <p>Confere {@code pendenciaDe} <b>antes</b> de pedir porque o {@code Aprovacoes.pedir}
      * sobrescreve calado uma pendência do mesmo usuário com outro {@code pedidoOrigem}: sem esta
@@ -166,7 +169,9 @@ public class MonitorDeSites {
         // Id sintético: nunca igual ao de uma mensagem real, então a próxima mensagem do dono
         // satisfaz a regra do "confirme em nova mensagem".
         String pedidoOrigem = "proativo:site_fora:" + nome + ":" + relogio.instant();
-        if (aprovacoes.pendenciaDe(usuario, pedidoOrigem).isPresent()) {
+        // Só a pergunta disputa a vaga da pendência; rodar já ou recusar não sobrescreve nada.
+        if (aprovacoes.nivel(AcaoAutonoma.ROTINA_RODAR, rotina) == Nivel.PERGUNTA
+                && aprovacoes.pendenciaDe(usuario, pedidoOrigem).isPresent()) {
             log.info("Site {} caiu, mas já havia uma aprovação em aberto; aviso sem a pergunta",
                     nome);
             return "";
@@ -176,10 +181,18 @@ public class MonitorDeSites {
         try {
             // Tipo "rotina" reaproveitado de propósito: é literalmente uma rotina, a frase fixa já
             // é "confirmo rotina <código>" e o Aprovacoes.tipoNoDiario já a anota como ROTINA.
-            aprovacoes.pedir("rotina", "Executar rotina " + rotina, pergunta,
-                    Aprovacoes.Risco.COMUM, usuario, pedidoOrigem,
-                    () -> e2.iniciarRotina(rotina, pedido, "telegram", usuario));
-            return pergunta;
+            // A política decide por rotina: com faz_e_avisa ela roda já e o aviso diz o que saiu;
+            // proibida, o aviso da queda vai sozinho, sem oferta.
+            var encaminhamento = aprovacoes.encaminhar(AcaoAutonoma.ROTINA_RODAR, rotina, "rotina",
+                    "Executar rotina " + rotina, pergunta, Aprovacoes.Risco.COMUM, usuario,
+                    pedidoOrigem, "telegram",
+                    Aprovacoes.frase(() -> e2.iniciarRotina(rotina, pedido, "telegram", usuario)));
+            return switch (encaminhamento.nivel()) {
+                case PERGUNTA -> pergunta;
+                case FAZ_E_AVISA -> "Mandei rodar a rotina " + rotina + " para tentar resolver: "
+                        + encaminhamento.texto();
+                case PROIBIDO -> "";
+            };
         } catch (IllegalArgumentException | IllegalStateException recusa) {
             log.warn("Não consegui abrir a aprovação da rotina '{}': {}", rotina,
                     recusa.getMessage());

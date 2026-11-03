@@ -11,6 +11,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.diario.DiarioDeAcoes;
 import dev.jarvis.diario.TipoDeAcao;
@@ -101,9 +102,9 @@ public class ApagarArquivoFerramenta implements Ferramenta {
                 Move arquivos da pasta do Jarvis para a lixeira, pelos IDs de listar_arquivos. \
                 Apaga direto, sem perguntar: dá para trazer de volta com restaurar_arquivo.
 
-                Um ID por arquivo em ids. Acima de 5 arquivos no mesmo pedido, o servidor devolve \
-                UMA pergunta de aprovação para a lista inteira e não move nada até a resposta: \
-                nesse caso repita a pergunta com o seu tom, sem pedir palavra, código nem frase \
+                Um ID por arquivo em ids. Acima de 5 arquivos no mesmo pedido, o servidor pode \
+                devolver UMA pergunta de aprovação para a lista inteira e não move nada até a \
+                resposta: nesse caso repita a pergunta com o seu tom, sem pedir palavra, código nem frase \
                 exata, e não diga que apagou antes de o usuário responder.
 
                 Se não tiver o ID, use listar_arquivos primeiro; com arquivos parecidos, pergunte \
@@ -178,11 +179,12 @@ public class ApagarArquivoFerramenta implements Ferramenta {
         String pergunta = "Vou mover " + alvos.size() + " arquivos para a lixeira: "
                 + emFrase(alvos.stream().map(Alvo::nome).toList()) + ". Posso?";
         try {
-            var confirmacao = aprovacoes.pedir(Aprovacoes.TIPO_PC_LIXEIRA,
-                    "apagar " + alvos.size() + " arquivos", pergunta, Aprovacoes.Risco.COMUM,
-                    contexto.usuarioAutenticado(), pedido, () -> mover(alvos, pedido, contexto));
-            return new ResultadoFerramenta(pergunta, List.of(), List.of(), confirmacao,
-                    List.of(), List.of());
+            // O lote é da política: perguntar (o padrão), mover já ou recusar. Um arquivo por vez
+            // continua sem pergunta, porque volta da lixeira.
+            return ResultadoFerramenta.de(aprovacoes.encaminhar(AcaoAutonoma.ARQUIVO_APAGAR_LOTE, null,
+                    Aprovacoes.TIPO_PC_LIXEIRA, "apagar " + alvos.size() + " arquivos", pergunta,
+                    Aprovacoes.Risco.COMUM, contexto.usuarioAutenticado(), pedido, contexto.canal(),
+                    Aprovacoes.frase(() -> mover(alvos, pedido, contexto))));
         } catch (IllegalArgumentException | IllegalStateException falhaConfirmacao) {
             return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());
         }

@@ -44,6 +44,14 @@ public record ResultadoFerramenta(String texto, List<Artefato> artefatos,
     public static ResultadoFerramenta texto(String texto) {
         return new ResultadoFerramenta(texto, List.of(), List.of(), null, List.of(), List.of());
     }
+    /**
+     * O que a {@code PoliticaDeAutonomia} decidiu, no formato de ferramenta: com a confirmação em
+     * aberto quando ela pergunta, só o texto quando fez ou recusou.
+     */
+    public static ResultadoFerramenta de(dev.jarvis.aprovacao.Aprovacoes.Encaminhamento encaminhamento) {
+        return new ResultadoFerramenta(encaminhamento.texto(), List.of(), List.of(),
+                encaminhamento.confirmacao(), List.of(), List.of());
+    }
     /** Resultado que abre uma janela na tela, mais o texto curto que volta ao modelo. */
     public static ResultadoFerramenta comCard(String texto, CardTela card) {
         return new ResultadoFerramenta(texto, List.of(), List.of(), null, List.of(card), List.of());

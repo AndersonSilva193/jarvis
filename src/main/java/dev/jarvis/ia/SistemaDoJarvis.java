@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import dev.jarvis.autonomia.PoliticaDeAutonomia;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.provedor.ConversorAnthropic;
 import dev.jarvis.ia.provedor.InstrucoesDeSistema;
@@ -42,6 +43,8 @@ public class SistemaDoJarvis {
      */
     private final boolean buscaAtiva;
     private final boolean buscaPorFerramenta;
+    /** Pode ser nula: os construtores antigos ficam sem o resumo, que é o padrão do código. */
+    private final PoliticaDeAutonomia autonomia;
 
     /** Sem HUD e sem memória: o que vale para teste e para quem chama de dentro do processo. */
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props) {
@@ -65,10 +68,18 @@ public class SistemaDoJarvis {
         this(personalidade, json, props, tela, hud, memoria, procedimentos, null);
     }
 
-    @Autowired
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
             TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
             ProcedimentosService procedimentos, EstadoDoHologramaService holograma) {
+        this(personalidade, json, props, tela, hud, memoria, procedimentos, holograma, null);
+    }
+
+    @Autowired
+    public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
+            TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
+            ProcedimentosService procedimentos, EstadoDoHologramaService holograma,
+            PoliticaDeAutonomia autonomia) {
+        this.autonomia = autonomia;
         this.holograma = holograma;
         this.procedimentos = procedimentos;
         this.personalidade = personalidade;
@@ -133,7 +144,8 @@ public class SistemaDoJarvis {
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? holograma.linha() : "";
         ArrayNode blocos = PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
                 props.nomeUsuario(), ZonedDateTime.now(props.zona()), buscaAtiva,
-                buscaPorFerramenta, naTela, sobreUsuario, aprendidos, doHolograma);
+                buscaPorFerramenta, naTela, sobreUsuario, aprendidos, doHolograma,
+                autonomia == null ? "" : autonomia.resumo());
         if (usuario > 0 && (canal == Canal.HUD || canal == Canal.TELEGRAM)
                 && contextoArquivo != null && contextoArquivo.estado() != null) {
             var dinamico = (tools.jackson.databind.node.ObjectNode) blocos.get(1);

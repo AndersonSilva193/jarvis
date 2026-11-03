@@ -23,6 +23,7 @@ import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.pc.ComandoPc;
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
 import dev.jarvis.pc.PcService;
 import dev.jarvis.pc.ResultadoPc;
 import dev.jarvis.telegram.TelegramClient;
@@ -96,7 +97,7 @@ public class ControlarPcFerramenta implements Ferramenta {
         return "Controla o PC Windows: abrir_app (liberados: " + liberados + "), abrir_url HTTPS, "
                 + "abrir_hud, bloquear_tela, captura_tela, status_pc e volume (subir, baixar, mudo). "
                 + "modo_repouso fecha a HUD e volta a ouvir o gatilho; falso_positivo registra engano. "
-                + "Desligar ou reiniciar devolve pergunta de aprovação: chame uma vez, repita a pergunta "
+                + "Desligar ou reiniciar devolve pergunta de aprovação ou recusa: chame uma vez, repita a pergunta "
                 + "e espere a resposta, sem pedir palavra, código nem frase exata. Não repita a ação "
                 + "para confirmar. cancelar_desligamento aborta. Apps fora da lista: tarefa_no_pc "
                 + "após aprovação. Cards: controlar_tela. Nunca abra shell livre.";
@@ -180,17 +181,20 @@ public class ControlarPcFerramenta implements Ferramenta {
                 String pergunta = "Vou " + acao + " o PC em 60 segundos. Posso?";
                 // Tipo próprio, e não o "pc" genérico: é por ele que o diário
                 // de ações distingue "desliguei o PC" de "apaguei um arquivo" sem farejar texto.
-                var confirmacao = aprovacoes.pedir(Aprovacoes.TIPO_PC_ENERGIA, acao + " o PC",
-                        pergunta, Aprovacoes.Risco.CRITICO,
-                        progresso.usuarioAutenticado(), progresso.idPedido(), () -> {
+                // Piso PERGUNTA nas duas: a política só pode perguntar ou recusar.
+                AcaoAutonoma chave = "desligar".equals(acao) ? AcaoAutonoma.PC_DESLIGAR
+                        : AcaoAutonoma.PC_REINICIAR;
+                var encaminhamento = aprovacoes.encaminhar(chave, null, Aprovacoes.TIPO_PC_ENERGIA,
+                        acao + " o PC", pergunta, Aprovacoes.Risco.CRITICO,
+                        progresso.usuarioAutenticado(), progresso.idPedido(), progresso.canal(),
+                        Aprovacoes.frase(() -> {
                             if (!pc.online()) return "PC offline; ação não iniciada.";
                             ComandoPc ordem = ComandoPc.nova(acao, efetivo, Instant.now());
                             pc.enfileirar(ordem, progresso.canal(), progresso.usuarioAutenticado());
                             pc.pedirAviso(ordem.id());
                             return "Ação confirmada. Operação " + ordem.id() + " enviada ao PC.";
-                        });
-                return new ResultadoFerramenta(pergunta,
-                        List.of(), List.of(), confirmacao, List.of(), List.of());
+                        }));
+                return ResultadoFerramenta.de(encaminhamento);
             } catch (IllegalArgumentException | IllegalStateException falhaConfirmacao) {
                 return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());
             }

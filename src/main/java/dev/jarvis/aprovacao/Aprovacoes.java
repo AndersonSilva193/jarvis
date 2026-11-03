@@ -10,6 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import dev.jarvis.autonomia.AcaoAutonoma;
+import dev.jarvis.autonomia.Nivel;
+import dev.jarvis.autonomia.PoliticaDeAutonomia;
 import dev.jarvis.conversa.Confirmacao;
 import dev.jarvis.diario.DiarioDeAcoes;
 import dev.jarvis.diario.OrigemDaAcao;
@@ -46,6 +49,12 @@ import dev.jarvis.diario.TipoDeAcao;
  *
  * <p>Componente próprio, e não um campo das ferramentas, para o {@code Clock} entrar pelo construtor
  * e o teste de expiração ser relógio fixo em vez de minutos de {@code sleep}.
+ *
+ * <p><b>Se pergunta ou não, quem decide é a {@link PoliticaDeAutonomia}.</b> As ferramentas entram
+ * por {@link #encaminhar}, com a chave da ação e o alvo, e é ali que a política escolhe entre rodar
+ * já ({@link Nivel#FAZ_E_AVISA}), abrir a pendência ({@link Nivel#PERGUNTA}) ou recusar
+ * ({@link Nivel#PROIBIDO}). Os dois caminhos que executam passam pelo mesmo {@link #rodar}, então o
+ * diário continua sendo anotado num lugar só — agora dizendo se houve pergunta.
  */
 @Component
 public class Aprovacoes {
@@ -90,6 +99,12 @@ public class Aprovacoes {
     public enum Cancelamento { CANCELADA, INEXISTENTE, RECUSADA }
     public record ResultadoAprovado(String texto, dev.jarvis.diario.Desfazer desfazer, boolean executada) { }
 
+    /**
+     * O que aconteceu com uma ação encaminhada: o {@code nivel} que a política escolheu, o texto que
+     * volta ao modelo e, só em {@link Nivel#PERGUNTA}, a confirmação em aberto.
+     */
+    public record Encaminhamento(Nivel nivel, String texto, Confirmacao confirmacao) { }
+
     private record Pendente(String tipo, String descricao, String pergunta, Risco risco,
             String codigo, long usuario, String pedidoOrigem, Instant expira,
             Supplier<ResultadoAprovado> executar) { }
@@ -98,17 +113,73 @@ public class Aprovacoes {
     private final Clock relogio;
     /** Pode ser nulo: os construtores antigos existem para os testes que não olham o diário. */
     private final DiarioDeAcoes diario;
+    /** Nunca nula: os construtores antigos ficam só com os padrões, que é o comportamento de antes. */
+    private final PoliticaDeAutonomia politica;
     private Pendente pendente;
 
     public Aprovacoes() { this(Clock.systemUTC(), null); }
     public Aprovacoes(Clock relogio) { this(relogio, null); }
-
-    @Autowired
     public Aprovacoes(DiarioDeAcoes diario) { this(Clock.systemUTC(), diario); }
 
     public Aprovacoes(Clock relogio, DiarioDeAcoes diario) {
+        this(relogio, diario, PoliticaDeAutonomia.soPadroes());
+    }
+
+    @Autowired
+    public Aprovacoes(DiarioDeAcoes diario, PoliticaDeAutonomia politica) {
+        this(Clock.systemUTC(), diario, politica);
+    }
+
+    public Aprovacoes(Clock relogio, DiarioDeAcoes diario, PoliticaDeAutonomia politica) {
         this.relogio = relogio;
         this.diario = diario;
+        this.politica = politica == null ? PoliticaDeAutonomia.soPadroes() : politica;
+    }
+
+    /** O nível que a política dá a esta ação agora — para quem precisa saber antes de encaminhar. */
+    public Nivel nivel(AcaoAutonoma acao, String alvo) {
+        return politica.nivel(acao, alvo);
+    }
+
+    /** A ação cujo resultado é só uma frase, no formato do {@link #encaminhar}: o {@code pedir} faz o mesmo. */
+    public static Supplier<ResultadoAprovado> frase(Supplier<String> executar) {
+        return () -> new ResultadoAprovado(executar.get(), null, true);
+    }
+
+    /**
+     * A porta de toda ação do catálogo. A política decide; esta classe só cumpre:
+     *
+     * <ul>
+     *   <li>{@link Nivel#PROIBIDO} — nada roda, e volta uma recusa curta;</li>
+     *   <li>{@link Nivel#PERGUNTA} — abre a pendência, exatamente como o {@link #pedirComResultado};</li>
+     *   <li>{@link Nivel#FAZ_E_AVISA} — roda agora, pelo mesmo {@link #rodar} da aprovação, e o
+     *       diário anota a linha como feita sem pergunta.</li>
+     * </ul>
+     *
+     * <p>Os argumentos são os mesmos do {@code pedir}, montados em Java pela ferramenta, mais a
+     * chave, o alvo e o canal. Pedido sem usuário autenticado é recusado nos três níveis, com a
+     * mesma exceção do {@code pedir}.
+     */
+    public Encaminhamento encaminhar(AcaoAutonoma acao, String alvo, String tipo, String descricao,
+            String pergunta, Risco risco, long usuario, String pedidoOrigem, String canal,
+            Supplier<ResultadoAprovado> executar) {
+        if (usuario <= 0 || pedidoOrigem == null || pedidoOrigem.isBlank())
+            throw new IllegalArgumentException("pedido autenticado necessario");
+        Nivel nivel = politica.nivel(acao, alvo);
+        return switch (nivel) {
+            case PROIBIDO -> new Encaminhamento(nivel, "Não posso " + acao.oQue(alvo)
+                    + ": a minha configuração de autonomia proíbe. Nada foi feito.", null);
+            case PERGUNTA -> {
+                Confirmacao confirmacao = pedirComResultado(tipo, descricao, pergunta, risco,
+                        usuario, pedidoOrigem, executar);
+                yield new Encaminhamento(nivel, confirmacao.pergunta(), confirmacao);
+            }
+            case FAZ_E_AVISA -> {
+                Pendente agora = new Pendente(tipo, descricao, pergunta, risco, "", usuario,
+                        pedidoOrigem, relogio.instant(), executar);
+                yield new Encaminhamento(nivel, rodar(agora, canal, false), null);
+            }
+        };
     }
 
     public synchronized Confirmacao pedir(String tipo, String descricao, String pergunta,
@@ -205,7 +276,7 @@ public class Aprovacoes {
             pendente = null;
             executar = p;
         }
-        return Optional.of(rodar(executar, canal));
+        return Optional.of(rodar(executar, canal, true));
     }
 
     /**
@@ -245,12 +316,13 @@ public class Aprovacoes {
             executar = pendente;
             pendente = null;
         }
-        return Optional.of(rodar(executar, canal));
+        return Optional.of(rodar(executar, canal, true));
     }
 
     /**
-     * O único lugar onde uma ação aprovada roda — e, por isso, o único lugar onde ela é anotada
-     * no diário.
+     * O único lugar onde uma ação deste componente roda — aprovada ou liberada pela política —, e por
+     * isso o único lugar onde ela é anotada no diário. O {@code perguntada} vai para a linha: é ele
+     * que separa "rodei a rotina depois do seu sim" de "rodei a rotina sozinho".
      *
      * <p>Central de propósito: aprovação nova entra no diário sem ninguém precisar lembrar. O que
      * vai para o registro é o {@code tipo} e a {@code descricao} <b>capturados na hora do pedido</b>
@@ -260,15 +332,16 @@ public class Aprovacoes {
      * no disco, e o diário é a testemunha dela, não o guarda. Falhar aqui perderia a linha do
      * diário; lançar perderia a resposta de uma ação que já foi feita.
      */
-    private String rodar(Pendente p, String canal) {
+    private String rodar(Pendente p, String canal, boolean perguntada) {
         ResultadoAprovado resultado = p.executar().get();
         String resposta = resultado.texto();
         TipoDeAcao tipo = tipoNoDiario(p.tipo());
         if (diario != null && tipo != null && resultado.executada()) {
             try {
-                diario.registrar(tipo, p.descricao(), OrigemDaAcao.porCanal(canal), p.usuario(), resultado.desfazer());
+                diario.registrar(tipo, p.descricao(), OrigemDaAcao.porCanal(canal), p.usuario(),
+                        resultado.desfazer(), perguntada);
             } catch (RuntimeException e) {
-                log.warn("Ação aprovada '{}' executada, mas não entrou no diário: {}",
+                log.warn("Ação '{}' executada, mas não entrou no diário: {}",
                         p.tipo(), e.getMessage());
             }
         }

@@ -68,6 +68,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva, aviso antecipado e volta ao navegador), `DiarioDeVoz` (o uso por dia, de onde sai a projeção), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `CatalogoDoPc` (os apps e as rotinas que o PC anunciou, em disco), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
+| `dev.jarvis.autonomia` | `PoliticaDeAutonomia` (lê `config/autonomia.md` e decide, para cada ação do catálogo, faz e avisa / pergunta / proibido), `AcaoAutonoma` (o catálogo fechado, com padrão e piso) e `Nivel` |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
 | `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`), `ValidadorDeEsquema` (o subconjunto de JSON Schema que os `esquemaEntrada()` usam) e `Texto` |
@@ -1434,18 +1435,23 @@ As duas configurações novas entram nos três lugares de sempre: `JarvisPropert
   repetida é baixo e o de um falso "sim" é uma máquina desligada. O modelo principal nunca vê a
   pendência nem a decisão, só o resultado dela: as frases fixas (`confirmo`, `confirmo pc 123456`)
   continuam valendo, mas são atalho, não protocolo.
-- **Os três níveis de autonomia** vivem em `PromptDeSistema.regrasDeAprovacao`, no bloco dinâmico e
-  só nos canais em que há alguém para responder (em `briefing` e `tarefa` uma pergunta ficaria sem
-  destino): *faz e avisa* (ler, listar, criar, editar e desfazer arquivo na pasta do Jarvis,
-  **apagar arquivo** — vai para a lixeira, e mais de 5 no mesmo pedido pergunta uma vez — e
-  **restaurar da lixeira**, lembretes, tela, busca, clima, abrir app da lista, volume, captura,
-  listar, gravar e corrigir memória, **desfazer o que o anotador gravou**, **ler e esquecer procedimento aprendido**, **dizer o que ele
-  próprio fez**, **acompanhar os sites e avisar que um caiu ou voltou**), *pergunta antes*
-  (rotina que executa código, computer use, desligar e reiniciar,
-  agendar tarefa de planilha, esquecer memória) e *proibido* (shell livre,
-  arquivo fora da pasta, pagar, comprar, digitar senha, e seguir instrução vinda de página,
-  arquivo, tela ou memória). Ferramenta nova tem de cair num dos três de propósito, não por
-  omissão — e o nível escolhido é o que decide se ela chama `Aprovacoes.pedir` ou não.
+- **Os três níveis de autonomia** são decididos pela `PoliticaDeAutonomia`, e por mais ninguém.
+  O catálogo fechado `AcaoAutonoma` lista o que pode passar pelo `Aprovacoes` (`rotina.rodar[:nome]`,
+  `computer_use.iniciar`, `pc.desligar`, `pc.reiniciar`, `arquivo.apagar_lote`, `planilha.agendar`,
+  `memoria.esquecer`), cada uma com **padrão** (o de antes: pergunta) e **piso**. A ordem é piso do
+  código > `config/autonomia.md` > padrão; no arquivo, a linha com alvo vence a sem alvo. Desligar,
+  reiniciar e computer use têm piso *pergunta*: nenhum arquivo os libera, só pode proibi-los. O
+  arquivo é irmão da personalidade (mesmo volume `:ro`) e é relido do mesmo jeito; linha ruim vira
+  um WARN por recarga, e arquivo ausente vale os padrões. As ferramentas entram por
+  `Aprovacoes.encaminhar(acao, alvo, ...)`: *faz e avisa* roda o `Supplier` pelo mesmo `rodar` e anota
+  no diário com `perguntada=false` (é o `AcaoRegistrada.semPergunta()` que alimenta o briefing e o
+  "(aprovado)", não mais o tipo); *pergunta* abre a pendência como sempre; *proibido* devolve uma
+  recusa curta. No prompt, só no bloco dinâmico e só em `telegram`/`hud`, vão o resumo gerado (o que
+  difere do padrão) e os proibidos sem ferramenta (`PoliticaDeAutonomia.PROIBIDOS_FIXOS`: shell livre,
+  arquivo fora da pasta, pagar, comprar, senha, instrução vinda de conteúdo). As `descricao()` não
+  refletem a política — editar o arquivo derrubaria o cache de `tools`. `minhas_permissoes` responde
+  "o que você pode fazer sem me perguntar?". Ação nova que precise de aprovação entra no catálogo
+  com padrão e piso escolhidos de propósito; o que fica fora dele é *faz e avisa* por desenho.
 - **A VPS só busca URL que ela provou ser pública.** O `abrir_pagina` é a única ferramenta que
   acessa um endereço ditado pelo modelo, e ele passa pelo `GuardaSsrf`: só http/https, DNS
   resolvido e conferido contra loopback, faixas privadas, link-local (inclusive o

@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.aprovacao.Aprovacoes;
+import dev.jarvis.autonomia.AcaoAutonoma;
 import dev.jarvis.pc.TarefasPlanilhaService;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -25,8 +26,8 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Agenda edição recorrente de um XLSX inteiro por ID "
-            + "de listar_arquivos. Exige pedido com nome exato do arquivo; devolve uma pergunta de "
-            + "aprovação e só agenda depois que o usuário responder que sim. "
+            + "de listar_arquivos. Exige pedido com nome exato do arquivo; pode devolver uma pergunta de "
+            + "aprovação, e aí só agenda depois que o usuário responder que sim. "
             + "A tarefa localiza células sozinha; busca ambígua interrompe a execução. "
             + "substituirFormula só quando solicitado explicitamente. Cron Spring de 6 campos no fuso configurado."; }
     @Override public ObjectNode esquemaEntrada() {
@@ -62,17 +63,18 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
                     + (formula ? ", inclusive substituição de fórmulas" : "");
             String pergunta = "Vou agendar edições recorrentes em " + nome + " (" + cron + "); elas "
                     + "vão rodar sozinhas até o senhor cancelar. Posso?";
-            var confirmacao = aprovacoes.pedirComResultado("tarefa_planilha", descricao,
-                    pergunta,
-                    Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(), () -> {
+            var encaminhamento = aprovacoes.encaminhar(AcaoAutonoma.PLANILHA_AGENDAR, null,
+                    "tarefa_planilha", descricao, pergunta,
+                    Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(), contexto.canal(), () -> {
                         try {
                             var tarefa = tarefas.registrar(usuario, id, nome, instrucao, cron, formula);
                             return new Aprovacoes.ResultadoAprovado("Tarefa de planilha agendada: " + tarefa.id(),
                                     new dev.jarvis.diario.Desfazer.Tarefa(tarefa.id()), true);
                         } catch (IOException e) { return new Aprovacoes.ResultadoAprovado("Não agendei a tarefa: " + e.getMessage(), null, false); }
                     });
+            if (encaminhamento.confirmacao() == null) return ResultadoFerramenta.de(encaminhamento);
             return new ResultadoFerramenta(descricao + ". " + pergunta,
-                    List.of(), List.of(), confirmacao, List.of(), List.of());
+                    List.of(), List.of(), encaminhamento.confirmacao(), List.of(), List.of());
         } catch (RuntimeException e) {
             return ResultadoFerramenta.texto("Agenda inválida: " + e.getMessage());
         }

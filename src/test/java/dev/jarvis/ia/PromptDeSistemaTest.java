@@ -11,6 +11,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import dev.jarvis.autonomia.PoliticaDeAutonomia;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -120,7 +121,7 @@ class PromptDeSistemaTest {
     }
 
     @Test
-    @DisplayName("a pergunta de aprovação e os três níveis de autonomia vão no bloco dinâmico")
+    @DisplayName("a pergunta de aprovação e a autonomia vão no bloco dinâmico, sem lista escrita à mão")
     void aprovacaoENiveisDeAutonomia() {
         for (Canal canal : new Canal[] { Canal.TELEGRAM, Canal.HUD }) {
             String dinamico = texto(montar(canal, true).get(1));
@@ -131,18 +132,13 @@ class PromptDeSistemaTest {
                     "o protocolo saiu do prompt: " + dinamico);
 
             assertTrue(dinamico.contains("Níveis de autonomia:"), dinamico);
-            assertTrue(dinamico.contains("Faz e avisa, sem perguntar:"), dinamico);
-            assertTrue(dinamico.contains("Pergunta antes:"), dinamico);
-            assertTrue(dinamico.contains("Proibido:"), dinamico);
-
-            // Apagar mudou de nível: vai para a lixeira, então o modelo não deve mais anunciar uma
-            // pergunta que o servidor não faz — a não ser no pedido em massa.
-            String fazEAvisa = entre(dinamico, "Faz e avisa, sem perguntar:", "- Pergunta antes:");
-            String perguntaAntes = entre(dinamico, "- Pergunta antes:", "- Proibido:");
-            assertTrue(fazEAvisa.contains("apagar arquivo"), fazEAvisa);
-            assertTrue(fazEAvisa.contains("mais de 5 no mesmo pedido pergunta"), fazEAvisa);
-            assertTrue(fazEAvisa.contains("restaurar da lixeira"), fazEAvisa);
-            assertFalse(perguntaAntes.contains("apagar"), perguntaAntes);
+            assertTrue(dinamico.contains("é o servidor, nunca você"), dinamico);
+            assertTrue(dinamico.contains("minhas_permissoes"), dinamico);
+            assertTrue(dinamico.contains("- Proibido sempre: " + PoliticaDeAutonomia.PROIBIDOS_FIXOS + "."),
+                    dinamico);
+            // A lista à mão saiu: quem decide é a PoliticaDeAutonomia, na execução.
+            assertFalse(dinamico.contains("Faz e avisa, sem perguntar:"), dinamico);
+            assertFalse(dinamico.contains("- Pergunta antes:"), dinamico);
         }
 
         for (Canal canal : new Canal[] { Canal.BRIEFING, Canal.TAREFA }) {
@@ -150,6 +146,26 @@ class PromptDeSistemaTest {
             assertFalse(dinamico.contains("Níveis de autonomia:"),
                     canal.nome() + " não tem usuário para responder: " + dinamico);
         }
+    }
+
+    @Test
+    @DisplayName("o resumo da política entra só no bloco dinâmico, e o fixo não muda com ele")
+    void resumoDaPoliticaNoDinamico() {
+        String resumo = "- Faz e avisa, sem perguntar: rodar a rotina backup_notas.\n";
+        ArrayNode sem = PromptDeSistema.montar(JSON, PERSONALIDADE, true, "5m", Canal.TELEGRAM,
+                "Anderson", AGORA, false, false, List.of(), "", "", "", "");
+        ArrayNode com = PromptDeSistema.montar(JSON, PERSONALIDADE, true, "5m", Canal.TELEGRAM,
+                "Anderson", AGORA, false, false, List.of(), "", "", "", resumo);
+
+        assertEquals(sem.get(0), com.get(0), "o bloco fixo é o prefixo do cache: não pode sentir o arquivo");
+        String dinamico = texto(com.get(1));
+        String autonomia = entre(dinamico, "Níveis de autonomia:", "- Proibido sempre:");
+        assertTrue(autonomia.contains(resumo), autonomia);
+        assertFalse(texto(sem.get(1)).contains("backup_notas"));
+
+        String briefing = texto(PromptDeSistema.montar(JSON, PERSONALIDADE, true, "5m", Canal.BRIEFING,
+                "Anderson", AGORA, false, false, List.of(), "", "", "", resumo).get(1));
+        assertFalse(briefing.contains("backup_notas"), briefing);
     }
 
     @Test
