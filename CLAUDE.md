@@ -22,9 +22,8 @@ natural e executar ferramentas Java reais. Roda 24h numa VPS, dentro de um conta
   mude por pedido pode entrar no bloco fixo — nem o relógio, nem o nome do usuário.
 - **São dois breakpoints de cache, dos quatro que a API permite**: o explícito do bloco fixo e o
   **automático da conversa**, um `cache_control` na chave de topo do pedido que a API coloca no
-  último bloco cacheável e avança sozinha. Quem o liga é a `Origem.CONVERSA` no `ClaudeClient`,
-  porque a pergunta é "este caminho chama o modelo várias vezes com o mesmo prefixo?" — e só o laço
-  de ferramentas do `Assistente` chama. Os dois levam o mesmo TTL (`ANTHROPIC_CACHE_TTL`) de
+  último bloco cacheável e avança sozinha. Quem o liga são `CONVERSA`, `TAREFA` e `GATILHO` no `ClaudeClient`,
+  porque esses caminhos podem repetir o laço de ferramentas com o mesmo prefixo. Os dois levam o mesmo TTL (`ANTHROPIC_CACHE_TTL`) de
   propósito: entrada de TTL mais longo tem de aparecer antes da de TTL mais curto, e misturar é 400.
 - **O esforço de saída vai no mesmo pedido** (`output_config.effort`) e é **decidido pela origem**,
   nunca pedido a pedido: conversa e tarefa pensam em `medium`, briefing, introdução e apoio em `low`.
@@ -63,6 +62,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
+| `dev.jarvis.agente` | `Freio` (pausa persistente e teto autônomo), `ComandoDoFreio` e `ControleDoFreio` (atalhos nas duas entradas, antes do modelo e do lock) |
 | `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
 | `dev.jarvis.proativo` | O Jarvis falando primeiro: `AvisosProativos` (o único caminho do aviso não pedido), `MonitorDeSites`, `FalasService` (o catálogo das frases, com marcadores), `JanelaDeSilencio` e `HistoricoDeDisponibilidade`/`DisponibilidadeEmArquivo`/`DiaDeDisponibilidade` (o JSON por dia no volume `proativo`) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva, aviso antecipado e volta ao navegador), `DiarioDeVoz` (o uso por dia, de onde sai a projeção), `TextoParaVoz` e `VozService` |
@@ -958,10 +958,63 @@ pode trazer cinco), `AtualizarMemoriaFerramenta` e `RevisorDeProcedimentos` (por
 gravado). O canal vem de `OuvinteProgresso.canal()`, que é
 a única forma de uma ferramenta saber de onde veio o pedido.
 
-Ação que **tem volta** guarda o identificador que a desfaz no campo `referencia` do
-`AcaoRegistrada` — hoje o `idLixeira` de um arquivo apagado. Vazio é o normal, e é só gravado no
-JSON do dia quando existe; o construtor de quatro argumentos continua valendo para quem não tem
-nada a desfazer. Não é falado: quem vai ao ouvido do dono é a `descricao`.
+Cada ação ganha um `id` curto e estável e o `usuario` autenticado. O campo tipado `desfazer`
+contém somente capacidades emitidas pelo servidor: `editId`, ID da lixeira ou do arquivo,
+IDs de memória, revisão anterior, procedimento, modo anterior ou ID de agendamento. Conteúdo
+anterior e caminhos de backup nunca entram no diário nem na entrada da ferramenta. `referencia`
+continua legível para compatibilidade; os construtores antigos também. Registros antigos sem
+identidade e metadados suficientes são consultáveis, mas não ganham reversão por adivinhação.
+
+### Desfazer é uma execução com posse persistida
+
+`desfazer_acao` é o caminho geral, só por pedido explícito e sem aprovação adicional. Sem `id`,
+usa a última ação reversível disponível do mesmo usuário nas últimas 24 horas; com `id`, consulta
+os 30 dias retidos. Pedido sobre horário ou arquivo específico primeiro consulta `acoes_do_jarvis`
+com `horario` (HH ou HH:mm) e `texto`, e usa o ID real. Ação sem volta explica o ocorrido e para.
+
+O `DesfazedorDeAcoes` compartilha o controle com os atalhos `desfazer_edicao` e `desfazer_anotacao`.
+Antes de executar, `DiarioDeAcoes.mudarEstado` persiste `em_andamento`, pela mesma fila serial do
+write-behind, esperando a troca atômica. No PC, guarda também o ID do comando de reversão. Sucesso
+registra `DESFAZER_ACAO` e persiste `desfeita`; não há refazer. Resultado incerto mantém a reserva,
+e uma nova consulta reconcilia pelo resultado E2 sem repetir o comando. Revisão posterior,
+backup expirado e identidade de outro usuário são recusados. O desfazer de memória usa a revisão
+exata, preserva a conversa e, ao remover uma anotação nova, marca o assunto recusado.
+
+Procedimentos guardam revisões em `.historico/<nome>/<revisao>.md`; criação se desfaz pelo caminho
+de `.removidos`. Troca de modo volta ao anterior somente sem troca posterior vigente. Desfazer um
+agendamento revoga execuções futuras; as edições já executadas se desfazem pelas próprias entradas.
+`Aprovacoes.pedirComResultado` transporta esses metadados em `ResultadoAprovado`, sem extrair IDs
+da prosa e mantendo o registro das aprovadas no `rodar` central.
+
+Na HUD conectada, `acoes_do_jarvis` monta um card `linha_do_tempo` por dia consultado pelo
+`MontadorDeLinhaDoTempo`: até 500 ações retidas, com ID e estado da reversão. O modelo recebe só
+o resumo limitado; os cards seguem em `ResultadoFerramenta.cards`, sem fontes web e sem ampliar
+o validador de pesquisa do modelo. `CardTela.origem` continua sendo o canal `hud`.
+
+### O freio global
+
+`dev.jarvis.agente.Freio` persiste a pausa manual (`ATIVO`/`PAUSADO`, instante e canal) e o marcador
+do aviso de teto em `DIARIO_PASTA/freio.json`, com troca atômica e `.bak`, sem volume novo. Ausência
+é primeira partida ativa; primário e backup ilegíveis deixam a autonomia pausada.
+
+`ComandoDoFreio` reconhece frases fechadas normalizadas, de até quatro palavras, antes do modelo,
+da fila do Telegram e da reserva/lock da conversa HUD. “Jarvis, para tudo”, “pausa tudo” e “para
+geral” interrompem o pedido, cancelam o computer use do usuário e acionam os ouvintes `aoPausar`.
+A resposta é “Parei tudo. Diga 'pode voltar' quando quiser.”. “Pode voltar”, “retoma” e “volta ao
+normal” liberam a pausa manual; não liberam gasto acima do teto autônomo.
+
+`podeAgirSozinho(origem)` bloqueia pausa manual ou teto atingido. `CUSTO_TETO_AUTONOMO_USD`
+(vazio/zero = sem teto) soma no `MedidorDeCusto` apenas `ANOTADOR`, `TAREFA` e `GATILHO`. Atingir
+o limite aciona os ouvintes e emite um aviso por dia pelo `AvisosProativos`; o marcador persiste
+antes de avisar. A virada usa o fuso configurado, sem remover uma pausa manual. Custos antigos
+lançados como conversa permanecem como estavam; não há reclassificação por estimativa.
+
+Anotador e revisor descartam trechos na pausa. Cada análise captura uma geração antes de ser
+despachada e a confere junto à gravação curta (`Freio.escrever`), sem segurar o freio durante I/O
+do modelo. Assim, uma resposta antiga não grava nem após uma retomada rápida. Tarefas de planilha
+carregam a geração até o lock do Assistente e pulam horários vencidos; retomar não executa uma
+fila atrasada. O laço confere o freio antes de novos passos e ferramentas. Conversa explícita e
+avisos informativos continuam funcionando; o monitor não oferece uma rotina durante o bloqueio.
 
 O diário entra nessas classes por um **construtor a mais, com o campo anulável**: os construtores
 antigos continuam e passam `null`, e é isso que mantém os testes que montam esses serviços à mão
@@ -1187,8 +1240,8 @@ pedido seria ruído, e o nível já não mudaria mesmo.
 Java, `chave()` para a API, como a `Origem`). O `PerfilDeEsforco` é *qual configuração vale para
 esta chamada*, e **não** é a `Origem`: a origem responde "quem gastou" e vai para o JSON do dia, o
 perfil responde "quanto pensar". As duas quase coincidem — menos num ponto, que é justo o que obriga
-a separá-las: a tarefa agendada e a conversa gastam no mesmo balde (`Origem.CONVERSA`) e pensam
-diferente. Por isso o `ClaudeClient` deriva o perfil da origem em todas as chamadas, e só o
+a separá-las: anotador, classificador e busca usam o perfil de apoio, mas têm custos separados.
+Tarefas e gatilhos também têm baldes próprios e usam o perfil de tarefa. O `ClaudeClient` deriva o perfil da origem em todas as chamadas, e só o
 `Assistente` — o único que conhece o `Canal` — nomeia o perfil, numa sobrecarga de cinco argumentos.
 O computer use não tem perfil: monta o corpo do pedido por conta própria.
 

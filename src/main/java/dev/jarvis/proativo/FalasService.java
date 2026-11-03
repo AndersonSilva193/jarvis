@@ -31,6 +31,8 @@ public class FalasService {
 
     private static Map<String, String> criar() {
         Map<String, String> falas = new LinkedHashMap<>();
+        falas.put("teto_autonomo", "Atingi o teto de trabalho autônomo de hoje. Pausei o trabalho "
+                + "sozinho até a virada do dia; continuo atendendo seus pedidos.");
         falas.put("site_fora", "O site da {site} está fora do ar desde {desde} ({motivo}).");
         falas.put("site_voltou", "O site da {site} voltou. Ficou fora por {duracao}.");
         // A cota de voz. As três primeiras são a mesma notícia com projeções diferentes, e são

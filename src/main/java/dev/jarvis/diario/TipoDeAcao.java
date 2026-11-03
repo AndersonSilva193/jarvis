@@ -18,6 +18,7 @@ public enum TipoDeAcao {
     // ---- o que ele faz sozinho ("faz e avisa")
     EDICAO_ARQUIVO("edicao_arquivo", "edição de arquivo", "edições de arquivo", true),
     DESFAZER_EDICAO("desfazer_edicao", "edição desfeita", "edições desfeitas", true),
+    DESFAZER_ACAO("desfazer_acao", "ação desfeita", "ações desfeitas", true),
     RESTAURAR_ARQUIVO("restaurar_arquivo", "arquivo restaurado", "arquivos restaurados", true),
     // Apagar vai para a lixeira do agente e volta pelo restaurar_arquivo, então não pergunta mais —
     // e é justamente por isso que o dono só fica sabendo pelo diário. Apagar em massa ainda passa

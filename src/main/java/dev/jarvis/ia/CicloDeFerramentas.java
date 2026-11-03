@@ -105,7 +105,7 @@ final class CicloDeFerramentas {
                         : List.of());
         // O esforço, pelo mesmo motivo do system e das definições: decidido uma vez, antes do laço.
         // Um nível que mudasse entre passos invalidaria o prefixo que o cache automático da
-        // conversa acabou de escrever. A tarefa agendada gasta na mesma Origem.CONVERSA e pensa com
+        // conversa acabou de escrever. A tarefa agendada tem balde próprio e pensa com
         // o ESFORCO_TAREFA — é o canal que separa as duas, e só aqui ele é conhecido.
         PerfilDeEsforco esforco = canal == Canal.TAREFA
                 ? PerfilDeEsforco.TAREFA : PerfilDeEsforco.CONVERSA;
@@ -153,7 +153,7 @@ final class CicloDeFerramentas {
             // cheia. São até oito passos por pedido, e MAX_PASSOS tem de caber na janela de
             // lookback de 20 posições da API (cada passo acrescenta duas: tool_use e tool_result).
             RespostaDoModelo resposta = modelo.responder(new PedidoAoModelo(system, mensagens,
-                    definicoes, OpcoesDoPedido.de(Origem.CONVERSA, esforco)));
+                    definicoes, OpcoesDoPedido.de(canal == Canal.TAREFA ? Origem.TAREFA : Origem.CONVERSA, esforco)));
             buscas += resposta.uso().buscasNaWeb();
             List<Bloco> conteudo = resposta.blocos();
 

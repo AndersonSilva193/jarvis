@@ -140,6 +140,12 @@ public class AnotadorDeMemoria {
     private final Clock relogio;
     /** Pode ser nulo: os testes antigos montam o anotador sem o diário. */
     private final DiarioDeAcoes diario;
+    private dev.jarvis.agente.Freio freio;
+    @Autowired
+    void configurarFreio(dev.jarvis.agente.Freio freio) {
+        this.freio = freio;
+        freio.aoPausar(() -> { synchronized (this) { trechos.clear(); } });
+    }
 
     private final ExecutorService tarefas = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -154,7 +160,9 @@ public class AnotadorDeMemoria {
     private final Set<Chave> emAnalise = new HashSet<>();
 
     /** O que foi anotado, esperando a próxima resposta. Os ids e o instante servem ao desfazer. */
-    public record Anotado(List<String> ids, List<String> conteudos, Instant quando) { }
+    public record Anotado(List<String> ids, List<String> conteudos, Instant quando, List<String> acoes) {
+        public Anotado(List<String> ids, List<String> conteudos, Instant quando) { this(ids, conteudos, quando, List.of()); }
+    }
     private final Map<Long, Anotado> avisos = new HashMap<>();
     /**
      * O mesmo, para o {@code desfazer_anotacao}, e por <b>usuário</b> em vez de chat: a ferramenta
@@ -220,7 +228,8 @@ public class AnotadorDeMemoria {
      */
     public void registrarTurno(long chatId, long usuario, String canal, String mensagemDoUsuario,
                                String respostaDoJarvis) {
-        if (!props.anotadorDeMemoriaAtivo() || usuario <= 0
+        long geracao = freio == null ? 0 : freio.geracao();
+        if (!props.anotadorDeMemoriaAtivo() || (freio != null && !freio.podeAgirSozinho("anotador")) || usuario <= 0
                 || !("telegram".equals(canal) || "hud".equals(canal))
                 || mensagemDoUsuario == null || mensagemDoUsuario.isBlank()) {
             return;
@@ -228,6 +237,7 @@ public class AnotadorDeMemoria {
         Chave chave = new Chave(chatId, usuario, canal);
         List<String> fechado = null;
         synchronized (this) {
+            if (freio != null && geracao != freio.geracao()) return;
             Trecho atual = trechos.get(chave);
             List<String> falas = atual == null ? new ArrayList<>() : new ArrayList<>(atual.falas());
             int turnos = (atual == null ? 0 : atual.turnos()) + 1;
@@ -244,7 +254,7 @@ public class AnotadorDeMemoria {
             }
         }
         if (fechado != null) {
-            despachar(chave, fechado);
+            despachar(chave, fechado, geracao);
         }
     }
 
@@ -255,13 +265,15 @@ public class AnotadorDeMemoria {
      */
     @Scheduled(fixedDelay = 60_000)
     void verificarOciosos() {
-        if (!props.anotadorDeMemoriaAtivo()) {
+        long geracao = freio == null ? 0 : freio.geracao();
+        if (!props.anotadorDeMemoriaAtivo() || (freio != null && !freio.podeAgirSozinho("anotador"))) {
             return;
         }
         Map<Chave, List<String>> fechados = new LinkedHashMap<>();
         Instant agora = relogio.instant();
         Duration ocioso = props.ociosidadeDoAnotador();
         synchronized (this) {
+            if (freio != null && geracao != freio.geracao()) return;
             for (var entrada : new ArrayList<>(trechos.entrySet())) {
                 Chave chave = entrada.getKey();
                 if (emAnalise.contains(chave)
@@ -275,14 +287,15 @@ public class AnotadorDeMemoria {
             avisos.entrySet().removeIf(e -> expirado(e.getValue(), agora));
             desfazeveis.entrySet().removeIf(e -> foraDaJanela(e.getValue(), agora));
         }
-        fechados.forEach(this::despachar);
+        fechados.forEach((chave, falas) -> despachar(chave, falas, geracao));
     }
 
-    private void despachar(Chave chave, List<String> falas) {
+    private void despachar(Chave chave, List<String> falas, long geracao) {
         try {
             tarefas.submit(() -> {
                 try {
-                    analisar(chave, falas);
+                    if (freio == null || (geracao == freio.geracao() && freio.podeAgirSozinho("anotador")))
+                        analisar(chave, falas, geracao);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
@@ -324,7 +337,7 @@ public class AnotadorDeMemoria {
      *
      * Toda recusa é contada por motivo e nada do conteúdo entra no log.
      */
-    private void analisar(Chave chave, List<String> falas) throws IOException, InterruptedException {
+    private void analisar(Chave chave, List<String> falas, long geracao) throws IOException, InterruptedException {
         List<MemoriaService.Achado> gravados = memoria.assuntos(chave.usuario());
 
         RespostaDoModelo raiz = modelo.responder(new PedidoAoModelo(
@@ -337,8 +350,9 @@ public class AnotadorDeMemoria {
         Map<String, Integer> motivos = new LinkedHashMap<>();
         List<String> ids = new ArrayList<>();
         List<String> conteudos = new ArrayList<>();
+        List<String> acoes = new ArrayList<>();
         for (JsonNode candidato : candidatos) {
-            String motivo = gravar(chave, candidato, ids, conteudos);
+            String motivo = gravar(chave, candidato, ids, conteudos, acoes, geracao);
             if (motivo != null) {
                 motivos.merge(motivo, 1, Integer::sum);
             }
@@ -346,7 +360,7 @@ public class AnotadorDeMemoria {
         log.info("Anotador: {} candidatos, {} gravados, recusados {}", candidatos.size(), ids.size(), motivos);
 
         if (!ids.isEmpty()) {
-            Anotado anotado = new Anotado(List.copyOf(ids), List.copyOf(conteudos), relogio.instant());
+            Anotado anotado = new Anotado(List.copyOf(ids), List.copyOf(conteudos), relogio.instant(), List.copyOf(acoes));
             synchronized (this) {
                 avisos.put(chave.chat(), anotado);
                 desfazeveis.put(chave.usuario(), anotado);
@@ -356,7 +370,7 @@ public class AnotadorDeMemoria {
 
     /** Devolve null quando gravou, ou o motivo da recusa. */
     private String gravar(Chave chave, JsonNode candidato,
-                          List<String> ids, List<String> conteudos) throws IOException {
+                          List<String> ids, List<String> conteudos, List<String> acoes, long geracao) throws IOException {
         String categoria = Json.texto(candidato.path("categoria")).trim();
         String projeto = Json.texto(candidato.path("projeto")).trim();
         String assunto = Json.texto(candidato.path("assunto")).trim();
@@ -366,8 +380,10 @@ public class AnotadorDeMemoria {
             return "incompleto";
         }
         try {
-            MemoriaService.Anotacao anotada = memoria.anotar(chave.usuario(), categoria, projeto,
+            dev.jarvis.agente.Freio.Escrita<MemoriaService.Anotacao> escrita = () -> memoria.anotar(chave.usuario(), categoria, projeto,
                     assunto, conteudo, "anotador:" + chave.canal(), "anotador-" + java.util.UUID.randomUUID());
+            MemoriaService.Anotacao anotada = freio == null ? escrita.executar()
+                    : freio.escrever(geracao, "anotador", escrita);
             if (anotada == null) {
                 return "sem_mudanca";
             }
@@ -376,10 +392,14 @@ public class AnotadorDeMemoria {
             // Por fato anotado, e não por lote: "o que você fez hoje?" quer os fatos, e um lote
             // pode trazer até cinco. O assunto é o que o MemoriaService gravou, não o que o
             // modelo propôs — ele pode ter caído num registro que já existia.
-            if (diario != null)
-                diario.registrar(TipoDeAcao.ANOTAR_MEMORIA,
+            if (diario != null) {
+                String acao = diario.registrar(TipoDeAcao.ANOTAR_MEMORIA,
                         (anotada.atualizado() ? "atualizei \"" : "anotei \"") + anotada.assunto() + "\"",
-                        OrigemDaAcao.ANOTADOR);
+                        OrigemDaAcao.ANOTADOR, chave.usuario(), anotada.atualizado()
+                                ? new dev.jarvis.diario.Desfazer.Memoria(anotada.id(), anotada.revisao() - 1)
+                                : new dev.jarvis.diario.Desfazer.Anotacao(List.of(anotada.id())));
+                if (!acao.isBlank()) acoes.add(acao);
+            }
             return null;
         } catch (MemoriaService.Recusado e) {
             // O dono já mandou tirar este assunto. Anotar de novo seria desfazer o desfazer.

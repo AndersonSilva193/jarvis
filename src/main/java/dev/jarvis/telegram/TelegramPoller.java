@@ -50,6 +50,9 @@ public class TelegramPoller implements SmartLifecycle {
     /** O aviso de espera é por rajada: avisar a cada mensagem seria o Jarvis falando sozinho. */
     private final AtomicBoolean avisouEspera = new AtomicBoolean();
     private volatile boolean rodando;
+    private dev.jarvis.agente.ControleDoFreio freio;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarFreio(dev.jarvis.agente.ControleDoFreio freio) { this.freio = freio; }
     private Thread leitor;
     private Thread trabalhador;
 
@@ -131,6 +134,10 @@ public class TelegramPoller implements SmartLifecycle {
         if (texto.isEmpty()) {
             telegram.enviarMensagem(chatId, "Por enquanto eu só entendo mensagens de texto.");
             return;
+        }
+        if (freio != null) {
+            var controle = freio.tratar(texto, usuario, "telegram");
+            if (controle.isPresent()) { telegram.enviarMensagem(chatId, controle.get()); return; }
         }
         // Tentar a parada antes de olhar se está ocupado evita a corrida entre as duas perguntas:
         // quem devolve "não havia nada a parar" é a própria tentativa, e aí a mensagem segue o

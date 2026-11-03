@@ -25,6 +25,7 @@ public class RegistroConversas {
         Pedido pendente;
         RespostaConversa ultima;
         boolean limpando;
+        final java.util.Set<String> suprimidos = new java.util.LinkedHashSet<>();
     }
     private final String sessao = UUID.randomUUID().toString();
     private final Map<Long, Conversa> conversas = new HashMap<>();
@@ -87,6 +88,7 @@ public class RegistroConversas {
     public void concluir(long chatId, String pedido, RespostaConversa resposta) {
         synchronized (this) {
             Conversa c = conversa(chatId);
+            if (c.suprimidos.contains(resposta.id())) return;
             List<Troca> novas = new ArrayList<>(c.trocas);
             novas.add(new Troca(resposta.id(), resposta.canal(), pedido, resposta));
             c.trocas = List.copyOf(novas.subList(Math.max(0, novas.size() - 10), novas.size()));
@@ -124,6 +126,7 @@ public class RegistroConversas {
     public void concluirSemHistorico(long chatId, RespostaConversa resposta) {
         synchronized (this) {
             Conversa c = conversa(chatId);
+            if (c.suprimidos.contains(resposta.id())) return;
             c.trocas = List.of();
             c.pendente = null;
             c.ultima = resposta;
@@ -135,6 +138,25 @@ public class RegistroConversas {
 
     public void falhar(long chatId, String id) {
         falhar(chatId, id, "Não consegui concluir este pedido. Tente novamente.");
+    }
+
+    /** Confirma o freio mesmo ocupado; uma conclusão antiga não pode apagar esta resposta. */
+    public String registrarControle(long chatId, String texto, String resposta) {
+        RespostaConversa publica = new RespostaConversa(UUID.randomUUID().toString(), "hud", resposta,
+                List.of(), null, Instant.now().toString(), null);
+        synchronized (this) {
+            Conversa c = conversa(chatId);
+            if (c.pendente != null) c.suprimidos.add(c.pendente.id());
+            while (c.suprimidos.size() > 100) c.suprimidos.remove(c.suprimidos.iterator().next());
+            c.pendente = null;
+            List<Troca> novas = new ArrayList<>(c.trocas);
+            novas.add(new Troca(publica.id(), "hud", texto, publica));
+            c.trocas = List.copyOf(novas.subList(Math.max(0, novas.size() - 10), novas.size()));
+            c.ultima = publica; c.revisao++;
+        }
+        publicar(chatId, "conversa.resposta", publica);
+        avisarHistorico(chatId);
+        return publica.id();
     }
 
     public void falhar(long chatId, String id, String motivo) {

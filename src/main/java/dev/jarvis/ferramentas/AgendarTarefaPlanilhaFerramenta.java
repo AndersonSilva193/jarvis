@@ -62,13 +62,14 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
                     + (formula ? ", inclusive substituição de fórmulas" : "");
             String pergunta = "Vou agendar edições recorrentes em " + nome + " (" + cron + "); elas "
                     + "vão rodar sozinhas até o senhor cancelar. Posso?";
-            var confirmacao = aprovacoes.pedir("tarefa_planilha", descricao,
+            var confirmacao = aprovacoes.pedirComResultado("tarefa_planilha", descricao,
                     pergunta,
                     Aprovacoes.Risco.COMUM, usuario, contexto.idPedido(), () -> {
                         try {
                             var tarefa = tarefas.registrar(usuario, id, nome, instrucao, cron, formula);
-                            return "Tarefa de planilha agendada: " + tarefa.id();
-                        } catch (IOException e) { return "Não agendei a tarefa: " + e.getMessage(); }
+                            return new Aprovacoes.ResultadoAprovado("Tarefa de planilha agendada: " + tarefa.id(),
+                                    new dev.jarvis.diario.Desfazer.Tarefa(tarefa.id()), true);
+                        } catch (IOException e) { return new Aprovacoes.ResultadoAprovado("Não agendei a tarefa: " + e.getMessage(), null, false); }
                     });
             return new ResultadoFerramenta(descricao + ". " + pergunta,
                     List.of(), List.of(), confirmacao, List.of(), List.of());

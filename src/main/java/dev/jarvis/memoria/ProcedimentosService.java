@@ -73,7 +73,9 @@ public class ProcedimentosService {
                                long revisao, Instant atualizadoEm) { }
 
     /** O que uma gravação fez: {@code atualizado} distingue reescrever de aprender. */
-    public record Gravado(String nome, String titulo, boolean atualizado) { }
+    public record Gravado(String nome, String titulo, boolean atualizado, long revisao) {
+        public Gravado(String nome, String titulo, boolean atualizado) { this(nome, titulo, atualizado, atualizado ? 2 : 1); }
+    }
 
     private final Path raiz;
     private final JsonMapper json;
@@ -159,9 +161,35 @@ public class ProcedimentosService {
                 .put("revisao", revisao).put("atualizadoEm", relogio.instant().toString());
         Path pasta = pastaUsuario(usuario);
         conferirPasta(pasta);
+        if (atual.isPresent()) {
+            Path historico = pasta.resolve(".historico").resolve(nome);
+            conferirPasta(historico);
+            ArquivoAtomico.gravar(historico.resolve(atual.get().revisao() + ".md"),
+                    ArquivoAtomico.ler(pasta.resolve(nome + ".md"), LIMITE_BYTES));
+        }
         ArquivoAtomico.gravar(pasta.resolve(nome + ".md"),
                 "<!-- jarvis:procedimento " + json.writeValueAsString(cabecalho) + " -->\n" + corpo + "\n");
-        return new Gravado(nome, titulo, atual.isPresent());
+        return new Gravado(nome, titulo, atual.isPresent(), revisao);
+    }
+
+    public synchronized String desfazer(long usuario, String nome, long revisaoAnterior) throws IOException {
+        if (usuario <= 0 || nome == null || !NOME.matcher(nome).matches() || revisaoAnterior < 0)
+            throw new IOException("Procedimento inválido.");
+        Procedimento atual = ler(usuario, nome).orElseThrow(() -> new IOException("Procedimento não encontrado."));
+        if (atual.revisao() != revisaoAnterior + 1)
+            throw new IOException("O procedimento mudou depois desta ação; nada foi desfeito.");
+        if (revisaoAnterior == 0) { esquecer(usuario, nome); return "Tirei o procedimento: " + atual.titulo() + "."; }
+        Path pasta = pastaUsuario(usuario);
+        Path anterior = pasta.resolve(".historico").resolve(nome).resolve(revisaoAnterior + ".md");
+        if (!Files.isRegularFile(anterior, LinkOption.NOFOLLOW_LINKS)) anterior = ArquivoAtomico.backupDe(pasta.resolve(nome + ".md"));
+        for (Path p = anterior; p != null && p.startsWith(raiz); p = p.getParent())
+            if (Files.isSymbolicLink(p)) throw new IOException("Histórico de procedimento inválido.");
+        Procedimento antigo = ler(anterior, nome).orElseThrow(() -> new IOException("Versão anterior indisponível."));
+        if (antigo.revisao() != revisaoAnterior) throw new IOException("Versão anterior indisponível.");
+        String bruto = ArquivoAtomico.ler(anterior, LIMITE_BYTES);
+        conferirPasta(pasta);
+        ArquivoAtomico.gravar(pasta.resolve(nome + ".md"), bruto);
+        return "Voltei o procedimento " + antigo.titulo() + " para a versão anterior.";
     }
 
     /**

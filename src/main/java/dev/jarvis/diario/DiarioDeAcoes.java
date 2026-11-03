@@ -117,9 +117,20 @@ public class DiarioDeAcoes {
      */
     public void registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
             String referencia) {
+        registrar(tipo, descricao, origem, 0, null, referencia);
+    }
+
+    public String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+            long usuario, Desfazer desfazer) {
+        return registrar(tipo, descricao, origem, usuario, desfazer,
+                desfazer instanceof Desfazer.Lixeira d ? d.idLixeira() : "");
+    }
+
+    private String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+            long usuario, Desfazer desfazer, String referencia) {
         try {
             AcaoRegistrada acao = new AcaoRegistrada(relogio.instant(), tipo, descricao, origem,
-                    referencia);
+                    referencia, AcaoRegistrada.novoId(), usuario, desfazer, "disponivel", "");
             synchronized (trava) {
                 virarSePrecisar(hojeLocal());
                 if (!dia.somar(acao) && dia.descartadas() == 1) {
@@ -129,8 +140,88 @@ public class DiarioDeAcoes {
                 pendentes.put(dia.dia(), dia.copia());
             }
             naFila(false, this::gravarPendentes);
+            return acao.id();
         } catch (RuntimeException e) {
             log.warn("Não consegui anotar no diário a ação {}: {}", tipo, e.getMessage());
+            return "";
+        }
+    }
+
+    public String registrarDoCanal(TipoDeAcao tipo, String descricao, String canal,
+            long usuario, Desfazer desfazer) {
+        return registrar(tipo, descricao, OrigemDaAcao.porCanal(canal), usuario, desfazer);
+    }
+
+    public java.util.Optional<AcaoRegistrada> localizar(String id, long usuario) {
+        if (usuario <= 0) return java.util.Optional.empty();
+        return periodo(DIAS_GUARDADOS).acoes().stream()
+                .filter(a -> a.usuario() == usuario && a.id().equals(id)).findFirst();
+    }
+
+    public java.util.Optional<AcaoRegistrada> ultimaReversivel(long usuario) {
+        Instant limite = relogio.instant().minus(java.time.Duration.ofHours(24));
+        return periodo(2).acoes().stream().filter(a -> a.usuario() == usuario && a.reversivel()
+                && !a.instante().isBefore(limite) && !a.instante().isAfter(relogio.instant())
+                && "disponivel".equals(a.estadoDesfazer()))
+                .reduce((anterior, atual) -> atual);
+    }
+
+    public java.util.Optional<AcaoRegistrada> porDesfazer(long usuario,
+            java.util.function.Predicate<Desfazer> filtro) {
+        return periodo(DIAS_GUARDADOS).acoes().stream().filter(a -> a.usuario() == usuario
+                && a.desfazer() != null && filtro.test(a.desfazer())).reduce((a, b) -> b);
+    }
+
+    public boolean haPosterior(String id, java.util.function.Predicate<AcaoRegistrada> filtro) {
+        boolean encontrou = false;
+        for (AcaoRegistrada a : periodo(DIAS_GUARDADOS).acoes()) {
+            if (encontrou && filtro.test(a)) return true;
+            if (a.id().equals(id)) encontrou = true;
+        }
+        return false;
+    }
+
+    public void concluirDesfazer(AcaoRegistrada acao, String canal, String comando) throws IOException {
+        boolean registrada = periodo(DIAS_GUARDADOS).acoes().stream().anyMatch(a ->
+                a.tipo() == TipoDeAcao.DESFAZER_ACAO && a.referencia().equals(acao.id()));
+        if (!registrada) registrar(TipoDeAcao.DESFAZER_ACAO, "desfiz: " + acao.descricao(),
+                OrigemDaAcao.porCanal(canal), acao.usuario(), null, acao.id());
+        mudarEstado(acao.id(), acao.usuario(), "em_andamento", "desfeita", comando);
+    }
+
+    /** Serializa com o write-behind e só devolve depois da troca atômica. Não há efeito sem reserva. */
+    public AcaoRegistrada mudarEstado(String id, long usuario, String esperado, String novo,
+            String comando) throws IOException {
+        try {
+            return gravacoes.submit(() -> {
+                AcaoRegistrada alvo = localizar(id, usuario).orElseThrow(
+                        () -> new IOException("Ação não encontrada para este usuário."));
+                LocalDate data = LocalDate.ofInstant(alvo.instante(), zona());
+                synchronized (trava) {
+                    DiaDoDiario estado = dia != null && dia.dia().equals(data) ? dia
+                            : pendentes.getOrDefault(data, arquivo.carregar(data));
+                    for (int i = 0; i < estado.acoes().size(); i++) {
+                        AcaoRegistrada atual = estado.acoes().get(i);
+                        if (!atual.id().equals(id)) continue;
+                        if (!atual.estadoDesfazer().equals(esperado))
+                            throw new IOException("Esta ação já foi desfeita ou tem um desfazer em andamento.");
+                        AcaoRegistrada alterada = atual.comEstado(novo, comando);
+                        estado.acoes().set(i, alterada);
+                        // Uma gravação que falhou mantém a reserva em memória: falhar fechado evita duplicação.
+                        pendentes.put(data, estado.copia());
+                        arquivo.salvar(estado.copia());
+                        return alterada;
+                    }
+                    throw new IOException("Ação não encontrada no diário.");
+                }
+            }).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrompido ao persistir o desfazer; confira o diário.", e);
+        } catch (java.util.concurrent.ExecutionException | RejectedExecutionException e) {
+            Throwable causa = e.getCause();
+            if (causa instanceof IOException io) throw io;
+            throw new IOException("Não consegui persistir o estado do desfazer.", e);
         }
     }
 
@@ -184,6 +275,7 @@ public class DiarioDeAcoes {
     public ZoneId zona() {
         return props.zona();
     }
+    public Instant agora() { return relogio.instant(); }
 
     /** As ações de um dia, em ordem cronológica. */
     public Dia doDia(LocalDate quando) {

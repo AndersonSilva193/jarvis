@@ -118,6 +118,7 @@ public class ClaudeClient {
         return switch (origem) {
             // O computer use monta o corpo por conta própria e nunca chega aqui.
             case CONVERSA, COMPUTER_USE -> PerfilDeEsforco.CONVERSA;
+            case TAREFA, GATILHO -> PerfilDeEsforco.TAREFA;
             case BRIEFING -> PerfilDeEsforco.BRIEFING;
             case INICIALIZACAO -> PerfilDeEsforco.INICIALIZACAO;
             // O holograma pensa como apoio: o prompt já diz a forma de cada linha, e o esforço
@@ -175,7 +176,7 @@ public class ClaudeClient {
      * TTL mais curto, e misturar seria um HTTP 400.
      */
     private static boolean cacheDaConversa(Origem origem) {
-        return origem == Origem.CONVERSA;
+        return origem == Origem.CONVERSA || origem == Origem.TAREFA || origem == Origem.GATILHO;
     }
 
     /**

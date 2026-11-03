@@ -131,6 +131,12 @@ public class RevisorDeProcedimentos {
     private final Clock relogio;
     /** Pode ser nulo, como no anotador. */
     private final DiarioDeAcoes diario;
+    private dev.jarvis.agente.Freio freio;
+    @Autowired
+    void configurarFreio(dev.jarvis.agente.Freio freio) {
+        this.freio = freio;
+        freio.aoPausar(() -> { synchronized (this) { trechos.clear(); } });
+    }
 
     private final ExecutorService tarefas = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -166,7 +172,9 @@ public class RevisorDeProcedimentos {
      * resposta. Só conversa privada autenticada, pelo mesmo portão da memória.
      */
     public void registrarTurno(long chatId, long usuario, String canal, List<Mensagem> turno) {
-        if (!props.anotadorDeMemoriaAtivo() || usuario <= 0 || turno == null || turno.isEmpty()
+        long geracao = freio == null ? 0 : freio.geracao();
+        if (!props.anotadorDeMemoriaAtivo() || (freio != null && !freio.podeAgirSozinho("anotador"))
+                || usuario <= 0 || turno == null || turno.isEmpty()
                 || !("telegram".equals(canal) || "hud".equals(canal))) {
             return;
         }
@@ -174,6 +182,7 @@ public class RevisorDeProcedimentos {
         Chave chave = new Chave(chatId, usuario, canal);
         List<Turno> fechado = null;
         synchronized (this) {
+            if (freio != null && geracao != freio.geracao()) return;
             Instant agora = relogio.instant();
             List<Turno> atual = new ArrayList<>(trechos.getOrDefault(chave, List.of()));
             atual.removeIf(t -> Duration.between(t.quando(), agora).compareTo(VALIDADE_DO_TRECHO) > 0);
@@ -190,14 +199,15 @@ public class RevisorDeProcedimentos {
             avisos.entrySet().removeIf(e ->
                     Duration.between(e.getValue().quando(), agora).compareTo(VALIDADE_AVISO) > 0);
         }
-        if (fechado != null) despachar(chave, fechado);
+        if (fechado != null) despachar(chave, fechado, geracao);
     }
 
-    private void despachar(Chave chave, List<Turno> turnos) {
+    private void despachar(Chave chave, List<Turno> turnos, long geracao) {
         try {
             tarefas.submit(() -> {
                 try {
-                    revisar(chave, turnos);
+                    if (freio == null || (geracao == freio.geracao() && freio.podeAgirSozinho("anotador")))
+                        revisar(chave, turnos, geracao);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
@@ -229,7 +239,7 @@ public class RevisorDeProcedimentos {
         return true;
     }
 
-    private void revisar(Chave chave, List<Turno> turnos) throws IOException, InterruptedException {
+    private void revisar(Chave chave, List<Turno> turnos, long geracao) throws IOException, InterruptedException {
         List<ProcedimentosService.Procedimento> existentes = procedimentos.listar(chave.usuario());
         RespostaDoModelo raiz = modelo.responder(new PedidoAoModelo(
                 InstrucoesDeSistema.de(new BlocoDeSistema(SISTEMA, null)),
@@ -248,9 +258,11 @@ public class RevisorDeProcedimentos {
         for (JsonNode acao : arvore.path("acoes")) {
             if (!acao.isObject() || vistas++ >= MAX_ACOES) continue;
             try {
-                ProcedimentosService.Gravado g = procedimentos.gravar(chave.usuario(),
+                dev.jarvis.agente.Freio.Escrita<ProcedimentosService.Gravado> escrita = () -> procedimentos.gravar(chave.usuario(),
                         Json.texto(acao.path("nome")), Json.texto(acao.path("titulo")),
                         Json.texto(acao.path("quando")), Json.texto(acao.path("corpo")));
+                ProcedimentosService.Gravado g = freio == null ? escrita.executar()
+                        : freio.escrever(geracao, "anotador", escrita);
                 if (g == null) {
                     motivos.merge("sem_mudanca", 1, Integer::sum);
                     continue;
@@ -259,7 +271,8 @@ public class RevisorDeProcedimentos {
                 if (diario != null) {
                     diario.registrar(TipoDeAcao.APRENDER_PROCEDIMENTO,
                             (g.atualizado() ? "corrigi o procedimento \"" : "aprendi o procedimento \"")
-                                    + g.titulo() + "\"", OrigemDaAcao.ANOTADOR);
+                                    + g.titulo() + "\"", OrigemDaAcao.ANOTADOR, chave.usuario(),
+                            new dev.jarvis.diario.Desfazer.Procedimento(g.nome(), g.revisao() - 1));
                 }
             } catch (IllegalArgumentException e) {
                 // A mensagem nomeia o campo recusado, nunca o conteúdo: pode ir ao log.

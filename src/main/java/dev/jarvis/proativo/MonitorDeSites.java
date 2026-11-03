@@ -58,6 +58,9 @@ public class MonitorDeSites {
     private final OperacoesPcService e2;
     private final JarvisProperties props;
     private final Clock relogio;
+    private dev.jarvis.agente.Freio freio;
+    @Autowired
+    void configurarFreio(dev.jarvis.agente.Freio freio) { this.freio = freio; }
 
     private final Map<String, Vigia> vigias = new HashMap<>();
 
@@ -150,6 +153,7 @@ public class MonitorDeSites {
      * outro, e o "pode" dele executaria algo que ele não leu.
      */
     private String pedirParaRodar(String nome, String rotina) {
+        if (freio != null && !freio.podeAgirSozinho("gatilho")) return "";
         long usuario = props.telegram() == null ? 0 : props.telegram().usuarioPermitido();
         if (usuario == 0) {
             return "";

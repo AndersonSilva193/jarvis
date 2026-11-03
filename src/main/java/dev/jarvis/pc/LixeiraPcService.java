@@ -56,6 +56,22 @@ public class LixeiraPcService {
         return pc.online();
     }
 
+    /** Recupera identidade real de uma criação/cópia; nomes parecidos nunca servem como alvo. */
+    public Optional<String> idPorNome(String nome, OuvinteProgresso contexto) throws Exception {
+        if (!dev.jarvis.conversa.ContextoArquivo.nomeValido(nome)) return Optional.empty();
+        for (int pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+            ResultadoPc r = executar("listar_arquivos", json.createObjectNode().put("nome", nome)
+                    .put("pagina", pagina).put("tamanhoPagina", TAMANHO_PAGINA), contexto);
+            if (!r.ok() || r.dados() == null) return Optional.empty();
+            for (JsonNode item : r.dados().path("arquivos")) {
+                String id = Json.texto(item.path("id"));
+                if (nome.equals(Json.texto(item.path("nome"))) && id.matches("[0-9a-fA-F-]{36}")) return Optional.of(id);
+            }
+            if (!r.dados().path("temMais").asBoolean(false)) break;
+        }
+        return Optional.empty();
+    }
+
     /**
      * O nome catalogado deste ID, perguntado ao agente.
      *
@@ -140,8 +156,16 @@ public class LixeiraPcService {
      */
     private ResultadoPc executar(String acao, JsonNode dados, OuvinteProgresso contexto)
             throws Exception {
+        return executar(acao, dados, contexto, UUID.randomUUID().toString());
+    }
+
+    /** O diário reserva este ID antes de enfileirar, para reconciliar um resultado tardio. */
+    public ResultadoPc executar(String acao, JsonNode dados, OuvinteProgresso contexto, String comandoId)
+            throws Exception {
+        if (!Set.of("mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira", "listar_arquivos", "aplicar_desfazer").contains(acao))
+            throw new IllegalArgumentException("Ação de reversão inválida.");
         if (!pc.online()) throw new IllegalStateException("Agente do PC offline.");
-        ComandoPc comando = new ComandoPc(UUID.randomUUID().toString(), acao, "",
+        ComandoPc comando = new ComandoPc(comandoId, acao, "",
                 Instant.now().toString(), dados == null ? json.createObjectNode() : dados.deepCopy());
         try {
             return pc.enfileirar(comando, contexto.canal(), contexto.usuarioAutenticado())

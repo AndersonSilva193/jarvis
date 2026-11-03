@@ -18,6 +18,9 @@ public class ConversaService {
     private final Assistente assistente;
     private final RegistroConversas registro;
     private final long chatId;
+    private dev.jarvis.agente.ControleDoFreio freio;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarFreio(dev.jarvis.agente.ControleDoFreio freio) { this.freio = freio; }
     private final ExecutorService tarefas = Executors.newVirtualThreadPerTaskExecutor();
 
     public ConversaService(Assistente assistente, RegistroConversas registro, JarvisProperties props) {
@@ -27,6 +30,10 @@ public class ConversaService {
     }
 
     public String enviar(String texto) {
+        if (freio != null) {
+            var resposta = freio.tratar(texto, chatId, "hud");
+            if (resposta.isPresent()) return registro.registrarControle(chatId, texto, resposta.get());
+        }
         var pedido = registro.reservar(chatId, texto);
         try {
             tarefas.submit(() -> {

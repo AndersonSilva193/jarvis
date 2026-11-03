@@ -9,6 +9,8 @@ public interface OuvinteProgresso {
     default String pedidoOriginal() { return ""; }
     /** Capacidade interna de uma tarefa de planilha previamente autorizada; nunca vem do modelo. */
     default String idTarefaPlanilha() { return ""; }
+    /** Geração capturada no disparo da tarefa; evita que uma tarefa velha renasça após retomar. */
+    default long geracaoAutonoma() { return -1; }
     /** Nome do único TXT/MD anexado na resposta anterior autenticada deste canal. */
     default String ultimoAnexoDeArquivo() { return ""; }
     /** Vínculo privado desta conversa; ausente em tarefas agendadas e pedidos não autenticados. */

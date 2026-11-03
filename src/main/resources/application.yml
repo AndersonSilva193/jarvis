@@ -151,6 +151,7 @@ jarvis:
     preco-busca-web: ${CUSTO_PRECO_BUSCA_WEB:}
     # Gasto do dia que dispara aviso em 80% e em 100%. Vazio = sem teto. O teto avisa, não bloqueia.
     teto-diario-usd: ${CUSTO_TETO_DIARIO_USD:}
+    teto-autonomo-usd: ${CUSTO_TETO_AUTONOMO_USD:}
   diario:
     # Um JSON por dia com o que o Jarvis fez sozinho e o que fez depois de um "sim",
     # 30 dias guardados. Volume nomeado "diario".

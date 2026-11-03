@@ -88,10 +88,11 @@ public class Aprovacoes {
     }
 
     public enum Cancelamento { CANCELADA, INEXISTENTE, RECUSADA }
+    public record ResultadoAprovado(String texto, dev.jarvis.diario.Desfazer desfazer, boolean executada) { }
 
     private record Pendente(String tipo, String descricao, String pergunta, Risco risco,
             String codigo, long usuario, String pedidoOrigem, Instant expira,
-            Supplier<String> executar) { }
+            Supplier<ResultadoAprovado> executar) { }
 
     private final SecureRandom sorteio = new SecureRandom();
     private final Clock relogio;
@@ -135,8 +136,18 @@ public class Aprovacoes {
             throw new IllegalStateException("a proposta expirou; prepare uma nova edição");
         String aMostrar = pergunta == null || pergunta.isBlank() ? descricao : pergunta;
         pendente = new Pendente(tipo, descricao, aMostrar, risco, codigo, usuario, pedidoOrigem,
-                expira, executar);
+                expira, () -> new ResultadoAprovado(executar.get(), null, true));
         return new Confirmacao(codigo, descricao, expira.toString(), aMostrar);
+    }
+
+    /** A identidade da tarefa vem da execução, sem extrair IDs da frase devolvida ao usuário. */
+    public synchronized Confirmacao pedirComResultado(String tipo, String descricao, String pergunta,
+            Risco risco, long usuario, String pedidoOrigem, Supplier<ResultadoAprovado> executar) {
+        Confirmacao confirmacao = pedir(tipo, descricao, pergunta, risco, usuario, pedidoOrigem, () -> "");
+        Pendente p = pendente;
+        pendente = new Pendente(p.tipo(), p.descricao(), p.pergunta(), p.risco(), p.codigo(),
+                p.usuario(), p.pedidoOrigem(), p.expira(), executar);
+        return confirmacao;
     }
 
     /** Cancela somente a aprovacao de tarefa visual, sem tocar em tarefas ja iniciadas. */
@@ -250,11 +261,12 @@ public class Aprovacoes {
      * diário; lançar perderia a resposta de uma ação que já foi feita.
      */
     private String rodar(Pendente p, String canal) {
-        String resposta = p.executar().get();
+        ResultadoAprovado resultado = p.executar().get();
+        String resposta = resultado.texto();
         TipoDeAcao tipo = tipoNoDiario(p.tipo());
-        if (diario != null && tipo != null) {
+        if (diario != null && tipo != null && resultado.executada()) {
             try {
-                diario.registrar(tipo, p.descricao(), OrigemDaAcao.porCanal(canal));
+                diario.registrar(tipo, p.descricao(), OrigemDaAcao.porCanal(canal), p.usuario(), resultado.desfazer());
             } catch (RuntimeException e) {
                 log.warn("Ação aprovada '{}' executada, mas não entrou no diário: {}",
                         p.tipo(), e.getMessage());

@@ -166,7 +166,8 @@ class AprovacoesDiarioTest {
     void diarioQueExplodeNaoDerrubaAAcao() {
         diario = new DiarioDeAcoes(props(), JsonMapper.builder().build(), relogio, pasta) {
             @Override
-            public void registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem) {
+            public String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+                    long usuario, dev.jarvis.diario.Desfazer desfazer) {
                 throw new IllegalStateException("volume cheio");
             }
         };

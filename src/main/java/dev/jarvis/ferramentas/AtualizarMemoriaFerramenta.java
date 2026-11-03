@@ -70,9 +70,9 @@ public class AtualizarMemoriaFerramenta extends FerramentaMemoria {
                 tipo, origem, pedido(progresso));
         // Corrigir memória é "faz e avisa", e o que foi corrigido sai de vista: a revisão antiga
         // vai para o .historico. O diário é o que deixa o dono reencontrar a mudança depois.
-        if (diario != null)
+        if (diario != null && r.revisao() == revisao(entrada) + 1)
             diario.registrarDoCanal(TipoDeAcao.ATUALIZAR_MEMORIA, "corrigi \"" + r.assunto() + "\"",
-                    progresso.canal());
+                    progresso.canal(), u, new dev.jarvis.diario.Desfazer.Memoria(r.id(), r.revisao() - 1));
         return resposta("Atualizei: " + r.assunto() + ".");
     }
 }

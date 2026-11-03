@@ -37,6 +37,26 @@ public class TarefasPlanilhaService {
     private final Clock relogio;
     private final ObjectProvider<Assistente> assistente;
     private final TelegramClient telegram;
+    private dev.jarvis.agente.Freio freio;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarFreio(dev.jarvis.agente.Freio freio) {
+        this.freio = freio;
+        freio.aoPausar(this::descartarVencidas);
+        freio.aoRetomar(this::descartarVencidas);
+    }
+
+    private synchronized void descartarVencidas() {
+        try {
+            Instant agora = relogio.instant();
+            for (Tarefa tarefa : java.util.List.copyOf(tarefas.values())) {
+                if (!tarefa.ativa() || tarefa.proxima().isAfter(agora)) continue;
+                tarefas.put(tarefa.id(), new Tarefa(tarefa.id(), tarefa.usuario(), tarefa.arquivoId(),
+                        tarefa.nomeArquivo(), tarefa.instrucao(), tarefa.cron(), tarefa.substituirFormula(),
+                        proxima(CronExpression.parse(tarefa.cron()), agora), true));
+            }
+            salvar();
+        } catch (IOException e) { throw new IllegalStateException("Não consegui avançar tarefas vencidas", e); }
+    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public TarefasPlanilhaService(JsonMapper json, JarvisProperties props,
@@ -100,6 +120,8 @@ public class TarefasPlanilhaService {
 
     @Scheduled(fixedDelay = 60_000)
     public void executarPendentes() {
+        long geracao = freio == null ? 0 : freio.geracao();
+        boolean pode = freio == null || freio.podeAgirSozinho("tarefa");
         java.util.List<Tarefa> prontas = new java.util.ArrayList<>();
         synchronized (this) {
             Instant agora = relogio.instant();
@@ -111,22 +133,25 @@ public class TarefasPlanilhaService {
                             tarefa.nomeArquivo(), tarefa.instrucao(), tarefa.cron(),
                             tarefa.substituirFormula(), seguinte, true));
                     salvar(); // Marca antes de iniciar: reinício não executa duas vezes.
-                    prontas.add(tarefa);
+                    if (pode) prontas.add(tarefa);
                 } catch (IOException | RuntimeException e) {
                     telegram.enviarMensagem(tarefa.usuario(), "Tarefa da planilha não iniciada: " + e.getMessage());
                 }
             }
         }
-        for (Tarefa tarefa : prontas) Thread.startVirtualThread(() -> executar(tarefa));
+        for (Tarefa tarefa : prontas) Thread.startVirtualThread(() -> {
+            if (freio == null || (geracao == freio.geracao() && freio.podeAgirSozinho("tarefa"))) executar(tarefa, geracao);
+        });
     }
 
-    private void executar(Tarefa tarefa) {
+    private void executar(Tarefa tarefa, long geracao) {
         try {
             String pedidoId = "planilha-" + UUID.randomUUID();
             OuvinteProgresso contexto = new OuvinteProgresso() {
                 @Override public String idPedido() { return pedidoId; }
                 @Override public long usuarioAutenticado() { return tarefa.usuario(); }
                 @Override public String idTarefaPlanilha() { return tarefa.id(); }
+                @Override public long geracaoAutonoma() { return geracao; }
                 @Override public String canal() { return "tarefa"; }
             };
             String resultado = assistente.getObject().executarTarefa(tarefa.instrucao()

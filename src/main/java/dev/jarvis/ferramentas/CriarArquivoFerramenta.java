@@ -30,6 +30,9 @@ public class CriarArquivoFerramenta implements Ferramenta {
     private final long chatId;
     /** Pode ser nulo: os testes antigos montam a ferramenta sem o diário. */
     private final DiarioDeAcoes diario;
+    private dev.jarvis.pc.LixeiraPcService lixeira;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarLixeira(dev.jarvis.pc.LixeiraPcService lixeira) { this.lixeira = lixeira; }
 
     public CriarArquivoFerramenta(PcService pc, ArquivosPcService arquivos, TelegramClient telegram,
             JsonMapper json, JarvisProperties props) {
@@ -108,6 +111,15 @@ public class CriarArquivoFerramenta implements Ferramenta {
             throw e;
         }
         if (!resultado.ok()) return ResultadoFerramenta.texto("Não criei o arquivo: " + resultado.mensagem());
+        // O efeito já aconteceu, mesmo se a entrega do anexo falhar.
+        if (diario != null) {
+            String confirmado = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
+            String id = resultado.dados() == null ? "" : Json.texto(resultado.dados().path("id"));
+            try { if (id.isBlank() && lixeira != null) id = lixeira.idPorNome(confirmado, progresso).orElse(""); }
+            catch (Exception e) { if (e instanceof InterruptedException) Thread.currentThread().interrupt(); }
+            diario.registrarDoCanal(TipoDeAcao.CRIAR_ARQUIVO, "criei " + confirmado, progresso.canal(),
+                    progresso.usuarioAutenticado(), id.isBlank() ? null : new dev.jarvis.diario.Desfazer.Arquivo(id));
+        }
         if (!resultado.arquivo()) return ResultadoFerramenta.texto("O PC não confirmou o arquivo gerado.");
         var caminho = arquivos.obter(comando.id());
         if (caminho.isEmpty()) return ResultadoFerramenta.texto("O arquivo não chegou ao servidor.");
@@ -139,8 +151,6 @@ public class CriarArquivoFerramenta implements Ferramenta {
         }
         // Criar arquivo na pasta do Jarvis é "faz e avisa": entra no diário para o dono poder
         // perguntar depois o que apareceu lá.
-        if (diario != null)
-            diario.registrarDoCanal(TipoDeAcao.CRIAR_ARQUIVO, "criei " + nome, progresso.canal());
         return new ResultadoFerramenta("Arquivo criado: " + nome + "." + aviso, List.of(
                 new ResultadoFerramenta.Artefato(caminho.get(), nome, mime)), List.of(), null,
                 List.of(), List.of());

@@ -28,6 +28,9 @@ public class FluxoEdicaoPc {
     private final JsonMapper json;
     /** Pode ser nulo: os testes antigos montam este serviço sem o diário. */
     private final DiarioDeAcoes diario;
+    private LixeiraPcService lixeira;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarLixeira(LixeiraPcService lixeira) { this.lixeira = lixeira; }
     private record UltimaEdicao(String editId, String comandoId) { }
     private final ConcurrentHashMap<Long, UltimaEdicao> ultimasEdicoes = new ConcurrentHashMap<>();
 
@@ -106,7 +109,7 @@ public class FluxoEdicaoPc {
         // Daqui para baixo o arquivo já mudou no disco do PC, e os três retornos abaixo só diferem
         // na entrega do anexo. É aqui, então, que a ação entra no diário — uma vez, e com o nome
         // que o agente devolveu, nunca o que o modelo escreveu.
-        anotarNoDiario(acao, nome, contexto);
+        anotarNoDiario(acao, nome, contexto, editId, original, resultado);
         if (!resultado.arquivo()) return ResultadoFerramenta.texto(sucesso.apply(nome)
                 + " Salvo, mas a entrega do arquivo falhou.");
         var arquivo = arquivos.obter(comando.id());
@@ -128,13 +131,24 @@ public class FluxoEdicaoPc {
      *
      * A cópia entra como edição também — ela cria um arquivo no PC do dono do mesmo jeito.
      */
-    private void anotarNoDiario(String acao, String nome, OuvinteProgresso contexto) {
+    private void anotarNoDiario(String acao, String nome, OuvinteProgresso contexto,
+            String editId, boolean original, ResultadoPc resultado) {
         if (diario == null) return;
         TipoDeAcao tipo = "aplicar_desfazer".equals(acao)
                 ? TipoDeAcao.DESFAZER_EDICAO : TipoDeAcao.EDICAO_ARQUIVO;
         String descricao = tipo == TipoDeAcao.DESFAZER_EDICAO
                 ? "voltei " + nome + " para a versão anterior" : "editei " + nome;
-        diario.registrarDoCanal(tipo, descricao, contexto.canal());
+        dev.jarvis.diario.Desfazer desfazer = null;
+        if ("aplicar_edicao".equals(acao)) {
+            if (original) desfazer = new dev.jarvis.diario.Desfazer.Edicao(editId);
+            else {
+                String id = resultado.dados() == null ? "" : Json.texto(resultado.dados().path("id"));
+                try { if (id.isBlank() && lixeira != null) id = lixeira.idPorNome(nome, contexto).orElse(""); }
+                catch (Exception e) { if (e instanceof InterruptedException) Thread.currentThread().interrupt(); }
+                if (!id.isBlank()) desfazer = new dev.jarvis.diario.Desfazer.Arquivo(id);
+            }
+        }
+        diario.registrarDoCanal(tipo, descricao, contexto.canal(), contexto.usuarioAutenticado(), desfazer);
     }
 
     public Optional<String> ultimaEdicaoConcluida(long usuario) {

@@ -82,7 +82,11 @@ public class MemoriaService {
                            long revisao, String ultimoPedido) { }
     public record Achado(String id, String assunto, String projeto, String tipo, String trecho, long revisao) { }
     /** O que o anotador gravou, para o aviso da resposta seguinte e para o desfazer. */
-    public record Anotacao(String id, String assunto, String conteudo, boolean atualizado) { }
+    public record Anotacao(String id, String assunto, String conteudo, boolean atualizado, long revisao) {
+        public Anotacao(String id, String assunto, String conteudo, boolean atualizado) {
+            this(id, assunto, conteudo, atualizado, atualizado ? 2 : 1);
+        }
+    }
     /** Um registro como o dono o lê: sem id, sem revisão, sem classificação. */
     public record Ficha(String categoria, String projeto, String assunto, String trecho) { }
     /** Uma página do {@link #listar}, com o total para a ferramenta poder dizer quanto sobrou. */
@@ -389,11 +393,11 @@ public class MemoriaService {
                 // A revisão vem do disco, não do modelo: aqui não há leitura prévia para conferir.
                 Registro novo = atualizarTravado(usuario, r.id(), r.revisao(), corpo,
                         TIPO_DO_ANOTADOR, fonte, idPedido);
-                return new Anotacao(novo.id(), novo.assunto(), novo.conteudo(), true);
+                return new Anotacao(novo.id(), novo.assunto(), novo.conteudo(), true, novo.revisao());
             }
             Registro novo = registrarTravado(usuario, cat, proj, nome, corpo, TIPO_DO_ANOTADOR,
                     fonte, idPedido);
-            return new Anotacao(novo.id(), novo.assunto(), novo.conteudo(), false);
+            return new Anotacao(novo.id(), novo.assunto(), novo.conteudo(), false, novo.revisao());
         });
     }
 
@@ -473,6 +477,38 @@ public class MemoriaService {
             gravar(arquivo, lista);
             apagarHistorico(usuario, id);
             return new Desfeito(atual.assunto(), false);
+        });
+    }
+
+    /** Reversão do diário: revisão exata, sem apagar uma correção posterior. */
+    public Desfeito desfazerEscrita(long usuario, String id, long revisaoAnterior) throws IOException {
+        validarUsuario(usuario); validarId(id);
+        return comBloqueio(usuario, () -> {
+            Registro atual = ler(usuario, id);
+            if (atual == null || atual.revisao() != revisaoAnterior + 1)
+                throw new Conflito("A memória mudou depois desta ação; nada foi desfeito.");
+            Path destino = arquivo(usuario, atual);
+            List<Registro> lista = lerArquivo(destino);
+            if (revisaoAnterior == 0) {
+                gravarTexto(pastaExclusoes(usuario).resolve(id + ".md"),
+                        "<!-- exclusao " + id + " " + relogio.instant() + " -->\n");
+                recusarAssunto(usuario, atual.categoria(), atual.projeto(), atual.assunto());
+                lista.removeIf(r -> r.id().equals(id));
+                gravar(destino, lista);
+                apagarHistorico(usuario, id);
+                return new Desfeito(atual.assunto(), false);
+            }
+            Path anterior = pastaUsuario(usuario).resolve(".historico").resolve(id)
+                    .resolve(revisaoAnterior + ".md");
+            conferirComponentes(anterior); conferirArquivo(anterior);
+            List<Registro> versao = lerArquivo(anterior);
+            if (versao.size() != 1 || !versao.getFirst().id().equals(id)
+                    || versao.getFirst().revisao() != revisaoAnterior)
+                throw new Conflito("A versão anterior da memória não está disponível.");
+            lista.replaceAll(r -> r.id().equals(id) ? versao.getFirst() : r);
+            gravar(destino, lista);
+            Files.delete(anterior); apagarHistoricoVazio(usuario, id);
+            return new Desfeito(atual.assunto(), true);
         });
     }
 

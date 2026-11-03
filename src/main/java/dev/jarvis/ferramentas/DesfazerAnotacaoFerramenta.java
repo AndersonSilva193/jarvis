@@ -32,6 +32,9 @@ import tools.jackson.databind.node.ObjectNode;
 public class DesfazerAnotacaoFerramenta extends FerramentaMemoria {
 
     private final AnotadorDeMemoria anotador;
+    private dev.jarvis.diario.DesfazedorDeAcoes desfazedor;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarDesfazedor(dev.jarvis.diario.DesfazedorDeAcoes desfazedor) { this.desfazedor = desfazedor; }
 
     public DesfazerAnotacaoFerramenta(MemoriaService memoria, JsonMapper json,
             AnotadorDeMemoria anotador) {
@@ -66,6 +69,10 @@ public class DesfazerAnotacaoFerramenta extends FerramentaMemoria {
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso progresso)
             throws Exception {
         long u = usuario(progresso);
+        if (desfazedor != null && !DesfazerAcaoFerramenta.pedidoExplicito(progresso.pedidoOriginal())
+                && !dev.jarvis.util.Texto.normalizar(progresso.pedidoOriginal()).matches(
+                        "(?s).*(nao anota|nao era para guardar|apaga.*anot|nao guarde).*"))
+            return resposta("Desfazer requer pedido explícito do usuário.");
         var recente = anotador.consumirDesfazivel(u);
         if (recente.isEmpty())
             return resposta("Não há anotação recente minha para tirar. Se o usuário quer apagar uma "
@@ -73,6 +80,12 @@ public class DesfazerAnotacaoFerramenta extends FerramentaMemoria {
                     + "autorização. Nada foi apagado.");
 
         List<String> tirados = new ArrayList<>();
+        if (desfazedor != null) {
+            if (recente.get().acoes().isEmpty()) return resposta("Não encontrei as ações dessa anotação no diário; nada foi apagado.");
+            List<String> respostas = new ArrayList<>();
+            for (String id : recente.get().acoes()) respostas.add(desfazedor.desfazer(id, progresso).texto());
+            return resposta(String.join(" ", respostas));
+        }
         List<String> revertidos = new ArrayList<>();
         for (String id : recente.get().ids()) {
             MemoriaService.Desfeito desfeito = memoria.desfazerUltimaEscrita(u, id);

@@ -14,6 +14,9 @@ import tools.jackson.databind.node.ObjectNode;
 public class DesfazerEdicaoFerramenta implements Ferramenta {
     private final FluxoEdicaoPc fluxo;
     private final JsonMapper json;
+    private dev.jarvis.diario.DesfazedorDeAcoes desfazedor;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarDesfazedor(dev.jarvis.diario.DesfazedorDeAcoes desfazedor) { this.desfazedor = desfazedor; }
     public DesfazerEdicaoFerramenta(FluxoEdicaoPc fluxo, JsonMapper json) {
         this.fluxo = fluxo; this.json = json;
     }
@@ -22,7 +25,7 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
     @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Restaura o backup de uma edição original "
             + "pelo editId; omita-o para desfazer a última edição original concluída neste servidor. "
-            + "Exige pedido explícito do usuário. "
+            + "Exige pedido explícito do usuário. Para desfazer em geral, use desfazer_acao com o ID de acoes_do_jarvis. "
             + "Recusa arquivo alterado após a edição. Não aceita caminho de backup."; }
     @Override public ObjectNode esquemaEntrada() {
         ObjectNode raiz = json.createObjectNode().put("type", "object");
@@ -33,6 +36,18 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada,
             OuvinteProgresso contexto) throws Exception {
         String solicitado = entrada == null ? "" : Json.texto(entrada.path("editId"));
+        if (desfazedor != null) {
+            if (!DesfazerAcaoFerramenta.pedidoExplicito(contexto.pedidoOriginal()))
+                return ResultadoFerramenta.texto("Desfazer requer pedido explícito do usuário.");
+            if (solicitado.isBlank()) {
+                String ultima = fluxo.ultimaEdicaoConcluida(contexto.usuarioAutenticado()).orElse("");
+                if (ultima.isBlank()) return ResultadoFerramenta.texto("Consulte acoes_do_jarvis e use desfazer_acao para uma edição persistida.");
+                solicitado = ultima;
+            }
+            var acao = desfazedor.porEdicao(contexto.usuarioAutenticado(), solicitado);
+            return acao.isPresent() ? desfazedor.desfazer(acao.get(), contexto)
+                    : ResultadoFerramenta.texto("Não há edição desse usuário vinculada a esse editId no diário.");
+        }
         String editId = solicitado.isBlank()
                 ? fluxo.ultimaEdicaoConcluida(contexto.usuarioAutenticado()).orElse("")
                 : solicitado;

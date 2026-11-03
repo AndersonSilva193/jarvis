@@ -90,7 +90,8 @@ public class ProvedorLocal implements ProvedorDeModelo {
         Duration prazo = prazo(pedido.opcoes());
         long limite = System.nanoTime() + prazo.toNanos();
         Origem origem = pedido.opcoes().origem();
-        ObjectNode corpo = conversor.pedido(pedido, origem == Origem.CONVERSA);
+        ObjectNode corpo = conversor.pedido(pedido, origem == Origem.CONVERSA
+                || origem == Origem.TAREFA || origem == Origem.GATILHO);
         ArrayNode mensagens = (ArrayNode) corpo.get("messages");
         Map<String, JsonNode> esquemas = new HashMap<>();
         for (DefinicaoDeFerramenta definicao : pedido.ferramentas().definicoes()) {

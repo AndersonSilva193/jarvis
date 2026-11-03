@@ -41,7 +41,7 @@ class DiarioEmArquivo {
      * Teto de sanidade da leitura, folgado sobre o pior dia possível: {@link DiaDoDiario#MAX_ACOES}
      * linhas de {@link AcaoRegistrada#MAX_DESCRICAO} caracteres não chegam a 100 KB.
      */
-    private static final long MAX_BYTES = 512_000;
+    private static final long MAX_BYTES = 2_000_000;
 
     static final Pattern NOME_DO_DIA = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})\\.json");
 
@@ -110,7 +110,7 @@ class DiarioEmArquivo {
         DiaDoDiario estado = new DiaDoDiario(dia);
         JsonNode acoes = raiz.path("acoes");
         for (int i = 0; i < acoes.size(); i++) {
-            AcaoRegistrada acao = lerAcao(dia, acoes.get(i));
+            AcaoRegistrada acao = lerAcao(dia, acoes.get(i), i);
             if (acao != null) {
                 estado.somar(acao);
             }
@@ -123,7 +123,7 @@ class DiarioEmArquivo {
     }
 
     /** Linha sem instante, sem tipo conhecido ou com origem estranha é descartada com WARN. */
-    private AcaoRegistrada lerAcao(LocalDate dia, JsonNode no) {
+    private AcaoRegistrada lerAcao(LocalDate dia, JsonNode no, int indice) {
         TipoDeAcao tipo = TipoDeAcao.porChave(Json.texto(no.path("tipo")));
         if (tipo == null) {
             log.warn("Diário de {}: tipo desconhecido '{}' ignorado", dia, Json.texto(no.path("tipo")));
@@ -141,7 +141,10 @@ class DiarioEmArquivo {
         // Campo ausente no JSON de uma versão anterior volta vazio, que é "nada a desfazer".
         return new AcaoRegistrada(quando, tipo, Json.texto(no.path("descricao")),
                 origem == null ? OrigemDaAcao.DESCONHECIDA : origem,
-                Json.texto(no.path("referencia")));
+                Json.texto(no.path("referencia")),
+                no.has("id") ? Json.texto(no.path("id")) : "antigo-" + dia + "-" + indice,
+                Json.numero(no.path("usuario")), Desfazer.ler(no.path("desfazer")),
+                Json.texto(no.path("estadoDesfazer")), Json.texto(no.path("comandoDesfazer")));
     }
 
     /** Grava o dia inteiro. Lança {@link IOException} para quem chamou decidir o que logar. */
@@ -159,6 +162,13 @@ class DiarioEmArquivo {
             no.put("tipo", acao.tipo().chave());
             no.put("descricao", acao.descricao());
             no.put("origem", acao.origem().chave());
+            no.put("id", acao.id());
+            if (acao.usuario() > 0) no.put("usuario", acao.usuario());
+            if (acao.desfazer() != null) {
+                no.set("desfazer", acao.desfazer().json(json));
+                no.put("estadoDesfazer", acao.estadoDesfazer());
+                if (!acao.comandoDesfazer().isEmpty()) no.put("comandoDesfazer", acao.comandoDesfazer());
+            }
             // Só quando há algo a desfazer: a maioria das linhas não tem, e um campo vazio em
             // centenas delas é peso no JSON do dia sem dizer nada.
             if (!acao.referencia().isBlank()) {

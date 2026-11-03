@@ -227,7 +227,11 @@ final class PromptDeSistema {
                   HUD; busca, clima e notícias; abrir aplicativo da lista; volume; captura de tela;
                   listar, gravar e corrigir memória; desfazer o que você anotou sozinho; ler e
                   esquecer procedimento aprendido; dizer quanto gastou; dizer o que você mesmo fez
-                  (acoes_do_jarvis).
+                  (acoes_do_jarvis); desfazer uma ação reversível pelo diário (desfazer_acao).
+                - Para "desfaz isso", use desfazer_acao sem id. Se o pedido mencionar horário,
+                  arquivo ou uma ação específica, consulte acoes_do_jarvis com os filtros e use
+                  o id retornado. Nunca escolha outra ação quando a indicada não tiver volta.
+                  IDs são referências internas: não os leia em voz alta.
                 - Pergunta antes: rotina que executa código, computer use, desligar e reiniciar o PC,
                   agendar tarefa recorrente de planilha, esquecer memória.
                 - Proibido: comando de shell livre, arquivo fora da pasta do Jarvis, pagar, comprar,

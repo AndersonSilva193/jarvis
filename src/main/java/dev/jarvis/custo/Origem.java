@@ -8,8 +8,8 @@ package dev.jarvis.custo;
  * {@link dev.jarvis.lembretes.Recorrencia}, e existe pelo mesmo motivo: o arquivo de ontem tem de
  * continuar legível amanhã, mesmo que alguém renomeie uma constante.
  *
- * <p>Não há origem {@code tarefa}: o canal {@code Canal.TAREFA} passa pelo mesmo
- * {@code Assistente} das conversas e é contado como {@link #CONVERSA}.
+ * <p>O canal {@code Canal.TAREFA} usa o mesmo laço das conversas, mas o balde próprio permite
+ * bloquear gasto autônomo sem impedir uma conversa explícita.
  */
 public enum Origem {
 
@@ -17,6 +17,8 @@ public enum Origem {
     BRIEFING("briefing"),
     INICIALIZACAO("inicializacao"),
     ANOTADOR("anotador"),
+    TAREFA("tarefa"),
+    GATILHO("gatilho"),
     CLASSIFICADOR("classificador"),
     /**
      * A reserva da {@code buscar_na_web} que pesquisa pela busca nativa numa chamada curta. Não é

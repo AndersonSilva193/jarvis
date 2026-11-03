@@ -265,6 +265,12 @@ public class SeletorDeModelo {
      * @param canal de onde veio a troca ({@code telegram}, {@code hud}), para o diário
      */
     public boolean mudar(ModoDeIa novo, String canal) {
+        return mudar(novo, canal, true);
+    }
+
+    public boolean restaurar(ModoDeIa novo, String canal) { return mudar(novo, canal, false); }
+
+    private boolean mudar(ModoDeIa novo, String canal, boolean registrar) {
         carregarSePreciso();
         ModoDeIa anterior;
         synchronized (trava) {
@@ -276,9 +282,11 @@ public class SeletorDeModelo {
             gravar(novo);
         }
         log.info("Modo de IA: {} -> {} ({})", anterior.chave(), novo.chave(), canal);
-        if (diario != null) {
+        if (diario != null && registrar) {
             diario.registrarDoCanal(TipoDeAcao.TROCA_DE_MODELO,
-                    "Modo de IA: " + anterior.rotulo() + " → " + novo.rotulo() + ".", canal);
+                    "Modo de IA: " + anterior.rotulo() + " → " + novo.rotulo() + ".", canal,
+                    props.telegram() == null ? 0 : props.telegram().usuarioPermitido(),
+                    new dev.jarvis.diario.Desfazer.Modelo(anterior.chave(), novo.chave()));
         }
         Escolha agora = avaliar(false, true);
         if (novo == ModoDeIa.LOCAL && agora.indisponivel()) {

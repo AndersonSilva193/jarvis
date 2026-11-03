@@ -112,6 +112,14 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
                     + "confira com listar_arquivos.");
 
         JsonNode dados = resultado.dados();
+        if (diario != null && contexto.usuarioAutenticado() > 0) {
+            var anterior = diario.porDesfazer(contexto.usuarioAutenticado(), d ->
+                    d instanceof dev.jarvis.diario.Desfazer.Lixeira l && l.idLixeira().equals(idLixeira));
+            if (anterior.isPresent() && "disponivel".equals(anterior.get().estadoDesfazer())) {
+                try { diario.mudarEstado(anterior.get().id(), contexto.usuarioAutenticado(), "disponivel", "desfeita", resultado.comandoId()); }
+                catch (java.io.IOException e) { /* O PC já confirmou: a restauração não pode ser desdita pelo diário. */ }
+            }
+        }
         if (contexto.contextoArquivo() != null && !contexto.contextoArquivo().registrar(dados, false))
             contexto.contextoArquivo().limpar();
         String nome = Json.texto(dados.path("nome"));
@@ -120,7 +128,8 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
         // o dono ver depois que um arquivo voltou — e com o nome que o agente devolveu.
         if (diario != null)
             diario.registrarDoCanal(TipoDeAcao.RESTAURAR_ARQUIVO, "restaurei " + nome,
-                    contexto.canal());
+                    contexto.canal(), contexto.usuarioAutenticado(),
+                    new dev.jarvis.diario.Desfazer.Arquivo(Json.texto(dados.path("id"))));
         // O ID novo vai para o modelo porque uma edição na sequência precisa dele; a frase para o
         // usuário fala de nome, que é o que ele reconhece.
         return ResultadoFerramenta.texto("Restaurei " + nome + "."

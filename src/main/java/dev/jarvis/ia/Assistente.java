@@ -91,6 +91,16 @@ public class Assistente {
 
     private record EmAndamento(long chatId, long usuario,
             java.util.concurrent.atomic.AtomicBoolean parado) { }
+    private dev.jarvis.agente.Freio freio;
+    private volatile boolean tarefaAutonoma;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarFreio(dev.jarvis.agente.Freio freio) {
+        this.freio = freio;
+        freio.aoPausar(() -> {
+            EmAndamento atual = emAndamento.get();
+            if (tarefaAutonoma && atual != null) atual.parado().set(true);
+        });
+    }
 
     /** Há pedido sendo atendido agora. */
     public boolean ocupado() {
@@ -663,6 +673,9 @@ public class Assistente {
 
     /** Tarefa de planilha com autorização já registrada pelo servidor. */
     public String executarTarefa(String instrucao, Canal canal, OuvinteProgresso contexto) throws Exception {
+        long geracao = contexto.geracaoAutonoma() >= 0 ? contexto.geracaoAutonoma()
+                : freio == null ? 0 : freio.geracao();
+        if (freio != null && !freio.podeAgirSozinho("tarefa")) return "Trabalho autônomo pausado.";
         execucao.lockInterruptibly();
         // A tarefa avulsa também publica a marca: senão o "tem pedido em andamento?" da borda de
         // entrada mentiria justamente durante o pedido mais longo.
@@ -670,13 +683,17 @@ public class Assistente {
                 new java.util.concurrent.atomic.AtomicBoolean());
         emAndamento.set(marca);
         try {
+            tarefaAutonoma = true;
+            if (freio != null && (geracao != freio.geracao() || !freio.podeAgirSozinho("tarefa")))
+                return "Trabalho autônomo pausado.";
             List<Mensagem> turno = new ArrayList<>();
             turno.add(mensagemDoUsuario(instrucao));
             return ciclo.executar(new ArrayDeque<>(), turno, canal, contexto, new ArrayList<>(),
-                    marca.parado()::get);
+                    () -> marca.parado().get() || (freio != null
+                            && (geracao != freio.geracao() || !freio.podeAgirSozinho("tarefa"))));
         } catch (PedidoInterrompido e) {
             return PAREI;
-        } finally { emAndamento.compareAndSet(marca, null); execucao.unlock(); }
+        } finally { tarefaAutonoma = false; emAndamento.compareAndSet(marca, null); execucao.unlock(); }
     }
 
     public void limparHistorico(long chatId) {

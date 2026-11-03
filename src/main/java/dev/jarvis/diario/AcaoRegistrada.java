@@ -21,7 +21,8 @@ import java.time.Instant;
  * executou, nunca texto escrito pelo modelo.
  */
 public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao,
-        OrigemDaAcao origem, String referencia) {
+        OrigemDaAcao origem, String referencia, String id, long usuario, Desfazer desfazer,
+        String estadoDesfazer, String comandoDesfazer) {
 
     /** O corte da descrição. Um nome de arquivo com caminho longo caberia; um parágrafo, não. */
     public static final int MAX_DESCRICAO = 120;
@@ -36,6 +37,21 @@ public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao
         descricao = encurtar(descricao);
         origem = origem == null ? OrigemDaAcao.DESCONHECIDA : origem;
         referencia = referencia == null ? "" : referencia.strip();
+        id = id == null || id.isBlank() ? novoId() : id;
+        estadoDesfazer = estadoDesfazer == null || estadoDesfazer.isBlank() ? "disponivel" : estadoDesfazer;
+        comandoDesfazer = comandoDesfazer == null ? "" : comandoDesfazer;
+    }
+
+    public AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
+            String referencia) {
+        this(instante, tipo, descricao, origem, referencia, novoId(), 0, null, "disponivel", "");
+    }
+
+    public static String novoId() { return "a" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12); }
+    public boolean reversivel() { return usuario > 0 && desfazer != null; }
+    public AcaoRegistrada comEstado(String estado, String comando) {
+        return new AcaoRegistrada(instante, tipo, descricao, origem, referencia, id, usuario,
+                desfazer, estado, comando);
     }
 
     /** Ação sem nada para desfazer, que é a maioria. Mantém quem monta a linha com quatro campos. */

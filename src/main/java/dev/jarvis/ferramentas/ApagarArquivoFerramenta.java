@@ -251,7 +251,7 @@ public class ApagarArquivoFerramenta implements Ferramenta {
         String idLixeira = resultado.dados() == null ? ""
                 : Json.texto(resultado.dados().path("idLixeira"));
         diario.registrarDoCanal(TipoDeAcao.APAGAR_ARQUIVO, "apaguei " + nome, contexto.canal(),
-                idLixeira);
+                contexto.usuarioAutenticado(), idLixeira.isBlank() ? null : new dev.jarvis.diario.Desfazer.Lixeira(idLixeira));
     }
 
     /**

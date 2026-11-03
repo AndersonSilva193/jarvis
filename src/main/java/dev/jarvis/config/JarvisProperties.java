@@ -455,10 +455,14 @@ public record JarvisProperties(
      *                           acima do limiar, a tarifa vale para a chamada inteira.
      */
     public record Custo(String pasta, String precos, String precoBuscaWeb, String tetoDiarioUsd,
-            String precosContextoLongo) {
+            String precosContextoLongo, String tetoAutonomoUsd) {
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Custo { }
-        public Custo(String pasta, String precos) { this(pasta, precos, "", "", ""); }
+        public Custo(String pasta, String precos) { this(pasta, precos, "", "", "", ""); }
+        public Custo(String pasta, String precos, String precoBuscaWeb, String tetoDiarioUsd,
+                String precosContextoLongo) {
+            this(pasta, precos, precoBuscaWeb, tetoDiarioUsd, precosContextoLongo, "");
+        }
         public Custo(String pasta, String precos, String precoBuscaWeb, String tetoDiarioUsd) {
             this(pasta, precos, precoBuscaWeb, tetoDiarioUsd, "");
         }
@@ -760,6 +764,11 @@ public record JarvisProperties(
     /** Teto de gasto do dia. Zero = sem teto, que é o padrão de quem não configurou nada. */
     public double tetoDiarioDeCusto() {
         return numeroDeCusto(custo == null ? null : custo.tetoDiarioUsd(), "CUSTO_TETO_DIARIO_USD");
+    }
+
+    /** Só trabalho autônomo é bloqueado por este teto; vazio e zero deixam sem limite. */
+    public double tetoAutonomoDeCusto() {
+        return numeroDeCusto(custo == null ? null : custo.tetoAutonomoUsd(), "CUSTO_TETO_AUTONOMO_USD");
     }
 
     public boolean tetoDeCustoAtivo() {

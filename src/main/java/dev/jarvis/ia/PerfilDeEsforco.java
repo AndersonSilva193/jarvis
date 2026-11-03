@@ -5,9 +5,8 @@ package dev.jarvis.ia;
  *
  * <p><b>Não é a {@link dev.jarvis.custo.Origem}</b>, e a diferença é de pergunta: a origem responde
  * "quem gastou" e vai para o JSON do dia; o perfil responde "quanto pensar". As duas quase
- * coincidem — menos num ponto, que é justamente o que obriga a separá-las: a tarefa agendada e a
- * conversa gastam no mesmo balde ({@code Origem.CONVERSA}, como a própria {@code Origem}
- * documenta) e pensam diferente.
+ * coincidem em alguns caminhos; anotador, classificador e busca dividem o perfil APOIO sem
+ * dividir o custo. TAREFA e GATILHO usam o perfil de tarefa, com baldes de custo separados.
  *
  * <p>O {@code COMPUTER_USE} não tem perfil: ele monta o corpo do pedido por conta própria, fora do
  * {@link ClaudeClient}.

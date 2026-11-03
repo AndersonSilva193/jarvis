@@ -29,6 +29,9 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
 
     private final DiarioDeAcoes diario;
     private final JsonMapper json;
+    private dev.jarvis.tela.PresencaDaHud presenca;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarPresenca(dev.jarvis.tela.PresencaDaHud presenca) { this.presenca = presenca; }
 
     public AcoesDoJarvisFerramenta(DiarioDeAcoes diario, JsonMapper json) {
         this.diario = diario;
@@ -44,11 +47,11 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
 
     @Override
     public String descricao() {
-        return "Consulta o diário do que o Jarvis fez hoje, ontem ou na semana: arquivos, "
-                + "memória, rotinas, tarefas visuais e ações aprovadas. Use para 'o que você fez hoje?', "
-                + "'mexeu nos meus arquivos?' ou 'o que anotou?'. O campo assunto filtra a lista. "
-                + "Gasto em dólares é custo_do_jarvis; lembretes futuros são listar_lembretes; "
-                + "lembranças guardadas são listar_memorias.";
+        return "Consulta o diário de ações de hoje, ontem ou da semana: arquivos, memória, PC e ações "
+                + "aprovadas. Use para 'o que você fez hoje?' e para achar o ID de desfazer_acao. assunto filtra "
+                + "a categoria; horario (HH ou HH:mm) e texto encontram o alvo antes do corte de oito linhas. "
+                + "Não leia IDs em voz alta. Gasto é custo_do_jarvis, lembretes futuros são listar_lembretes "
+                + "e lembranças guardadas são listar_memorias.";
     }
 
     /**
@@ -74,25 +77,61 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
         assunto.put("description", "tudo (padrão); arquivos = edição, criação, restauração e "
                 + "exclusão; memoria = o que anotei e corrigi; pc = rotina, monitor e desligar.");
         assunto.putArray("enum").add("tudo").add("arquivos").add("memoria").add("pc");
+        propriedades.putObject("horario").put("type", "string").put("pattern", "^(?:[01][0-9]|2[0-3])(?::[0-5][0-9])?$")
+                .put("description", "Hora local HH ou minuto HH:mm da ação procurada.");
+        propriedades.putObject("texto").put("type", "string").put("maxLength", 120)
+                .put("description", "Parte do nome do arquivo ou da descrição procurada.");
         return esquema;
     }
 
     @Override
     public String executar(JsonNode entrada) {
+        return consultar(entrada, 0);
+    }
+
+    private DiarioDeAcoes.Dia periodo(String periodo) {
+        return switch (periodo) {
+            case "ontem" -> diario.deOntem();
+            case "semana" -> diario.periodo(7);
+            default -> diario.deHoje();
+        };
+    }
+
+    @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, dev.jarvis.conversa.OuvinteProgresso contexto) {
+        long usuario = contexto.usuarioAutenticado();
+        if (usuario <= 0) return ResultadoFerramenta.texto("Pedido autenticado necessário para consultar ações.");
+        String resumo = consultar(entrada, usuario);
+        List<dev.jarvis.tela.CardTela> cards = new ArrayList<>();
+        if ("hud".equals(contexto.canal()) && presenca != null && presenca.conectada()) {
+            var periodo = periodo(entrada == null ? "" : Json.texto(entrada.path("periodo")));
+            var porDia = new java.util.TreeMap<java.time.LocalDate, List<AcaoRegistrada>>();
+            for (AcaoRegistrada acao : periodo.acoes()) {
+                if (acao.usuario() != 0 && acao.usuario() != usuario) continue;
+                porDia.computeIfAbsent(acao.instante().atZone(diario.zona()).toLocalDate(), d -> new ArrayList<>()).add(acao);
+            }
+            porDia.forEach((dia, acoes) -> cards.add(dev.jarvis.tela.MontadorDeLinhaDoTempo.montar(
+                    dia, acoes, diario.zona(), diario.agora().toString(), diario.doDia(dia).descartadas())));
+        }
+        return new ResultadoFerramenta(resumo, List.of(), List.of(), null, cards, List.of());
+    }
+
+    private String consultar(JsonNode entrada, long usuario) {
         String periodo = entrada == null ? "" : Json.texto(entrada.path("periodo")).trim();
         String assunto = entrada == null ? "" : Json.texto(entrada.path("assunto")).trim();
         // O fuso e o "hoje" vêm do diário, não de um LocalDate.now() daqui: duas noções de dia
         // divergiriam na virada da meia-noite e na hora de formatar a hora de cada ação.
         ZoneId zona = diario.zona();
 
-        DiarioDeAcoes.Dia dia = switch (periodo) {
-            case "ontem" -> diario.deOntem();
-            case "semana" -> diario.periodo(7);
-            default -> diario.deHoje();
-        };
+        DiarioDeAcoes.Dia dia = periodo(periodo);
+        String horario = entrada == null ? "" : Json.texto(entrada.path("horario"));
+        String procurado = dev.jarvis.util.Texto.normalizar(entrada == null ? "" : Json.texto(entrada.path("texto")));
+        if (!horario.isEmpty() && !horario.matches("(?:[01][0-9]|2[0-3])(?::[0-5][0-9])?")) return "Horário inválido: use HH ou HH:mm.";
 
         Set<TipoDeAcao> filtro = tiposDe(assunto);
         List<AcaoRegistrada> acoes = dia.acoes().stream()
+                .filter(a -> usuario == 0 || a.usuario() == 0 || a.usuario() == usuario)
+                .filter(a -> horario.isEmpty() || a.instante().atZone(zona).format(HORA).startsWith(horario))
+                .filter(a -> procurado.isEmpty() || dev.jarvis.util.Texto.normalizar(a.descricao()).contains(procurado))
                 .filter(acao -> filtro.isEmpty() || filtro.contains(acao.tipo()))
                 .toList();
 
@@ -114,7 +153,8 @@ public class AcoesDoJarvisFerramenta implements Ferramenta {
             texto.append(' ')
                     .append(varriosDias ? quando.format(DIA) + " " + quando.format(HORA)
                             : quando.format(HORA))
-                    .append(" — ").append(acao.descricao())
+                    .append(" — [").append(acao.id()).append("] ").append(acao.descricao())
+                    .append(acao.reversivel() ? " (" + acao.estadoDesfazer() + ")" : "")
                     .append(acao.tipo().autonoma() ? "" : " (aprovado)").append('.');
         }
         int sobrando = recentes.size() - MAX_LINHAS;

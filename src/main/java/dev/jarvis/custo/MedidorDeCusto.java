@@ -81,6 +81,15 @@ public class MedidorDeCusto {
     private final Map<LocalDate, List<String>> avisosPendentes = new LinkedHashMap<>();
 
     private EstadoDoDia dia;
+    private final java.util.List<Runnable> ouvintes = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public void aoAtualizar(Runnable ouvinte) { ouvintes.add(ouvinte); }
+
+    public double gastoAutonomoDeHoje() {
+        var porOrigem = hoje().porOrigem();
+        return java.util.stream.Stream.of(Origem.ANOTADOR, Origem.TAREFA, Origem.GATILHO)
+                .mapToDouble(o -> porOrigem.getOrDefault(o, 0.0)).sum();
+    }
     /** As buscas do mês até ontem, somadas do disco em {@link #mesSomadoEm}. */
     private Map<String, Long> mesAteOntem;
     private LocalDate mesSomadoEm;
@@ -141,6 +150,10 @@ public class MedidorDeCusto {
                     + "tokens, mas o custo do dia sai incompleto.", nome);
         }
         naFila(false, this::gravarPendentes);
+        for (Runnable ouvinte : ouvintes) {
+            try { ouvinte.run(); }
+            catch (RuntimeException e) { log.warn("Ouvinte de custo falhou: {}", e.getClass().getSimpleName()); }
+        }
     }
 
     /** Conta a tentativa iniciada de uma ferramenta conhecida, mesmo se a execução falhar. */

@@ -9,6 +9,9 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Component
 public class RegistrarMemoriaFerramenta extends FerramentaMemoria {
+    private dev.jarvis.diario.DiarioDeAcoes diario;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarDiario(dev.jarvis.diario.DiarioDeAcoes diario) { this.diario = diario; }
     public RegistrarMemoriaFerramenta(MemoriaService memoria, JsonMapper json) { super(memoria, json); }
     @Override public String nome() { return "registrar_memoria"; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
@@ -48,6 +51,9 @@ public class RegistrarMemoriaFerramenta extends FerramentaMemoria {
                 : "usuario:" + progresso.canal();
         var r = memoria.registrar(u, texto(entrada, "categoria"), texto(entrada, "projeto"),
                 texto(entrada, "assunto"), conteudo, tipo, origem, pedido(progresso));
+        if (diario != null && r.revisao() == 1 && r.ultimoPedido().equals(pedido(progresso)))
+            diario.registrarDoCanal(dev.jarvis.diario.TipoDeAcao.ANOTAR_MEMORIA, "anotei \"" + r.assunto() + "\"",
+                    progresso.canal(), u, new dev.jarvis.diario.Desfazer.Anotacao(java.util.List.of(r.id())));
         return resposta("Anotei: " + r.assunto() + ".");
     }
 }
