@@ -1,13 +1,14 @@
 # Status
 
-**Feature ativa:** politica-de-autonomia
-**Fase:** 5 — Verificação concluída; aguardando revisão do dono (sem push, sem deploy)
+**Feature ativa:** concessoes-de-autonomia (sobre politica-de-autonomia, mesma branch)
+**Fase:** 3 — Planejamento concluído
 
-- [x] Fase 0 — Brainstorm: desenho aprovado; piso PERGUNTA para computer_use.iniciar (decisão do dono)
-- [x] Fase 2 — Design: ADR-001, architect/politica-de-autonomia.md
-- [x] Fase 4 — Implementação (ver sde/politica-de-autonomia.md)
-- [x] Fase 5 — Verificação: qa/ e security/politica-de-autonomia.md
-- [ ] Fase 6 — Entrega: merge da branch `feat/politica-de-autonomia` + `docker compose up -d --build`
+- [x] Fase 0 — Brainstorm: 4 decisões do dono (tirar as 7 linhas; prazo = o mais cedo; oferta volta após +3; DIARIO_PASTA/concessoes.json)
+- [x] Fase 2 — Design: ADR-002
+- [x] Fase 3 — Planejamento (engineering-manager/concessoes-de-autonomia.md)
+- [ ] Fase 4 — Implementação
+- [ ] Fase 5 — Verificação
+- [ ] Fase 6 — Entrega
 
-Build: 1246 testes, 1 falha pré-existente (HologramaServiceTest), igual à linha de base.
+Anterior: politica-de-autonomia — Fase 5 concluída, entrega pendente (merge + deploy).
 Host sem Java/Maven; build via Docker `maven:3.9-eclipse-temurin-21`.
