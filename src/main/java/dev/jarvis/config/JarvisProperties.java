@@ -428,6 +428,10 @@ public record JarvisProperties(
     public record Historico(String pasta, int validadeHoras,
             Integer turnosCompletos, int maxCaracteresResposta) {
 
+        /** Dois construtores sem a anotação deixavam o bloco nulo no binding: os HISTORICO_* não valiam. */
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Historico { }
+
         /** A aridade de antes do histórico compacto, pelo motivo de sempre: construção por posição. */
         public Historico(String pasta, int validadeHoras) {
             this(pasta, validadeHoras, null, 0);

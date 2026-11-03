@@ -1298,8 +1298,8 @@ Os 35 dias de uso guardados, a janela de 7 dias da média e os 2 dias mínimos s
 dele, no mesmo bloco, mora `CONCESSAO_TEMPORARIA_MAX_DIAS` (`jarvis.diario.concessao-temporaria-max-dias`,
 padrão 7), porque o `concessoes.json` fica nessa pasta. O `Diario` ganhou o construtor de
 compatibilidade de um argumento **e** o `@ConstructorBinding` no canônico: record aninhado com dois
-construtores sem a anotação fica **nulo** no binding, sem erro — é o que acontece hoje com o
-`Historico`, cujos `HISTORICO_*` caem nos fallbacks do `JarvisProperties`. Os 30 dias
+construtores sem a anotação fica **nulo** no binding, sem erro — o `Historico` ficou assim até
+ganhar a mesma anotação, e os `HISTORICO_*` caíam calados nos fallbacks do `JarvisProperties`. Os 30 dias
 de retenção e as 500 ações por dia são **constantes** do `DiarioDeAcoes` e do `DiaDoDiario`, pela
 regra que o `MedidorDeCusto` já documenta: não vale um componente num record construído por posição
 em dezenas de testes para um número que ninguém vai querer mexer.

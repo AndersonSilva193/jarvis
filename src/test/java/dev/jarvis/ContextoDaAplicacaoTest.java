@@ -86,6 +86,16 @@ class ContextoDaAplicacaoTest {
     }
 
     @Test
+    @DisplayName("os HISTORICO_* chegam do application.yml, e não dos fallbacks do código")
+    void historicoLigado() {
+        assertNotNull(props.historico(), "bloco nulo: os acessores cairiam calados nos padrões");
+        assertEquals(72, props.historico().validadeHoras());
+        assertEquals(Integer.valueOf(1), props.historico().turnosCompletos());
+        assertEquals(1500, props.historico().maxCaracteresResposta());
+        assertEquals("/data/jarvis/historico", props.historico().pasta());
+    }
+
+    @Test
     @DisplayName("o contexto sobe com todos os beans ligados")
     void contextoSobe() {
         assertNotNull(personalidade);
