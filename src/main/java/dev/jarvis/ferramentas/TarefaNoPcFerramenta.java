@@ -62,6 +62,8 @@ public class TarefaNoPcFerramenta implements Ferramenta {
     }
     @Override public String executar(JsonNode entrada) { return "Pedido autenticado necessario."; }
     @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso contexto) {
+        if (tarefas.configurado() && !tarefas.disponivel())
+            return ResultadoFerramenta.pcOffline("Agente do PC offline; tarefa no PC não iniciada.");
         if (!tarefas.disponivel()) return ResultadoFerramenta.texto(
                 "Computer use desativado ou agente do PC offline.");
         String objetivo = Json.texto(entrada.path("objetivo")).trim();

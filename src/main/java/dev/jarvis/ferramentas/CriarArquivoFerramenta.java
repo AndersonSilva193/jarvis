@@ -86,7 +86,7 @@ public class CriarArquivoFerramenta implements Ferramenta {
         if (!erro.isEmpty()) return ResultadoFerramenta.texto(erro);
         if (entrada.path("pesquisaAtual").asBoolean(false) && !progresso.pesquisaFeita())
             return ResultadoFerramenta.texto("Faça a busca web antes de criar documento sobre fatos atuais.");
-        if (!pc.online()) return ResultadoFerramenta.texto("O agente do PC está offline; não criei o arquivo.");
+        if (!pc.online()) return ResultadoFerramenta.pcOffline("O agente do PC está offline; não criei o arquivo.");
         // Uma tentativa de criar outro arquivo não pode deixar o alvo anterior como fallback
         // se a criação falhar ou ainda estiver em andamento.
         if (progresso.contextoArquivo() != null) progresso.contextoArquivo().limpar();

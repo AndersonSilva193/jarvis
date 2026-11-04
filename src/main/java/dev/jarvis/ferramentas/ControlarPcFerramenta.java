@@ -165,7 +165,7 @@ public class ControlarPcFerramenta implements Ferramenta {
         // Antes de qualquer outra coisa: travar o turno 30 s para no fim dizer "o PC está
         // offline" é o pior dos mundos.
         if (!pc.online()) {
-            return ResultadoFerramenta.texto(offline());
+            return ResultadoFerramenta.pcOffline(offline());
         }
 
         Optional<String> recusa = validarArgumento(acao, argumento);

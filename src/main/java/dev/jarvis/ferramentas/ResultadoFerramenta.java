@@ -51,6 +51,14 @@ public record ResultadoFerramenta(String texto, List<Artefato> artefatos,
         comandos = comandos == null ? List.of() : List.copyOf(comandos);
         holograma = holograma == null ? List.of() : List.copyOf(holograma);
     }
+    /**
+     * "O PC está offline, nada foi iniciado." Na conversa é só o texto; numa tarefa de fundo vira
+     * espera pelo PC, e a ferramenta roda de novo quando ele voltar — sem passo com falha.
+     */
+    public static ResultadoFerramenta pcOffline(String texto) {
+        dev.jarvis.tarefas.ContextoDaTarefa.esperarPcSeEmTarefa();
+        return texto(texto);
+    }
     public static ResultadoFerramenta texto(String texto) {
         return new ResultadoFerramenta(texto, List.of(), List.of(), null, List.of(), List.of());
     }

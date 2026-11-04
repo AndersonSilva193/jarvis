@@ -154,7 +154,8 @@ public class Aprovacoes {
 
     /** A decisão é consumida na conversa; a ação só pode ser executada pelo trabalhador. */
     public final class AutorizacaoDaTarefa {
-        private enum Estado { NA_FILA, PERGUNTANDO, APROVADA, RECUSADA, EXPIRADA, CANCELADA, EXECUTADA }
+        /** {@code SEM_RESPOSTA}: outra pergunta tomou o lugar desta antes de o dono responder. */
+        private enum Estado { NA_FILA, PERGUNTANDO, APROVADA, RECUSADA, EXPIRADA, SEM_RESPOSTA, CANCELADA, EXECUTADA }
         private final String idTarefa, pedido, tipo, descricao, pergunta, canal;
         private final long usuario;
         private final Risco risco;
@@ -177,6 +178,18 @@ public class Aprovacoes {
         public Confirmacao confirmacao() { return confirmacao; }
         public boolean resolvida() { return estado != Estado.NA_FILA && estado != Estado.PERGUNTANDO; }
         public boolean aprovada() { return estado == Estado.APROVADA; }
+        /** O dono disse "não". */
+        public boolean recusada() { return estado == Estado.RECUSADA; }
+        /** O prazo passou, ou outra pergunta entrou no lugar, sem o dono responder. */
+        public boolean semResposta() { return estado == Estado.EXPIRADA || estado == Estado.SEM_RESPOSTA; }
+        /** A mesma pergunta volta à fila, com código e prazo novos quando for apresentada. */
+        public void renovar() {
+            synchronized (Aprovacoes.this) {
+                if (!semResposta()) return;
+                estado = Estado.NA_FILA; confirmacao = null; original = null;
+                filaDeTarefas.add(this); adiadas.put(pedido, this);
+            }
+        }
         public String executar() {
             synchronized (Aprovacoes.this) {
                 if (estado != Estado.APROVADA) throw new dev.jarvis.tarefas.ControleDaTarefa(
@@ -216,7 +229,7 @@ public class Aprovacoes {
                     a.estado = AutorizacaoDaTarefa.Estado.EXPIRADA;
                     if (pendente != null && pendente.pedidoOrigem().equals(a.pedido)) pendente = null;
                 } else if (pendente == null || !pendente.pedidoOrigem().equals(a.pedido))
-                    a.estado = AutorizacaoDaTarefa.Estado.CANCELADA;
+                    a.estado = AutorizacaoDaTarefa.Estado.SEM_RESPOSTA;
             }
             if (pendente != null && !agora.isBefore(pendente.expira())) pendente = null;
             if (pendente != null) return;
@@ -324,7 +337,9 @@ public class Aprovacoes {
                 throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
                         dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.APROVACAO, "", null,
                         autorizacao::resolvida,
-                        () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(autorizacao.executar()));
+                        () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(autorizacao.executar()),
+                        new dev.jarvis.tarefas.SuspensaoDaTarefa.Pergunta(autorizacao::recusada,
+                                autorizacao::semResposta, autorizacao::renovar));
             }
         }
         return switch (nivel) {

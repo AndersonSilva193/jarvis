@@ -71,6 +71,7 @@ class TarefasDeFundoTest {
         when(props.tarefasSimultaneas()).thenReturn(2);
         when(props.tarefaMaxPassos()).thenReturn(30);
         when(props.tarefaMaxMinutos()).thenReturn(20);
+        when(props.tarefaEsperaPcHoras()).thenReturn(12);
         when(props.pastaDoDiario()).thenReturn(pasta);
         when(pc.online()).thenReturn(true);
         when(sites.sites()).thenReturn(Map.of("loja", "https://example.com"));
@@ -345,8 +346,12 @@ class TarefasDeFundoTest {
         relogio.avancar(Duration.ofHours(1)); for (int i = 0; i < 5; i++) tarefas.varrer();
         assertEquals(0, executadas.get());
         verify(claude, times(1)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
-        when(pc.online()).thenReturn(true); terminou(id); assertEquals(1, executadas.get());
-        assertEquals(CONCLUIDA, tarefas.estado(id, 42).status());
+        when(pc.online()).thenReturn(true); for (int i = 0; i < 5; i++) tarefas.varrer();
+        assertEquals(ESPERANDO_PC, tarefas.estado(id, 42).status(), "quem retoma é o PcVoltou, não a varredura");
+        esperas.pcVoltou(new PcVoltou(relogio.instant(), Duration.ofHours(1))); terminou(id);
+        assertEquals(1, executadas.get()); assertEquals(CONCLUIDA, tarefas.estado(id, 42).status());
+        verify(telegram, timeout(1000)).enviarMensagem(42, "O PC voltou; continuei organizar as notas.");
+        assertTrue(tarefas.estado(id, 42).resumo().stream().noneMatch(r -> r.contains("falhou")));
     }
 
     @Test void horarioSuspendeSemConsumirTempoNemPassos() throws Exception {
@@ -517,5 +522,271 @@ class TarefasDeFundoTest {
         tarefas.varrer(); esperar(() -> aprovacoes.pendenciaDe(42, "nova").isPresent());
         assertEquals(ESPERANDO_VOCE, tarefas.estado(salva.id, 42).status()); assertEquals(0, executadas.get());
         aprovacoes.executarPendente(42, "sim"); terminou(salva.id); assertEquals(1, executadas.get());
+    }
+
+    // ---- Acompanhamento: as quatro ferramentas, PcVoltou, espera máxima, aguardar, aprovação ----
+
+    final OuvinteProgresso dono = new OuvinteProgresso() {
+        @Override public long usuarioAutenticado() { return 42; }
+        @Override public String idPedido() { return "pedido-acompanhamento"; }
+        @Override public String canal() { return "telegram"; }
+        @Override public long chatDeOrigem() { return 42; }
+    };
+    String usar(Ferramenta ferramenta, String referencia) throws Exception {
+        var entrada = json.createObjectNode(); if (referencia != null) entrada.put("tarefa", referencia);
+        return ferramenta.executarDetalhado(entrada, dono).texto();
+    }
+    @SuppressWarnings("unchecked") ObjectProvider<TarefasDeFundo> provedor() {
+        ObjectProvider<TarefasDeFundo> provider = mock(ObjectProvider.class);
+        when(provider.getObject()).thenAnswer(i -> tarefas); return provider;
+    }
+    /** Uma tarefa parada esperando o PC: ativa, sem thread, e nada roda até o teste mandar. */
+    String esperandoPc(String objetivo) {
+        tarefas.iniciar(objetivo, List.of("Listar"), List.of(), 42, Canal.TELEGRAM, 42, TarefaDeFundo.Origem.PEDIDO);
+        String id = tarefas.listar(42).getLast().id();
+        esperar(() -> tarefas.estado(id, 42).status() == ESPERANDO_PC); return id;
+    }
+    ObjectNode aguardar(int minutos, String motivo) {
+        var c = chamada("aguardar");
+        ((ObjectNode) c.path("content").get(0).path("input")).put("minutos", minutos).put("motivo", motivo);
+        return c;
+    }
+
+    @Test void tarefasEmAndamentoListaAtivasComStatusEEncerradasDasUltimas24h() throws Exception {
+        when(pc.online()).thenReturn(false);
+        montar(ferramenta("listar_arquivos", () -> "lista"));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(texto("velha pronta"), texto("recente pronta"), chamada("listar_arquivos"));
+        String velha = iniciar(List.of()); terminou(velha);
+        relogio.avancar(Duration.ofHours(25));
+        String recente = iniciar(List.of()); terminou(recente);
+        String ativa = esperandoPc("organizar a pasta de fotos");
+        relogio.avancar(Duration.ofMinutes(20));
+        String texto = usar(new TarefasEmAndamentoFerramenta(provedor(), json, props), null);
+        assertTrue(texto.startsWith("Ativas:\n- organizar a pasta de fotos — esperando o PC voltar há 20 min, passo 1"), texto);
+        assertTrue(texto.contains("começou há 20 min [id " + ativa + "]"), texto);
+        assertTrue(texto.indexOf("Encerradas nas últimas 24 h:") > texto.indexOf(ativa), texto);
+        assertTrue(texto.contains("concluída há 20 min: recente pronta"), texto);
+        assertFalse(texto.contains(velha), "encerrada há mais de 24 h não aparece");
+        assertEquals(texto.substring(texto.indexOf("- organizar"), texto.indexOf("\n", texto.indexOf("- organizar"))),
+                usar(new TarefasEmAndamentoFerramenta(provedor(), json, props), "como está a das fotos?"));
+    }
+
+    @Test void referenciaImplicitaComUmaAtivaEPerguntaComVarias() throws Exception {
+        when(pc.online()).thenReturn(false);
+        montar(ferramenta("listar_arquivos", () -> "lista"));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenAnswer(i -> chamada("listar_arquivos"));
+        var cancelar = new CancelarTarefaFerramenta(provedor(), json, props);
+        String pasta = esperandoPc("organizar a pasta de downloads");
+        String notas = esperandoPc("resumir as notas da reunião");
+        String resposta = usar(cancelar, "isso");
+        assertTrue(resposta.startsWith("Há mais de uma tarefa ativa"), resposta);
+        assertEquals(ESPERANDO_PC, tarefas.estado(pasta, 42).status()); assertEquals(ESPERANDO_PC, tarefas.estado(notas, 42).status());
+
+        resposta = usar(cancelar, "cancela a organização da pasta");
+        assertTrue(resposta.startsWith("Cancelei: organizar a pasta de downloads."), resposta);
+        esperar(() -> tarefas.estado(pasta, 42).status() == CANCELADA);
+        assertTrue(usar(cancelar, "a do relatório").startsWith("Nenhuma tarefa ativa casa com"));
+
+        var andamento = new TarefasEmAndamentoFerramenta(provedor(), json, props);
+        assertTrue(usar(andamento, "como está?").contains("resumir as notas da reunião — esperando o PC"));
+        resposta = usar(cancelar, null);
+        assertTrue(resposta.startsWith("Cancelei: resumir as notas da reunião."), resposta);
+        esperar(() -> tarefas.estado(notas, 42).status() == CANCELADA);
+        verify(telegram, never()).enviarMensagem(42, "Cancelada: Cancelada pelo usuário.");
+        assertEquals("Nenhuma tarefa de fundo ativa agora.", usar(cancelar, "isso"));
+    }
+
+    @Test void cancelarContaOQueFicouNoDiarioComDesfazer() throws Exception {
+        var bloquear = new CountDownLatch(1); var entrou = new CountDownLatch(1);
+        montar(ferramenta("acao", () -> {
+            diario.registrar(TipoDeAcao.CRIAR_ARQUIVO, "criei rascunho.txt", OrigemDaAcao.TELEGRAM, 42, null);
+            return "rascunho.txt criado";
+        }));
+        var chamadas = new AtomicInteger();
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenAnswer(i -> { if (chamadas.incrementAndGet() == 1) return chamada("acao");
+                    entrou.countDown(); bloquear.await(4, TimeUnit.SECONDS); return chamada("acao"); });
+        String id = iniciar(List.of());
+        try {
+            assertTrue(entrou.await(2, TimeUnit.SECONDS)); diario.aguardar();
+            String resposta = usar(new CancelarTarefaFerramenta(provedor(), json, props), null);
+            assertTrue(resposta.contains("Já tinha feito (está no diário):\n- criei rascunho.txt"), resposta);
+        } finally { bloquear.countDown(); }
+        terminou(id); assertEquals(CANCELADA, tarefas.estado(id, 42).status());
+    }
+
+    @Test void pausarSegurouAtePedirERetomarContinua() throws Exception {
+        montar(new AguardarFerramenta(esperas, json));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(aguardar(5, "esperar o build"), texto("feito"));
+        var pausar = new PausarTarefaFerramenta(provedor(), json, props); var retomar = new RetomarTarefaFerramenta(provedor(), json, props);
+        String id = iniciar(List.of()); esperar(() -> tarefas.estado(id, 42).esperaTipo().equals("HORARIO"));
+        assertEquals("Pausei: organizar as notas. Fica parada até você pedir para retomar.", usar(pausar, null));
+        esperar(() -> tarefas.estado(id, 42).status() == PAUSADA);
+        relogio.avancar(Duration.ofMinutes(10)); for (int i = 0; i < 5; i++) tarefas.varrer();
+        assertEquals(PAUSADA, tarefas.estado(id, 42).status(), "nem a varredura nem o horário desfazem a pausa do dono");
+        assertTrue(usar(new TarefasEmAndamentoFerramenta(provedor(), json, props), null).contains("pausada por você"));
+        assertEquals("Retomei: organizar as notas.", usar(retomar, "notas")); terminou(id);
+        assertEquals(CONCLUIDA, tarefas.estado(id, 42).status());
+        assertTrue(usar(retomar, id).startsWith("Nenhuma tarefa de fundo ativa"));
+    }
+
+    @Test void pausaDoDonoSobreviveAoReinicio() throws Exception {
+        var salva = new TarefaDeFundo("abc12345", 42, Canal.TELEGRAM, 42, "continuar depois", List.of("Conferir"), List.of(),
+                TarefaDeFundo.Origem.PEDIDO, relogio.instant());
+        salva.status = PAUSADA; salva.planoAprovado = true; salva.pausa = TarefaDeFundo.PAUSA_DONO;
+        new TarefasEmArquivo(pasta.resolve("tarefas.json"), json).salvar(1, List.of(salva.retrato(relogio.instant())));
+        montar(); for (int i = 0; i < 5; i++) tarefas.varrer();
+        assertEquals(PAUSADA, tarefas.estado(salva.id, 42).status()); verifyNoInteractions(claude);
+        assertEquals(TarefasDeFundo.Mudanca.FEITA, tarefas.retomar(salva.id, 42)); terminou(salva.id);
+        assertEquals(CONCLUIDA, tarefas.estado(salva.id, 42).status());
+    }
+
+    @Test void ferramentaQueRespondeOfflineNaHoraEsperaOPcSemContarErro() throws Exception {
+        var tentativas = new AtomicInteger();
+        Ferramenta corrida = new Ferramenta() {
+            @Override public String nome() { return "consulta_no_pc"; }
+            @Override public String descricao() { return "consulta que o PC responde"; }
+            @Override public ObjectNode esquemaEntrada() { return json.createObjectNode().put("type", "object"); }
+            @Override public String executar(JsonNode entrada) { return "contexto necessário"; }
+            @Override public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso contexto) {
+                // O portão de antes viu o PC no ar; a ferramenta, um instante depois, já não.
+                return tentativas.incrementAndGet() == 1 ? ResultadoFerramenta.pcOffline("O PC está offline; nada iniciado.")
+                        : ResultadoFerramenta.texto("dados do PC");
+            }
+        };
+        when(pc.online()).thenReturn(false); montar(corrida);
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("consulta_no_pc"), texto("feito"));
+        String id = iniciar(List.of()); esperar(() -> tarefas.estado(id, 42).status() == ESPERANDO_PC);
+        assertEquals(1, tarefas.estado(id, 42).passos()); assertTrue(tarefas.estado(id, 42).resumo().isEmpty());
+        for (int i = 0; i < 5; i++) tarefas.varrer(); assertEquals(1, tentativas.get());
+        when(pc.online()).thenReturn(true);
+        esperas.pcVoltou(new PcVoltou(relogio.instant(), Duration.ofMinutes(3))); terminou(id);
+        assertEquals(CONCLUIDA, tarefas.estado(id, 42).status()); assertEquals(2, tentativas.get());
+        assertEquals(List.of("consulta_no_pc: dados do PC"), tarefas.estado(id, 42).resumo());
+        var enviados = org.mockito.ArgumentCaptor.forClass(ArrayNode.class);
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), enviados.capture(), any(ArrayNode.class));
+        assertFalse(enviados.getValue().toString().contains("offline"), "o modelo nunca viu o offline");
+    }
+
+    @Test void pcVoltouAntesDaEsperaNaoLiberaEOPosteriorLibera() throws Exception {
+        when(pc.online()).thenReturn(false);
+        esperas.pcVoltou(new PcVoltou(relogio.instant().minusSeconds(1), Duration.ofMinutes(5)));
+        var espera = esperas.pcOffline();
+        when(pc.online()).thenReturn(true);
+        assertFalse(espera.pronta(), "volta anterior ao início da espera não conta");
+        esperas.pcVoltou(new PcVoltou(relogio.instant(), Duration.ofMinutes(2)));
+        assertTrue(espera.pronta()); assertTrue(espera.repetirFerramenta());
+    }
+
+    @Test void esperaMaximaPeloPcFalhaComMotivo() throws Exception {
+        when(props.tarefaEsperaPcHoras()).thenReturn(12); when(pc.online()).thenReturn(false);
+        montar(ferramenta("listar_arquivos", () -> "lista"));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("listar_arquivos"));
+        String id = esperandoPc("organizar a pasta");
+        relogio.avancar(Duration.ofHours(11).plusMinutes(59)); tarefas.varrer();
+        assertEquals(ESPERANDO_PC, tarefas.estado(id, 42).status());
+        relogio.avancar(Duration.ofMinutes(1)); esperar(() -> tarefas.estado(id, 42).status() == FALHOU);
+        assertEquals("Esperei o PC por 12 h e ele não voltou.", tarefas.estado(id, 42).resultado());
+        verify(telegram, timeout(1000)).enviarMensagem(42, "Falhou: Esperei o PC por 12 h e ele não voltou.");
+    }
+
+    @Test void esperaMaximaContaDesdeAntesDoReinicio() throws Exception {
+        when(props.tarefaEsperaPcHoras()).thenReturn(12); when(pc.online()).thenReturn(false);
+        var salva = new TarefaDeFundo("abc12345", 42, Canal.TELEGRAM, 42, "copiar fotos", List.of("Copiar"), List.of(),
+                TarefaDeFundo.Origem.PEDIDO, relogio.instant());
+        salva.status = ESPERANDO_PC; salva.planoAprovado = true; salva.esperaTipo = "PC"; salva.esperaDesde = relogio.instant();
+        new TarefasEmArquivo(pasta.resolve("tarefas.json"), json).salvar(1, List.of(salva.retrato(relogio.instant())));
+        relogio.avancar(Duration.ofHours(12)); montar(); tarefas.varrer();
+        assertEquals(FALHOU, tarefas.estado(salva.id, 42).status()); verifyNoInteractions(claude);
+    }
+
+    @Test void aguardarSuspendeSemPrenderThreadEAcordaPeloRelogio() throws Exception {
+        when(props.tarefasSimultaneas()).thenReturn(1);
+        montar(new AguardarFerramenta(esperas, json));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(aguardar(2, "testar de novo"), texto("a outra terminou"), texto("testado de novo"));
+        String primeira = iniciar(List.of()); esperar(() -> tarefas.estado(primeira, 42).esperaTipo().equals("HORARIO"));
+        assertEquals(relogio.instant().plus(Duration.ofMinutes(2)), tarefas.estado(primeira, 42).retomarEm());
+        String segunda = iniciar(List.of()); terminou(segunda);
+        assertEquals(CONCLUIDA, tarefas.estado(segunda, 42).status(), "o único trabalhador ficou livre durante a espera");
+        assertTrue(usar(new TarefasEmAndamentoFerramenta(provedor(), json, props), null).contains("aguardando até"));
+        relogio.avancar(Duration.ofSeconds(119)); for (int i = 0; i < 5; i++) tarefas.varrer();
+        assertEquals(NA_FILA, tarefas.estado(primeira, 42).status());
+        relogio.avancar(Duration.ofSeconds(1)); terminou(primeira);
+        assertEquals("testado de novo", tarefas.estado(primeira, 42).resultado());
+        assertEquals(0, tarefas.estado(primeira, 42).tempoAtivoMillis());
+        verify(claude, times(3)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+    }
+
+    @Test void aguardarValidaMinutosESoExisteNoCanalTarefa() throws Exception {
+        var aguardar = new AguardarFerramenta(esperas, json);
+        montar(aguardar, new TarefasEmAndamentoFerramenta(provedor(), json, props), new CancelarTarefaFerramenta(provedor(), json, props),
+                new PausarTarefaFerramenta(provedor(), json, props), new RetomarTarefaFerramenta(provedor(), json, props));
+        String conversa = ferramentas.definicoes(Canal.TELEGRAM).toString(), tarefa = ferramentas.definicoes(Canal.TAREFA).toString();
+        assertFalse(conversa.contains("\"aguardar\"")); assertTrue(tarefa.contains("\"aguardar\""));
+        for (String nome : List.of("tarefas_em_andamento", "cancelar_tarefa", "pausar_tarefa", "retomar_tarefa")) {
+            assertTrue(conversa.contains(nome)); assertFalse(tarefa.contains(nome));
+        }
+        assertEquals("Disponível somente em tarefa de fundo.", aguardar.executarDetalhado(
+                json.createObjectNode().put("minutos", 2).put("motivo", "x"), dono).texto());
+        try (var escopo = ContextoDaTarefa.entrar("abc12345", 42, v -> { })) {
+            var naTarefa = new OuvinteProgresso() { @Override public String idTarefaDeFundo() { return "abc12345"; } };
+            assertTrue(aguardar.executarDetalhado(json.createObjectNode().put("minutos", 61).put("motivo", "x"), naTarefa)
+                    .texto().contains("1 a 60"));
+            var espera = assertThrows(SuspensaoDaTarefa.class, () -> aguardar.executarDetalhado(
+                    json.createObjectNode().put("minutos", 2).put("motivo", "testar\nde novo"), naTarefa));
+            assertEquals("testar de novo", espera.alvo()); assertEquals(relogio.instant().plusSeconds(120), espera.ate());
+        }
+    }
+
+    @Test void aprovacaoRecusadaCancelaComCertoParei() throws Exception {
+        var executadas = new AtomicInteger(); montar(sensivel(executadas));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("sensivel"));
+        String id = iniciar(List.of()); esperar(() -> tarefas.estado(id, 42).status() == ESPERANDO_VOCE);
+        esperar(() -> aprovacoes.pendenciaDe(42, "nova").isPresent());
+        aprovacoes.recusarPendente(42, "não"); terminou(id);
+        assertEquals(CANCELADA, tarefas.estado(id, 42).status()); assertEquals(0, executadas.get());
+        verify(telegram, timeout(1000)).enviarMensagem(42, "Certo, parei organizar as notas.");
+        verify(telegram, never()).enviarMensagem(eq(42L), startsWith("Cancelada:"));
+    }
+
+    @Test void aprovacaoExpiradaPausaEsperandoRespostaERetomarPerguntaDeNovo() throws Exception {
+        var executadas = new AtomicInteger(); montar(sensivel(executadas));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("sensivel"), texto("backup feito"));
+        String id = iniciar(List.of()); esperar(() -> tarefas.estado(id, 42).status() == ESPERANDO_VOCE);
+        esperar(() -> aprovacoes.pendenciaDe(42, "nova").isPresent());
+        relogio.avancar(Duration.ofMinutes(10)); esperar(() -> tarefas.estado(id, 42).status() == PAUSADA);
+        assertEquals(TarefaDeFundo.PAUSA_SEM_RESPOSTA, tarefas.estado(id, 42).pausa());
+        assertTrue(usar(new TarefasEmAndamentoFerramenta(provedor(), json, props), null)
+                .contains("organizar as notas — esperando sua resposta"));
+        relogio.avancar(Duration.ofHours(1)); for (int i = 0; i < 5; i++) tarefas.varrer();
+        assertEquals(PAUSADA, tarefas.estado(id, 42).status()); assertTrue(aprovacoes.pendenciaDe(42, "nova").isEmpty());
+
+        assertEquals("Retomei: organizar as notas. Vou refazer a pergunta que ficou sem resposta.",
+                usar(new RetomarTarefaFerramenta(provedor(), json, props), null));
+        esperar(() -> aprovacoes.pendenciaDe(42, "nova").isPresent());
+        assertEquals(ESPERANDO_VOCE, tarefas.estado(id, 42).status());
+        aprovacoes.executarPendente(42, "sim"); terminou(id);
+        assertEquals(CONCLUIDA, tarefas.estado(id, 42).status()); assertEquals(1, executadas.get());
+        verify(claude, times(2)).criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class));
+    }
+
+    @Test void progressoVaiParaHudConectadaENaoParaOTelegram() throws Exception {
+        when(hud.conectada()).thenReturn(true);
+        montar(ferramenta("consulta", () -> "valor"));
+        when(claude.criarMensagem(any(Origem.class), any(PerfilDeEsforco.class), any(ArrayNode.class), any(ArrayNode.class), any(ArrayNode.class)))
+                .thenReturn(chamada("consulta"), texto("feito"));
+        String id = iniciar(List.of()); terminou(id);
+        verify(conversas, atLeastOnce()).progressoDeTarefa(eq(42L), argThat(p -> p.id().equals("tarefa:" + id)
+                && p.canal().equals("tarefa") && p.nome().equals("consulta")));
+        verify(telegram, timeout(1000)).enviarMensagem(42, "Concluída: feito");
+        verify(telegram, times(1)).enviarMensagem(anyLong(), anyString());
     }
 }

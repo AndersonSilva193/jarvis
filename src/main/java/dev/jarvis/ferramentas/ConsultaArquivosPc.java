@@ -107,7 +107,10 @@ final class ConsultaArquivosPc {
 
     static Resposta consultar(PcService pc, String acao, JsonNode entrada,
             OuvinteProgresso progresso) throws Exception {
-        if (!pc.online()) return falta("O PC está offline; os arquivos originais locais estão indisponíveis.");
+        if (!pc.online()) {
+            dev.jarvis.tarefas.ContextoDaTarefa.esperarPcSeEmTarefa();
+            return falta("O PC está offline; os arquivos originais locais estão indisponíveis.");
+        }
         if (entrada == null || !entrada.isObject() || entrada.toString().length() > 2000)
             return falta("Parâmetros de consulta inválidos.");
         // O agente só aceita o UUID do catálogo, e o modelo às vezes manda o nome do arquivo no

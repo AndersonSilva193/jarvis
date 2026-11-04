@@ -13,6 +13,8 @@ public final class TarefaDeFundo {
     public enum Status { AGUARDANDO_APROVACAO, NA_FILA, RODANDO, ESPERANDO_VOCE,
         ESPERANDO_PC, PAUSADA, CONCLUIDA, FALHOU, CANCELADA }
     public enum Origem { PEDIDO, GATILHO }
+    /** A pausa que só o {@code retomar_tarefa} desfaz: o dono pediu, ou a pergunta ficou sem resposta. */
+    public static final String PAUSA_DONO = "dono", PAUSA_SEM_RESPOSTA = "sem_resposta";
     public record AcaoPrevista(String chave, String alvo) {
         public AcaoPrevista {
             var acao = AcaoAutonoma.porChave(chave);
@@ -30,7 +32,8 @@ public final class TarefaDeFundo {
             List<String> resumo, String resultado, Instant criadaEm, Instant iniciadaEm,
             Instant atualizadaEm, Instant concluidaEm, int passos, long tempoAtivoMillis,
             double custoUsd, Origem origem, boolean retomada, boolean planoAprovado,
-            String esperaTipo, String esperaAlvo, Instant retomarEm, java.util.Map<String, String> comandos) { }
+            String esperaTipo, String esperaAlvo, Instant retomarEm, java.util.Map<String, String> comandos,
+            String pausa, Instant esperaDesde) { }
 
     final String id, objetivo;
     final long usuario, chat;
@@ -44,6 +47,11 @@ public final class TarefaDeFundo {
     String resultado = "", esperaTipo = "", esperaAlvo = "";
     volatile String falhaOrcamento = "";
     volatile Instant iniciadaEm, atualizadaEm, concluidaEm, ativoDesde, retomarEm;
+    /** Desde quando espera o PC (persistido: o teto de espera vale também depois de um restart). */
+    volatile Instant esperaDesde;
+    volatile String pausa = "";
+    /** A frase final no lugar da de sempre; vazia quando quem cancelou já respondeu ao dono. */
+    volatile String avisoFinal;
     volatile int passos;
     int registrosAntes;
     volatile long tempoAtivoMillis;
@@ -76,6 +84,6 @@ public final class TarefaDeFundo {
         return new Retrato(id, usuario, canal.nome(), chat, objetivo, plano, acoes, status,
                 List.copyOf(resumo), resultado, criadaEm, iniciadaEm, atualizadaEm, concluidaEm,
                 passos, tempoAtivo(agora), custoUsd, origem, retomada, planoAprovado,
-                esperaTipo, esperaAlvo, retomarEm, java.util.Map.copyOf(comandos));
+                esperaTipo, esperaAlvo, retomarEm, java.util.Map.copyOf(comandos), pausa, esperaDesde);
     }
 }

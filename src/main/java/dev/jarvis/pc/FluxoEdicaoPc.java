@@ -72,7 +72,7 @@ public class FluxoEdicaoPc {
     public ResultadoFerramenta aplicar(String acao, String editId, OuvinteProgresso contexto,
             UnaryOperator<String> sucesso, boolean original) throws Exception {
         if (!operacoes.online())
-            return ResultadoFerramenta.texto("Agente do PC offline; edição não iniciada.");
+            return ResultadoFerramenta.pcOffline("Agente do PC offline; edição não iniciada.");
         ComandoPc comando = novo(acao, json.createObjectNode().put("editId", editId));
         ResultadoPc resultado;
         try {

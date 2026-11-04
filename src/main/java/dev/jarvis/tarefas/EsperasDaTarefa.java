@@ -17,6 +17,8 @@ import dev.jarvis.computer.TarefasComputerUse;
 import dev.jarvis.ferramentas.ResultadoFerramenta;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.pc.PcService;
+import dev.jarvis.pc.PcVoltou;
+import org.springframework.context.event.EventListener;
 
 /** Condições fechadas, verificadas sem gastar chamadas do modelo. */
 @Component
@@ -29,6 +31,8 @@ public class EsperasDaTarefa {
     private final ExecutorService verificacoes = Executors.newFixedThreadPool(2,
             Thread.ofVirtual().name("espera-de-site-", 0).factory());
     private final Map<String, Verificacao> verificacoesDeSites = new ConcurrentHashMap<>();
+    /** O último {@link PcVoltou}; a espera pelo PC fica pronta com um retorno posterior ao início dela. */
+    private volatile Instant ultimoRetorno = Instant.MIN;
     private static final class Verificacao {
         final AtomicBoolean emCurso = new AtomicBoolean();
         volatile boolean disponivel;
@@ -42,6 +46,14 @@ public class EsperasDaTarefa {
         this.pc = pc; this.operacoes = operacoes; this.sites = sites; this.computer = computer; this.relogio = relogio;
     }
     public boolean pcDisponivel() { return pc.online(); }
+    /** Só marca: quem publica é o thread do agente do PC, e a tarefa é retomada pelo {@code varrer}. */
+    @EventListener public void pcVoltou(PcVoltou evento) { ultimoRetorno = evento.em(); }
+    /** O {@code aguardar}: um horário relativo, com o motivo no alvo para a listagem do dono. */
+    public SuspensaoDaTarefa aguardar(java.time.Duration quanto, String motivo) {
+        return criar(SuspensaoDaTarefa.Tipo.HORARIO, motivo, relogio.instant().plus(quanto));
+    }
+    /** A ferramenta não pôde nem começar com o PC fora: espera a volta e roda de novo. */
+    public SuspensaoDaTarefa pcOffline() { return esperaPeloPc("", true); }
     public void cancelarOperacao(String id) { pc.cancelar(id); }
     public void cancelarComputer(String id, long usuario) { computer.getObject().cancelar(id, usuario); }
     /** Null significa comando não recuperável, vazio ainda em andamento; o resto é estado final. */
@@ -60,12 +72,10 @@ public class EsperasDaTarefa {
     }
     public SuspensaoDaTarefa criar(SuspensaoDaTarefa.Tipo tipo, String alvo, Instant ate, long usuario) {
         return switch (tipo) {
-            case PC -> new SuspensaoDaTarefa(tipo, alvo, null,
-                    () -> pc.online() && (!"computer_livre".equals(alvo) || !computer.getObject().ocupada()),
-                    () -> ResultadoFerramenta.texto("PC disponível."));
+            case PC -> esperaPeloPc(alvo, false);
             case HORARIO -> {
                 if (ate == null) throw new IllegalArgumentException("Horário ISO-8601 com fuso necessário.");
-                yield new SuspensaoDaTarefa(tipo, "", ate, () -> !relogio.instant().isBefore(ate),
+                yield new SuspensaoDaTarefa(tipo, alvo == null ? "" : alvo, ate, () -> !relogio.instant().isBefore(ate),
                         () -> ResultadoFerramenta.texto("Horário solicitado alcançado."));
             }
             case SITE -> {
@@ -96,6 +106,21 @@ public class EsperasDaTarefa {
             });
             case APROVACAO -> throw new IllegalArgumentException("Aprovação precisa de uma nova pergunta autenticada.");
         };
+    }
+    /**
+     * "computer_livre" continua olhando o estado direto: ali o PC já está no ar e não haverá volta.
+     * A espera comum fica pronta com um {@code PcVoltou} igual ou posterior ao instante em que ela
+     * começou — o que fecha a corrida entre a checagem de offline e o contato que chega logo depois.
+     * Já no ar na criação (o {@code aguardar_tarefa} pedido com o PC ligado, a partida) vale na hora.
+     */
+    private SuspensaoDaTarefa esperaPeloPc(String alvo, boolean repetirFerramenta) {
+        Instant desde = relogio.instant();
+        boolean jaNoAr = pc.online();
+        java.util.function.BooleanSupplier pronta = "computer_livre".equals(alvo)
+                ? () -> pc.online() && !computer.getObject().ocupada()
+                : () -> pc.online() && (jaNoAr || !ultimoRetorno.isBefore(desde));
+        return new SuspensaoDaTarefa(SuspensaoDaTarefa.Tipo.PC, alvo, null, pronta,
+                () -> ResultadoFerramenta.texto("PC disponível."), repetirFerramenta);
     }
     private boolean siteDisponivel(String nome) {
         var v = verificacoesDeSites.computeIfAbsent(nome, n -> new Verificacao());

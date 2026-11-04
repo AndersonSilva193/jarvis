@@ -1526,8 +1526,8 @@ inclusive depois de uma espera ou pausa.
 `iniciar_tarefa_de_fundo` encerra o turno com metadado do servidor, sem uma chamada extra ao modelo.
 Objetivo, plano, ações previstas, estado, resumo, resultado, instantes, passos, tempo ativo e custo
 ficam em `DIARIO_PASTA/tarefas.json`, com troca atômica e `.bak`; mensagens e Suppliers não vão ao
-disco. As configurações `TAREFAS_SIMULTANEAS` (2), `TAREFA_MAX_PASSOS` (30) e
-`TAREFA_MAX_MINUTOS` (20) vivem em `jarvis.diario.tarefas` e nos três lugares habituais. Esperas
+disco. As configurações `TAREFAS_SIMULTANEAS` (2), `TAREFA_MAX_PASSOS` (30),
+`TAREFA_MAX_MINUTOS` (20) e `TAREFA_ESPERA_PC_HORAS` (12) vivem em `jarvis.diario.tarefas` e nos três lugares habituais. Esperas
 não contam como tempo ativo. Não há teto monetário individual: o teto diário autônomo pausa pelo
 Freio; passos ou tempo excedidos falham com motivo.
 Tarefas encerradas ficam consultáveis por até 30 dias, limitadas às 100 mais recentes; as ativas
@@ -1556,6 +1556,47 @@ pendentes têm IDs persistidos e são reconciliados antes de novas ações; apro
 perguntada novamente. O resultado solicitado sai imediatamente no canal de origem, com fallback
 da HUD desconectada ao Telegram e anexos. Origem GATILHO usa `AvisosProativos`; o mecanismo de
 gatilhos não faz parte deste pacote.
+
+### Acompanhar, pausar e esperar sozinho
+
+Quatro ferramentas da conversa, fora do canal `tarefa`: `tarefas_em_andamento` (objetivo, status em
+português, passo atual e há quanto tempo; as encerradas nas últimas 24 h no fim), `cancelar_tarefa`
+(sem aprovação; a resposta lista o que ficou no diário, com o id do `desfazer_acao` onde houver, e o
+"Cancelada:" final não sai para não ecoar), `pausar_tarefa` e `retomar_tarefa`. A entrada `tarefa` é
+id ou palavras do objetivo, e quem acha é o `ResolvedorDeTarefa`: vazio ou só dêitico ("isso",
+"ela") com **uma** ativa é ela; com várias, a ferramenta lista e não faz nada. A identidade vem do
+pedido, nunca da entrada. O texto é do `TarefaFalada`.
+
+A pausa do dono é o campo persistido `pausa` (`dono` ou `sem_resposta`), separado do `pausar`
+volátil do Freio: o `varrer` zera o `pausar` a cada volta, e só o `retomar` limpa a `pausa`. Rodando,
+a tarefa para na próxima fronteira (passo ou ferramenta); operação já entregue ao PC continua.
+
+**O PC voltou é um evento** (`dev.jarvis.pc.PcVoltou`), e quem publica é só o `PcService.registrarContato`:
+o E2 o chama por `OperacoesPcService.aoContato`, então os dois caminhos são um gatilho e um evento.
+Sai no primeiro contato da partida e no contato depois de mais de 90 s (`LIMITE_SEM_CONTATO`). O
+`EsperasDaTarefa` só guarda o instante; a espera `PC` fica pronta com um retorno **igual ou
+posterior** ao início dela, o que fecha a corrida entre a checagem de offline e o contato que chega
+logo depois. A `computer_livre` continua olhando o estado direto. Ao retomar sai "O PC voltou;
+continuei <objetivo>.". `TAREFA_ESPERA_PC_HORAS` (12) conta de `esperaDesde`, persistido; passou,
+FALHOU com o motivo. Retomar a pedido do dono zera a conta.
+
+**Ferramenta que responde "PC offline, nada iniciado" usa `ResultadoFerramenta.pcOffline`** — na
+conversa é só o texto; em tarefa, o `ContextoDaTarefa.esperarPcSeEmTarefa` lança uma
+`SuspensaoDaTarefa` com `repetirFerramenta`. O ciclo não guarda continuação, desconta a assinatura
+repetida e, na volta, roda a ferramenta de novo: o modelo nunca vê o offline e o passo não entra no
+resumo como falha. Use só onde **nada** começou; o que já foi despachado espera o resultado.
+
+Na pergunta de uma ação dentro da tarefa (`SuspensaoDaTarefa.Pergunta`): aprovada continua; recusada
+cancela com "Certo, parei <objetivo>."; expirada ou tomada por outra pergunta (`SEM_RESPOSTA` na
+`AutorizacaoDaTarefa`) fica PAUSADA com `pausa=sem_resposta` e aparece como "esperando sua resposta";
+o `retomar_tarefa` chama `renovar()`, e a mesma pergunta volta com código e prazo novos.
+
+`aguardar(minutos 1–60, motivo)` só existe no canal `tarefa` (`Ferramentas.SO_EM_TAREFA`) e só roda
+com contexto interno: uma espera `HORARIO` com o motivo no `esperaAlvo`. É agendamento, não sleep —
+a suspensão libera o trabalhador e quem acorda é o `varrer`, pelo `Clock`. O progresso da tarefa vai
+à HUD conectada como `conversa.ferramenta` com id `tarefa:<id>` (`RegistroConversas.progressoDeTarefa`);
+a HUD de hoje descarta id que não é o do pedido pendente, então aparecer lá depende de ajuste no
+jarvis-hud. No Telegram não sai nada por passo: só o aviso final, as perguntas e o "PC voltou".
 
 ## Como validar
 

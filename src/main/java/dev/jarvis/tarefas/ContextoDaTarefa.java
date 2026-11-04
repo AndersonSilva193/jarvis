@@ -24,6 +24,19 @@ public final class ContextoDaTarefa implements AutoCloseable {
             java.util.function.BiConsumer<String, String> resultado) {
         aoComando = comando; aoResultado = resultado; return this;
     }
+    private java.util.function.Supplier<? extends RuntimeException> esperaPeloPc;
+    /** Instalado pelo executor: como a tarefa espera o PC quando uma ferramenta não pôde nem começar. */
+    public ContextoDaTarefa esperarPcCom(java.util.function.Supplier<? extends RuntimeException> espera) {
+        esperaPeloPc = espera; return this;
+    }
+    /**
+     * Ferramenta que respondeu "PC offline" sem iniciar nada: em tarefa, a tarefa espera o PC e a
+     * ferramenta roda de novo na volta; na conversa não faz nada e o texto segue ao modelo.
+     */
+    public static void esperarPcSeEmTarefa() {
+        var tarefa = atual();
+        if (tarefa != null && tarefa.esperaPeloPc != null) throw tarefa.esperaPeloPc.get();
+    }
     public void registrarComando(String id, String acao) { aoComando.accept(id, acao); }
     public void concluirComando(String id, String resultado) { aoResultado.accept(id, resultado); }
 

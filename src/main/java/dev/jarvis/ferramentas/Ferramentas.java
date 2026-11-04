@@ -40,7 +40,12 @@ public class Ferramentas {
      * de procurá-lo primeiro custaria uma ida a mais ao modelo justamente no caso que ele acelera.
      */
     private static final Set<String> EXTRAS_SEMPRE_CARREGADAS = Set.of(
-            "editar_arquivo", "tarefa_no_pc", "ler_procedimento", "iniciar_tarefa_de_fundo");
+            "editar_arquivo", "tarefa_no_pc", "ler_procedimento", "iniciar_tarefa_de_fundo", "aguardar");
+    /** Só fazem sentido dentro de uma tarefa de fundo. */
+    private static final Set<String> SO_EM_TAREFA = Set.of("aguardar_tarefa", "aguardar");
+    /** Uma tarefa não cria outra nem mexe nas tarefas do dono: isso é da conversa. */
+    private static final Set<String> FORA_DE_TAREFA = Set.of("iniciar_tarefa_de_fundo", "tarefas_em_andamento",
+            "cancelar_tarefa", "pausar_tarefa", "retomar_tarefa");
 
     /**
      * Por nome, em <b>ordem alfabética</b> — e é a ordem que importa, não só a busca.
@@ -140,8 +145,8 @@ public class Ferramentas {
         Map<String, String> digitais = new LinkedHashMap<>();
         for (Ferramenta f : porNome.values()) {
             if (!f.oferecida()) continue;
-            if (canal == Canal.TAREFA && "iniciar_tarefa_de_fundo".equals(f.nome())) continue;
-            if (canal != Canal.TAREFA && "aguardar_tarefa".equals(f.nome())) continue;
+            if (canal == Canal.TAREFA && FORA_DE_TAREFA.contains(f.nome())) continue;
+            if (canal != Canal.TAREFA && SO_EM_TAREFA.contains(f.nome())) continue;
             if (canal == Canal.TELEGRAM && "ouvir_resposta".equals(f.nome())) continue;
             if (tarefaPlanilha && !List.of("listar_arquivos", "ler_arquivo", "editar_arquivo",
                     "verificar_site", "clima").contains(f.nome())) continue;

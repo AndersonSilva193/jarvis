@@ -318,7 +318,10 @@ public final class CicloDeFerramentas {
                                 resultado = ferramentas.entregarResultado(bloco, seguro, retomado, detalhados::add);
                             } else resultado = ferramentas.executar(bloco, seguro, detalhados::add);
                         } catch (dev.jarvis.tarefas.SuspensaoDaTarefa espera) {
-                            suspensao = espera;
+                            // A ferramenta que não pôde nem começar (PC fora) roda de novo na volta:
+                            // sem continuação guardada, e a chamada não conta como repetição.
+                            if (espera.repetirFerramenta()) chamadasPorAssinatura.merge(assinatura, -1, Integer::sum);
+                            else suspensao = espera;
                             throw espera;
                         }
                         // A Ferramentas limita apenas o texto que volta ao modelo. As decisões deste

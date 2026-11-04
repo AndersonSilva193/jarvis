@@ -92,7 +92,7 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
     public ResultadoFerramenta executarDetalhado(JsonNode entrada, OuvinteProgresso contexto)
             throws Exception {
         if (!lixeira.online())
-            return ResultadoFerramenta.texto("O PC está offline; a lixeira está indisponível.");
+            return ResultadoFerramenta.pcOffline("O PC está offline; a lixeira está indisponível.");
         String idLixeira = entrada == null ? "" : Json.texto(entrada.path("idLixeira")).trim();
         if (idLixeira.isEmpty()) return listar(entrada, contexto);
         if (!idLixeira.matches("[0-9a-fA-F-]{36}"))

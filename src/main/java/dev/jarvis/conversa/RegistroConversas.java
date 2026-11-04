@@ -196,6 +196,14 @@ public class RegistroConversas {
         if (pendente(chatId, progresso.id())) publicar(chatId, "conversa.ferramenta", progresso);
     }
 
+    /**
+     * Progresso de uma tarefa de fundo. Não há pedido pendente na HUD para conferir: o id é
+     * {@code tarefa:<id>} e o canal {@code tarefa}.
+     */
+    public void progressoDeTarefa(long chatId, Progresso progresso) {
+        publicar(chatId, "conversa.ferramenta", progresso);
+    }
+
     private Conversa conversa(long chatId) { return conversas.computeIfAbsent(chatId, id -> new Conversa()); }
     private void avisarHistorico(long chatId) {
         Historico h = historico(chatId);

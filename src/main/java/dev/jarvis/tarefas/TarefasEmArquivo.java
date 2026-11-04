@@ -35,6 +35,8 @@ final class TarefasEmArquivo {
             if (t.iniciadaEm() != null) n.put("iniciadaEm", t.iniciadaEm().toString());
             if (t.concluidaEm() != null) n.put("concluidaEm", t.concluidaEm().toString());
             if (t.retomarEm() != null) n.put("retomarEm", t.retomarEm().toString());
+            if (t.esperaDesde() != null) n.put("esperaDesde", t.esperaDesde().toString());
+            if (!t.pausa().isBlank()) n.put("pausa", t.pausa());
             var plano = n.putArray("plano"); t.plano().forEach(plano::add);
             var resumo = n.putArray("resumo"); t.resumo().forEach(resumo::add);
             var acoes = n.putArray("acoesPrevistas");
@@ -73,6 +75,9 @@ final class TarefasEmArquivo {
                         t.iniciadaEm = instante(n, "iniciadaEm");
                         t.atualizadaEm = java.util.Objects.requireNonNullElse(instante(n, "atualizadaEm"), t.criadaEm);
                         t.concluidaEm = instante(n, "concluidaEm"); t.retomarEm = instante(n, "retomarEm");
+                        t.esperaDesde = instante(n, "esperaDesde");
+                        String pausa = Json.texto(n.path("pausa"));
+                        t.pausa = List.of(TarefaDeFundo.PAUSA_DONO, TarefaDeFundo.PAUSA_SEM_RESPOSTA).contains(pausa) ? pausa : "";
                         t.passos = Math.max(0, n.path("passos").asInt()); t.tempoAtivoMillis = Math.max(0, n.path("tempoAtivoMillis").asLong());
                         t.custoUsd = Math.max(0, n.path("custoUsd").asDouble());
                         t.retomada = n.path("retomada").asBoolean(); t.planoAprovado = n.path("planoAprovado").asBoolean();

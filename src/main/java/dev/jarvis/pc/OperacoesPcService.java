@@ -76,6 +76,8 @@ public class OperacoesPcService {
     private final Path arquivo;
     private final Clock relogio;
     private volatile Instant ultimoContato;
+    /** O {@link PcService} ouve aqui: é ele quem decide se o PC "voltou" olhando os dois caminhos. */
+    private volatile Runnable aoContato = () -> { };
     /**
      * As rotinas anunciadas moram no {@link CatalogoDoPc}, que as guarda em disco.
      *
@@ -133,7 +135,7 @@ public class OperacoesPcService {
     public Optional<Entrega> proximo(Duration espera) throws InterruptedException {
         long fim = System.nanoTime() + espera.toNanos();
         synchronized (this) {
-            ultimoContato = relogio.instant();
+            contato();
             do {
                 Instant agora = relogio.instant();
                 for (Operacao o : operacoes.values()) {
@@ -251,7 +253,7 @@ public class OperacoesPcService {
         notifyAll(); return true;
     }
     public synchronized boolean cancelamentoPedido(String id) {
-        ultimoContato = relogio.instant();
+        contato();
         Operacao o = operacoes.get(id);
         return o != null && o.cancelar;
     }
@@ -277,12 +279,18 @@ public class OperacoesPcService {
     public synchronized long chatId(String id) {
         Operacao o = operacoes.get(id); return o == null ? 0 : o.chatId;
     }
+    public void aoContato(Runnable ouvinte) { aoContato = ouvinte == null ? () -> { } : ouvinte; }
+    private void contato() {
+        ultimoContato = relogio.instant();
+        try { aoContato.run(); }
+        catch (RuntimeException e) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("Ouvinte de contato falhou: {}", e.getMessage()); }
+    }
     public boolean online() {
         Instant visto = ultimoContato;
         return visto != null && Duration.between(visto, relogio.instant()).compareTo(Duration.ofSeconds(90)) < 0;
     }
     public synchronized void catalogo(List<RotinaPublica> anuncios) {
-        ultimoContato = relogio.instant();
+        contato();
         catalogo.anunciarRotinas(anuncios == null ? List.of() : anuncios.stream().filter(r ->
                 r.nome() != null && r.nome().matches("[a-z0-9][a-z0-9_.-]{0,31}")
                 && r.descricao() != null && !r.descricao().isBlank()

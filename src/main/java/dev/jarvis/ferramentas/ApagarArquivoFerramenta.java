@@ -144,7 +144,7 @@ public class ApagarArquivoFerramenta implements Ferramenta {
                 return ResultadoFerramenta.texto("ID inválido; use listar_arquivos para obtê-lo.");
         // Antes de tudo: travar o turno para no fim dizer "offline" é o pior dos mundos.
         if (!lixeira.online())
-            return ResultadoFerramenta.texto("O PC está offline; não apaguei nada. "
+            return ResultadoFerramenta.pcOffline("O PC está offline; não apaguei nada. "
                     + "Avise e ofereça tentar depois.");
 
         Map<String, String> nomes;

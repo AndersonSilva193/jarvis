@@ -188,8 +188,15 @@ public class TarefasDeFundo {
                     continue;
                 }
                 if (t.cancelar) { finalizar(t, CANCELADA, "Cancelada pelo usuário."); continue; }
+                // A pausa do dono (ou a pergunta sem resposta) só sai pelo retomar_tarefa.
+                if (!t.pausa.isBlank()) { mudar(t, PAUSADA); continue; }
                 if (!liberado) { mudar(t, PAUSADA); continue; }
                 t.pausar = false;
+                if (t.status == ESPERANDO_PC && t.esperaDesde != null && !relogio.instant()
+                        .isBefore(t.esperaDesde.plus(Duration.ofHours(props.tarefaEsperaPcHoras())))) {
+                    finalizar(t, FALHOU, "Esperei o PC por " + props.tarefaEsperaPcHoras() + " h e ele não voltou.");
+                    continue;
+                }
                 if (!t.planoAprovado) {
                     if (t.aprovacaoInicial == null) prepararAprovacao(t, texto -> notificar(t, texto, List.of()));
                     if (!t.aprovacaoInicial.resolvida()) { mudar(t, AGUARDANDO_APROVACAO); continue; }
@@ -219,12 +226,27 @@ public class TarefasDeFundo {
                     }
                     if (esperandoComando) { mudar(t, ESPERANDO_PC); continue; }
                 }
+                var pergunta = t.espera == null ? null : t.espera.pergunta();
+                if (pergunta != null && t.espera.pronta()) {
+                    if (pergunta.recusada().getAsBoolean()) {
+                        finalizar(t, CANCELADA, "Aprovação recusada.", "Certo, parei " + t.objetivo + ".");
+                        continue;
+                    }
+                    if (pergunta.semResposta().getAsBoolean()) {
+                        synchronized (trava) { t.pausa = TarefaDeFundo.PAUSA_SEM_RESPOSTA; }
+                        if (t.status == PAUSADA) salvar(); else mudar(t, PAUSADA);
+                        continue;
+                    }
+                }
                 if (t.espera != null && !t.espera.pronta()) {
                     if (t.status == PAUSADA) mudar(t, t.espera.tipo() == SuspensaoDaTarefa.Tipo.APROVACAO
                             ? ESPERANDO_VOCE : List.of(SuspensaoDaTarefa.Tipo.PC, SuspensaoDaTarefa.Tipo.OPERACAO_PC,
                                     SuspensaoDaTarefa.Tipo.COMPUTER_USE).contains(t.espera.tipo()) ? ESPERANDO_PC : NA_FILA);
                     continue;
                 }
+                if (t.status == ESPERANDO_PC && t.espera != null && t.espera.tipo() == SuspensaoDaTarefa.Tipo.PC
+                        && !"computer_livre".equals(t.espera.alvo()))
+                    notificar(t, "O PC voltou; continuei " + t.objetivo + ".", List.of());
                 agendar(t);
             }
             if (!relogio.instant().isBefore(ultimoCheckpoint.plusSeconds(1))
@@ -257,7 +279,7 @@ public class TarefasDeFundo {
         t.executora = Thread.currentThread();
         try (var contexto = ContextoDaTarefa.entrar(t.id, t.usuario, valor -> {
             synchronized (trava) { t.custoUsd += valor; } salvar();
-        }, texto -> notificar(t, texto, List.of()), t.dados).observarOperacoes((id, acao) -> {
+        }, texto -> notificar(t, texto, List.of()), t.dados).esperarPcCom(esperas::pcOffline).observarOperacoes((id, acao) -> {
             synchronized (trava) { t.comandos.put(id, acao); } salvar();
         }, (id, resultado) -> {
             synchronized (trava) {
@@ -325,6 +347,11 @@ public class TarefasDeFundo {
             @Override public String canal() { return "tarefa"; }
             @Override public String pedidoOriginal() { return t.objetivo; }
             @Override public ContextoArquivo contextoArquivo() { return t.contextoArquivo; }
+            /** Na HUD conectada aparece como nos pedidos normais; no Telegram nada sai por passo. */
+            @Override public void ferramenta(String nome, String descricao, Integer passo, Integer total) {
+                if (hud.conectada()) conversas.progressoDeTarefa(t.usuario, new RegistroConversas.Progresso(
+                        "tarefa:" + t.id, "tarefa", nome, descricao, passo, total));
+            }
             @Override public void antesDoPasso() {
                 verificar(t);
                 synchronized (trava) {
@@ -335,7 +362,7 @@ public class TarefasDeFundo {
             }
             @Override public void antesDaFerramenta(String nome) {
                 verificar(t);
-                if (esperas.usaPc(nome) && !esperas.pcDisponivel()) throw esperas.criar(SuspensaoDaTarefa.Tipo.PC, "", null);
+                if (esperas.usaPc(nome) && !esperas.pcDisponivel()) throw esperas.pcOffline();
                 t.registrosAntes = ContextoDaTarefa.atual().registros();
             }
             @Override public void depoisDaFerramenta(String nome, String resultado, boolean erro) {
@@ -363,6 +390,8 @@ public class TarefasDeFundo {
             Instant agora = relogio.instant();
             t.tempoAtivoMillis = t.tempoAtivo(agora); t.ativoDesde = status == RODANDO ? agora : null;
             if (status == RODANDO && t.iniciadaEm == null) t.iniciadaEm = agora;
+            if (status == ESPERANDO_PC && t.esperaDesde == null) t.esperaDesde = agora;
+            if (status == RODANDO) t.esperaDesde = null;
             t.status = status; t.atualizadaEm = agora;
         }
         salvar();
@@ -392,6 +421,11 @@ public class TarefasDeFundo {
     }
 
     private void finalizar(TarefaDeFundo t, TarefaDeFundo.Status status, String resultado) {
+        finalizar(t, status, resultado, null);
+    }
+
+    /** @param aviso a frase ao dono no lugar do "Cancelada: ..." de sempre; nulo mantém a de sempre */
+    private void finalizar(TarefaDeFundo t, TarefaDeFundo.Status status, String resultado, String aviso) {
         synchronized (trava) {
             if (t.encerrada() || t.finalizando) return;
             t.finalizando = true;
@@ -411,9 +445,12 @@ public class TarefasDeFundo {
             catch (IOException e) { LoggerFactory.getLogger(getClass()).warn("Anexo de tarefa indisponível: {}", e.getMessage()); }
             for (var referencia : detalhado.referencias()) anexos.referencia(referencia.nome(), referencia.url()).ifPresent(publicados::add);
         }
-        String texto = (status == CONCLUIDA ? "Concluída: " : status == FALHOU ? "Falhou: " : "Cancelada: ") + resultado;
-        if (t.origem == TarefaDeFundo.Origem.GATILHO) avisos.avisar("tarefa:" + t.id, status.name(), texto, null);
-        else {
+        if (aviso == null) aviso = t.avisoFinal;
+        String texto = aviso != null ? aviso
+                : (status == CONCLUIDA ? "Concluída: " : status == FALHOU ? "Falhou: " : "Cancelada: ") + resultado;
+        // Vazio: quem cancelou já respondeu ao dono, e um "Cancelada:" depois seria eco.
+        if (!texto.isEmpty() && t.origem == TarefaDeFundo.Origem.GATILHO) avisos.avisar("tarefa:" + t.id, status.name(), texto, null);
+        else if (!texto.isEmpty()) {
             notificar(t, texto, publicados);
             if (t.canal == Canal.TELEGRAM || !hud.conectada()) {
                 for (var detalhado : t.detalhados) for (var artefato : detalhado.artefatos()) {
@@ -423,7 +460,7 @@ public class TarefasDeFundo {
                 }
             }
         }
-        tardios.registrar(t.chat, "a tarefa de fundo " + t.id, texto);
+        if (!texto.isEmpty()) tardios.registrar(t.chat, "a tarefa de fundo " + t.id, texto);
         t.ciclo = null; t.contextoArquivo = null; t.detalhados.clear(); t.espera = null;
         t.dados.urls.clear();
     }
@@ -444,17 +481,22 @@ public class TarefasDeFundo {
         try { arquivo.salvar(versao, lista); }
         catch (IOException e) { throw new IllegalStateException("Não consegui persistir as tarefas", e); }
     }
+    public Instant agora() { return relogio.instant(); }
     public TarefaDeFundo.Retrato estado(String id, long usuario) {
         synchronized (trava) { var t = tarefas.get(id); return t == null || t.usuario != usuario ? null : t.retrato(relogio.instant()); }
     }
     public List<TarefaDeFundo.Retrato> listar(long usuario) {
         synchronized (trava) { return tarefas.values().stream().filter(t -> t.usuario == usuario).map(t -> t.retrato(relogio.instant())).toList(); }
     }
-    public boolean cancelar(String id, long usuario) {
+    public boolean cancelar(String id, long usuario) { return cancelar(id, usuario, true); }
+
+    /** @param avisarNoFim falso quando quem cancelou já está respondendo ao dono (a ferramenta) */
+    public boolean cancelar(String id, long usuario, boolean avisarNoFim) {
         TarefaDeFundo t;
         synchronized (trava) {
             t = tarefas.get(id); if (t == null || t.usuario != usuario || t.encerrada() || t.finalizando) return false;
             t.cancelar = true;
+            if (!avisarNoFim) t.avisoFinal = "";
         }
         aprovacoes.cancelarDaTarefa(id);
         cancelarOperacoes(t);
@@ -468,6 +510,56 @@ public class TarefasDeFundo {
                 .max(Comparator.comparing(TarefaDeFundo.Retrato::criadaEm));
         return ultima.map(t -> cancelar(t.id(), usuario)).orElse(false);
     }
+    /** O que o pausar e o retomar fizeram; quem fala com o dono é a ferramenta. */
+    public enum Mudanca { FEITA, NAO_ENCONTRADA, ENCERRADA, JA_ESTAVA, FREIO }
+
+    /**
+     * Pausa a pedido do dono. Parada ou esperando, para na hora; rodando, para na próxima fronteira
+     * (antes do passo ou da ferramenta) — a chamada ao modelo em curso termina, nada é interrompido
+     * no meio. As operações já entregues ao PC continuam: pausar não é cancelar.
+     */
+    public Mudanca pausar(String id, long usuario) {
+        TarefaDeFundo t;
+        synchronized (trava) {
+            t = tarefas.get(id);
+            if (t == null || t.usuario != usuario) return Mudanca.NAO_ENCONTRADA;
+            if (t.encerrada() || t.finalizando) return Mudanca.ENCERRADA;
+            if (TarefaDeFundo.PAUSA_DONO.equals(t.pausa)) return Mudanca.JA_ESTAVA;
+            t.pausa = TarefaDeFundo.PAUSA_DONO; t.pausar = true;
+        }
+        if (t.executora == null && !t.agendada) mudar(t, PAUSADA); else salvar();
+        return Mudanca.FEITA;
+    }
+
+    /**
+     * Tira a pausa do dono ou a da pergunta sem resposta, que volta a ser feita com código e prazo
+     * novos. O Freio continua por cima: com o trabalho autônomo pausado, nada volta a rodar.
+     */
+    public Mudanca retomar(String id, long usuario) {
+        TarefaDeFundo t; boolean semResposta;
+        synchronized (trava) {
+            t = tarefas.get(id);
+            if (t == null || t.usuario != usuario) return Mudanca.NAO_ENCONTRADA;
+            if (t.encerrada() || t.finalizando) return Mudanca.ENCERRADA;
+            if (t.pausa.isBlank() && t.status != PAUSADA) return Mudanca.JA_ESTAVA;
+            semResposta = TarefaDeFundo.PAUSA_SEM_RESPOSTA.equals(t.pausa);
+            t.pausa = ""; t.esperaDesde = null;
+        }
+        var espera = t.espera;
+        if (semResposta && espera != null && espera.pergunta() != null) espera.pergunta().renovar().run();
+        salvar();
+        if (!freio.podeAgirSozinho("tarefa")) return Mudanca.FREIO;
+        varrer();
+        return Mudanca.FEITA;
+    }
+
+    /** O que a tarefa deixou no diário, com o que ainda pode ser desfeito. */
+    public List<dev.jarvis.diario.AcaoRegistrada> feitoNoDiario(String id, long usuario) {
+        if (diario == null) return List.of();
+        return diario.periodo(2).acoes().stream()
+                .filter(a -> a.usuario() == usuario && id.equals(a.idTarefa())).toList();
+    }
+
     @jakarta.annotation.PreDestroy public void fechar() {
         fechando = true; pausarTodas(); executor.shutdownNow();
         try { executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS); }

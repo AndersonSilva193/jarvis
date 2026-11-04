@@ -45,7 +45,7 @@ public class RodarRotinaFerramenta implements Ferramenta {
         String nome = Json.texto(entrada.path("nome"));
         var rotina = e2.rotinas().stream().filter(r -> r.nome().equals(nome)).findFirst();
         if (rotina.isEmpty()) return ResultadoFerramenta.texto("Rotina desconhecida ou agente E2 offline.");
-        if (!e2.online()) return ResultadoFerramenta.texto("Agente do PC offline; rotina não iniciada.");
+        if (!e2.online()) return ResultadoFerramenta.pcOffline("Agente do PC offline; rotina não iniciada.");
         String pedido = contexto.pedidoOriginal();
         if (pedido == null || pedido.isBlank() || pedido.length() > 8000)
             return ResultadoFerramenta.texto("Pedido original ausente ou acima do limite.");

@@ -503,7 +503,7 @@ public record JarvisProperties(
         }
     }
 
-    public record Tarefas(Integer simultaneas, Integer maxPassos, Integer maxMinutos) { }
+    public record Tarefas(Integer simultaneas, Integer maxPassos, Integer maxMinutos, Integer esperaPcHoras) { }
     public int tarefasSimultaneas() {
         return diario == null || diario.tarefas() == null ? 2 : positivo(diario.tarefas().simultaneas(), 2);
     }
@@ -512,6 +512,10 @@ public record JarvisProperties(
     }
     public int tarefaMaxMinutos() {
         return diario == null || diario.tarefas() == null ? 20 : positivo(diario.tarefas().maxMinutos(), 20);
+    }
+    /** Quanto uma tarefa espera o PC voltar antes de falhar com o motivo. */
+    public int tarefaEsperaPcHoras() {
+        return diario == null || diario.tarefas() == null ? 12 : positivo(diario.tarefas().esperaPcHoras(), 12);
     }
     private static int positivo(Integer valor, int padrao) { return valor == null || valor <= 0 ? padrao : valor; }
 

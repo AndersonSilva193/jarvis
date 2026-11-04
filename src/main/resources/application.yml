@@ -157,6 +157,8 @@ jarvis:
       simultaneas: ${TAREFAS_SIMULTANEAS:2}
       max-passos: ${TAREFA_MAX_PASSOS:30}
       max-minutos: ${TAREFA_MAX_MINUTOS:20}
+      # Horas que uma tarefa espera o PC voltar; passou disso, falha com o motivo.
+      espera-pc-horas: ${TAREFA_ESPERA_PC_HORAS:12}
     # Um JSON por dia com o que o Jarvis fez sozinho e o que fez depois de um "sim",
     # 30 dias guardados. Volume nomeado "diario".
     pasta: ${DIARIO_PASTA:/data/jarvis/diario}

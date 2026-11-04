@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * A fila de comandos para o PC Windows, em memória.
@@ -69,6 +70,8 @@ public class PcService {
     private final ConcurrentMap<String, OuvinteDeInferencia> parciais = new ConcurrentHashMap<>();
 
     private volatile Instant ultimoContato;
+    private final Object contato = new Object();
+    private final ApplicationEventPublisher eventos;
     /** O último {@code X-Pc-Ia}, cru, e quando chegou. Quem interpreta é a {@code DisponibilidadeLocal}. */
     private volatile EstadoIa estadoIa;
 
@@ -97,22 +100,31 @@ public class PcService {
     }
 
     public PcService(Clock relogio) {
+        this(relogio, evento -> { });
+    }
+
+    public PcService(Clock relogio, ApplicationEventPublisher eventos) {
         this.relogio = relogio;
         this.e2 = null;
         this.catalogo = CatalogoDoPc.emMemoria();
+        this.eventos = eventos;
+    }
+
+    public PcService(OperacoesPcService e2, CatalogoDoPc catalogo) {
+        this(e2, catalogo, evento -> { });
     }
 
     @Autowired
-    public PcService(OperacoesPcService e2, CatalogoDoPc catalogo) {
+    public PcService(OperacoesPcService e2, CatalogoDoPc catalogo, ApplicationEventPublisher eventos) {
         this.relogio = Clock.systemUTC();
         this.e2 = e2;
         this.catalogo = catalogo == null ? CatalogoDoPc.emMemoria() : catalogo;
+        this.eventos = eventos;
+        if (e2 != null) e2.aoContato(this::registrarContato);
     }
 
     public PcService(OperacoesPcService e2) {
-        this.relogio = Clock.systemUTC();
-        this.e2 = e2;
-        this.catalogo = CatalogoDoPc.emMemoria();
+        this(e2, null);
     }
 
     /**
@@ -355,8 +367,24 @@ public class PcService {
         return Optional.ofNullable(estadoIa);
     }
 
+    /**
+     * Os dois caminhos (o antigo e o E2) passam por aqui, então a volta é decidida num lugar só e
+     * sai uma vez. O evento é publicado fora da trava; quem ouve só marca estado.
+     */
     private void registrarContato() {
-        this.ultimoContato = relogio.instant();
+        Instant agora = relogio.instant();
+        Instant visto;
+        synchronized (contato) {
+            visto = ultimoContato;
+            ultimoContato = agora;
+        }
+        if (visto == null || Duration.between(visto, agora).compareTo(LIMITE_SEM_CONTATO) > 0) {
+            Duration ausencia = visto == null ? null : Duration.between(visto, agora);
+            log.info("PC voltou a falar com a VPS{}", ausencia == null ? " (primeiro contato)"
+                    : " depois de " + ausencia.toSeconds() + " s");
+            try { eventos.publishEvent(new PcVoltou(agora, ausencia)); }
+            catch (RuntimeException e) { log.warn("Ouvinte de PcVoltou falhou: {}", e.getMessage()); }
+        }
     }
 
     /** Sem caractere de controle e com teto: o cabeçalho vem de fora da VPS. */
