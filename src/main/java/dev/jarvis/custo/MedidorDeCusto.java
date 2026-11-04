@@ -127,7 +127,8 @@ public class MedidorDeCusto {
      */
     public void registrar(Origem origem, String modelo, long entrada, long saida,
             long cacheEscrito, long cacheLido, long buscasWeb) {
-        Origem deOnde = origem == null ? Origem.CONVERSA : origem;
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        Origem deOnde = tarefa != null ? Origem.TAREFA : origem == null ? Origem.CONVERSA : origem;
         String nome = modelo == null || modelo.isBlank() ? "desconhecido" : modelo.trim();
         boolean semPreco = precos.precoDe(nome) == null;
         double custo = precos.custo(nome, entrada, saida, cacheEscrito, cacheLido, buscasWeb);
@@ -150,6 +151,10 @@ public class MedidorDeCusto {
                     + "tokens, mas o custo do dia sai incompleto.", nome);
         }
         naFila(false, this::gravarPendentes);
+        if (tarefa != null) {
+            try { tarefa.somarCusto(custo); }
+            catch (RuntimeException e) { log.warn("Custo somado, mas o retrato da tarefa não foi gravado: {}", e.getMessage()); }
+        }
         for (Runnable ouvinte : ouvintes) {
             try { ouvinte.run(); }
             catch (RuntimeException e) { log.warn("Ouvinte de custo falhou: {}", e.getClass().getSimpleName()); }

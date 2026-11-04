@@ -237,6 +237,9 @@ final class PromptDeSistema {
         return """
 
                 Aprovação:
+                - Pedido com muitos passos, que leva minutos ou precisa esperar deve ser delegado
+                  por iniciar_tarefa_de_fundo, com objetivo completo, plano curto e ações previstas.
+                  Não execute os passos longos na conversa antes de delegar.
                 - Quando uma ferramenta devolver uma pergunta de aprovação, repita a pergunta com o
                   seu tom e pare aí. Não diga que executou nem que iniciou: nada aconteceu ainda.
                 - Não peça palavra, código nem frase exata. O usuário responde do jeito que quiser e

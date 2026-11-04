@@ -117,6 +117,12 @@ public class OperacoesPcService {
         Operacao nova = new Operacao(comando, agora.plus(prazoInicio),
                 agora.plus(prazoInicio).plus(prazoExecucao), agora);
         nova.canal = canal == null ? "" : canal; nova.chatId = chatId;
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null) {
+            tarefa.registrarComando(comando.id(), comando.acao());
+            nova.futuro.whenComplete((resultado, falha) -> tarefa.concluirComando(comando.id(),
+                    resultado == null ? "falhou" : (resultado.ok() ? "concluída: " : "falhou: ") + resultado.mensagem()));
+        }
         operacoes.put(comando.id(), nova);
         try { salvar(); }
         catch (RuntimeException falha) { operacoes.remove(comando.id()); throw falha; }
@@ -311,6 +317,15 @@ public class OperacoesPcService {
         try {
             var futuro = enfileirar(comando, Duration.ofSeconds(60), Duration.ofHours(1), canal,
                     usuario);
+            if (dev.jarvis.tarefas.ContextoDaTarefa.atual() != null) {
+                throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
+                        dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.OPERACAO_PC, comando.id(), null,
+                        futuro::isDone, () -> {
+                            var resultado = futuro.get();
+                            return dev.jarvis.ferramentas.ResultadoFerramenta.texto("Operação " + comando.id()
+                                    + (resultado.ok() ? " concluída: " : " falhou: ") + resultado.mensagem());
+                        });
+            }
             try {
                 var resultado = futuro.get(30, java.util.concurrent.TimeUnit.SECONDS);
                 return "Operação " + comando.id() + ": "
@@ -321,6 +336,7 @@ public class OperacoesPcService {
                         + estado(comando.id()).orElseThrow().estado()
                         + ". Consulte status_operacao_pc pelo ID; o resultado final será avisado.";
             }
+        } catch (dev.jarvis.tarefas.ControleDaTarefa controle) { throw controle;
         } catch (InterruptedException interrompida) {
             pedirAviso(comando.id());
             Thread.currentThread().interrupt();

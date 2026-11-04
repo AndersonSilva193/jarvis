@@ -75,10 +75,19 @@ public class TarefasComputerUse {
     private final java.util.function.Supplier<ProvedorComputerUse> fabricaDeProvedor;
     /** Por onde o resultado final chega ao histórico da conversa, além do aviso ao dono. */
     private final ResultadosTardios tardios;
+    private dev.jarvis.agente.Freio freio;
+    private dev.jarvis.diario.DiarioDeAcoes diario;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarAutonomia(dev.jarvis.agente.Freio freio, dev.jarvis.diario.DiarioDeAcoes diario) {
+        this.freio = freio; this.diario = diario;
+        freio.aoPausar(() -> tarefas.values().stream().filter(t -> t.pai != null && !finalizada(t.estado))
+                .forEach(t -> cancelar(t.id, t.usuario)));
+    }
 
     private static final class Tarefa {
         final String id, nome, objetivo, canal, inicio;
         final long usuario;
+        final dev.jarvis.tarefas.ContextoDaTarefa pai;
         final AtomicBoolean cancelar = new AtomicBoolean();
         volatile String estado = "pendente", motivo = "", comandoAtual;
         /** Nulo enquanto a tarefa avança; o motivo do travamento depois que o detector acusa. */
@@ -93,6 +102,7 @@ public class TarefasComputerUse {
             this.id = id; this.nome = nomeCurto(objetivo); this.objetivo = objetivo;
             this.canal = canal; this.usuario = usuario;
             this.inicio = Instant.now().toString();
+            pai = dev.jarvis.tarefas.ContextoDaTarefa.atual();
         }
         Retrato retrato() { return new Retrato(id, nome, estado, provedor, modelo, ciclos, acoes,
                 tokensEntrada, tokensSaida, motivo, inicio); }
@@ -161,13 +171,29 @@ public class TarefasComputerUse {
     public boolean disponivel() {
         return configurado() && e2.online();
     }
+    public boolean ocupada() { return ocupada.get(); }
     public String iniciar(String objetivo, String canal, long usuario) {
         if (!disponivel()) return "Computer use desativado ou agente do PC offline.";
-        if (!ocupada.compareAndSet(false, true)) return "Ja existe uma tarefa de tela em andamento.";
+        if (!ocupada.compareAndSet(false, true)) {
+            if (dev.jarvis.tarefas.ContextoDaTarefa.atual() != null)
+                throw new dev.jarvis.tarefas.SuspensaoDaTarefa(dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.PC,
+                        "computer_livre", null, () -> disponivel() && !ocupada.get(),
+                        () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(iniciar(objetivo, canal, usuario)));
+            return "Ja existe uma tarefa de tela em andamento.";
+        }
         String id = UUID.randomUUID().toString();
         Tarefa tarefa = new Tarefa(id, objetivo, canal, usuario);
         tarefas.put(id, tarefa);
-        executor.submit(() -> executar(tarefa));
+        executor.submit(() -> {
+            if (tarefa.pai == null) executar(tarefa);
+            else try (var contexto = dev.jarvis.tarefas.ContextoDaTarefa.entrar(tarefa.pai.id(),
+                    tarefa.usuario, tarefa.pai::somarCusto, tarefa.pai::avisar, tarefa.pai.dados())
+                    .observarOperacoes(tarefa.pai::registrarComando, tarefa.pai::concluirComando)) { executar(tarefa); }
+        });
+        if (tarefa.pai != null) throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
+                dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.COMPUTER_USE, id, null,
+                () -> finalizada(tarefa.estado), () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(
+                        "Tarefa no PC " + tarefa.estado + ": " + tarefa.motivo));
         return avisoInicio(tarefa.nome);
     }
     public Retrato estado(String id, long usuario) {
@@ -211,6 +237,7 @@ public class TarefasComputerUse {
         DetectorDeTravamento detector = new DetectorDeTravamento();
         try {
             ProvedorComputerUse provedor = fabricaDeProvedor.get();
+            conferirLimites(t, fim);
             t.provedor = provedor.nome(); t.modelo = provedor.modelo(); t.estado = "executando";
             publicar(t);
             if (++t.acoes > Math.clamp(props.computerUse().maxAcoes(), 1, 75))
@@ -266,6 +293,9 @@ public class TarefasComputerUse {
                     t.comandoAtual = null;
                     if (!resultado.ok()) throw new IllegalStateException("PC recusou acao: " + resultado.mensagem());
                     if (!resultado.temImagem()) throw new IllegalStateException("PC respondeu sem captura");
+                    if (t.pai != null && diario != null) diario.registrar(
+                            dev.jarvis.diario.TipoDeAcao.PASSO_DE_TAREFA, "Computer use: " + chamada.nome(),
+                            dev.jarvis.diario.OrigemDaAcao.TAREFA, t.usuario, null);
                     if (detector.registrar(chamada.nome(), chamada.entrada(), resultado.imagem()))
                         t.travamento = detector.motivo();
                     conferirLimites(t, fim);
@@ -299,13 +329,13 @@ public class TarefasComputerUse {
                     t.ciclos, t.acoes, t.tokensEntrada, t.tokensSaida, t.travamento != null);
             publicar(t);
             String aviso = avisoFim(t.nome, t.estado, t.motivo);
-            try {
+            if (t.pai == null) try {
                 if ("telegram".equals(t.canal)) telegram.enviarMensagem(t.usuario, aviso);
                 else conversas.registrarResultadoTardio(t.usuario, t.id, aviso);
             } catch (Exception ignorada) { }
             // O dono acabou de ler o resultado; o modelo também precisa tê-lo na próxima pergunta.
             // Fora do try do envio: mesmo que o Telegram falhe, o "e aí, terminou?" acha a resposta.
-            tardios.registrar(t.usuario, "a tarefa no PC \"" + t.nome + "\"", aviso);
+            if (t.pai == null) tardios.registrar(t.usuario, "a tarefa no PC \"" + t.nome + "\"", aviso);
         }
     }
 
@@ -322,6 +352,8 @@ public class TarefasComputerUse {
                 + " caracteres]";
     }
     private void conferirLimites(Tarefa t, Instant fim) {
+        if (t.pai != null && freio != null && !freio.podeAgirSozinho("tarefa"))
+            throw new IllegalStateException("Trabalho autônomo pausado");
         if (t.cancelar.get()) throw new IllegalStateException("cancelada pelo usuario");
         if (t.travamento != null) throw new IllegalStateException(t.travamento);
         if (!Instant.now().isBefore(fim)) throw new IllegalStateException("limite de cinco minutos atingido");

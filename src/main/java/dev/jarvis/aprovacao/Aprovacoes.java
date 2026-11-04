@@ -149,6 +149,113 @@ public class Aprovacoes {
     /** Nunca nula: os construtores antigos ficam só com os padrões, que é o comportamento de antes. */
     private final PoliticaDeAutonomia politica;
     private Pendente pendente;
+    private final java.util.ArrayDeque<AutorizacaoDaTarefa> filaDeTarefas = new java.util.ArrayDeque<>();
+    private final java.util.Map<String, AutorizacaoDaTarefa> adiadas = new java.util.HashMap<>();
+
+    /** A decisão é consumida na conversa; a ação só pode ser executada pelo trabalhador. */
+    public final class AutorizacaoDaTarefa {
+        private enum Estado { NA_FILA, PERGUNTANDO, APROVADA, RECUSADA, EXPIRADA, CANCELADA, EXECUTADA }
+        private final String idTarefa, pedido, tipo, descricao, pergunta, canal;
+        private final long usuario;
+        private final Risco risco;
+        private final AcaoAutonoma acao;
+        private final String alvo;
+        private final Supplier<ResultadoAprovado> executar;
+        private final java.util.function.Consumer<String> avisar;
+        private volatile Estado estado = Estado.NA_FILA;
+        private volatile Confirmacao confirmacao;
+        private Pendente original;
+
+        private AutorizacaoDaTarefa(String idTarefa, long usuario, String tipo, String descricao,
+                String pergunta, Risco risco, String canal, AcaoAutonoma acao, String alvo,
+                Supplier<ResultadoAprovado> executar, java.util.function.Consumer<String> avisar) {
+            this.idTarefa = idTarefa; this.usuario = usuario; this.tipo = tipo;
+            this.descricao = descricao; this.pergunta = pergunta; this.risco = risco; this.canal = canal;
+            this.acao = acao; this.alvo = alvo; this.executar = executar; this.avisar = avisar;
+            pedido = "tarefa:" + idTarefa + ":" + java.util.UUID.randomUUID();
+        }
+        public Confirmacao confirmacao() { return confirmacao; }
+        public boolean resolvida() { return estado != Estado.NA_FILA && estado != Estado.PERGUNTANDO; }
+        public boolean aprovada() { return estado == Estado.APROVADA; }
+        public String executar() {
+            synchronized (Aprovacoes.this) {
+                if (estado != Estado.APROVADA) throw new dev.jarvis.tarefas.ControleDaTarefa(
+                        "Aprovação " + estado.name().toLowerCase() + ".");
+                estado = Estado.EXECUTADA;
+                adiadas.remove(pedido);
+            }
+            if (acao != null && politica.nivel(acao, alvo) == Nivel.PROIBIDO)
+                throw new dev.jarvis.tarefas.ControleDaTarefa("A configuração passou a proibir " + acao.oQue(alvo));
+            return rodar(original, canal, true, null);
+        }
+    }
+
+    public AutorizacaoDaTarefa adiarParaTarefa(String idTarefa, long usuario, String tipo,
+            String descricao, String pergunta, Risco risco, String canal,
+            AcaoAutonoma acao, String alvo, Supplier<ResultadoAprovado> executar,
+            java.util.function.Consumer<String> avisar) {
+        if (usuario <= 0 || idTarefa == null || idTarefa.isBlank())
+            throw new IllegalArgumentException("tarefa autenticada necessária");
+        var autorizacao = new AutorizacaoDaTarefa(idTarefa, usuario, tipo, descricao, pergunta,
+                risco, canal, acao, alvo, executar, avisar);
+        synchronized (this) {
+            filaDeTarefas.add(autorizacao); adiadas.put(autorizacao.pedido, autorizacao);
+        }
+        return autorizacao;
+    }
+
+    /** O prazo nasce junto da pergunta, nunca enquanto ela aguarda outra aprovação. */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 250)
+    public void processarFilaDeTarefas() {
+        AutorizacaoDaTarefa mostrar = null;
+        synchronized (this) {
+            Instant agora = relogio.instant();
+            for (var a : adiadas.values()) {
+                if (a.estado != AutorizacaoDaTarefa.Estado.PERGUNTANDO) continue;
+                if (!agora.isBefore(a.original.expira())) {
+                    a.estado = AutorizacaoDaTarefa.Estado.EXPIRADA;
+                    if (pendente != null && pendente.pedidoOrigem().equals(a.pedido)) pendente = null;
+                } else if (pendente == null || !pendente.pedidoOrigem().equals(a.pedido))
+                    a.estado = AutorizacaoDaTarefa.Estado.CANCELADA;
+            }
+            if (pendente != null && !agora.isBefore(pendente.expira())) pendente = null;
+            if (pendente != null) return;
+            while (!filaDeTarefas.isEmpty()) {
+                var a = filaDeTarefas.removeFirst();
+                if (a.estado != AutorizacaoDaTarefa.Estado.NA_FILA) continue;
+                String codigo = String.format("%06d", sorteio.nextInt(1_000_000));
+                Instant expira = agora.plus(a.risco.validade());
+                a.original = new Pendente(a.tipo, a.descricao, a.pergunta, a.risco, codigo,
+                        a.usuario, a.pedido, expira, a.executar, a.acao, a.alvo, null);
+                pendente = new Pendente(a.tipo, a.descricao, a.pergunta, a.risco, codigo,
+                        a.usuario, a.pedido, expira, () -> {
+                            synchronized (Aprovacoes.this) {
+                                if (a.estado != AutorizacaoDaTarefa.Estado.PERGUNTANDO)
+                                    return new ResultadoAprovado("A tarefa já foi cancelada.", null, false);
+                                a.estado = AutorizacaoDaTarefa.Estado.APROVADA;
+                            }
+                            return new ResultadoAprovado("Autorizado. A tarefa vai continuar.", null, false);
+                        }, null, null, () -> a.estado = AutorizacaoDaTarefa.Estado.RECUSADA);
+                a.confirmacao = new Confirmacao(codigo, a.descricao, expira.toString(), a.pergunta);
+                a.estado = AutorizacaoDaTarefa.Estado.PERGUNTANDO;
+                mostrar = a;
+                break;
+            }
+        }
+        if (mostrar != null) {
+            try { mostrar.avisar.accept(mostrar.pergunta); }
+            catch (RuntimeException e) { log.warn("Não consegui apresentar a pergunta da tarefa", e); }
+        }
+    }
+
+    public synchronized void cancelarDaTarefa(String idTarefa) {
+        for (var a : adiadas.values()) if (a.idTarefa.equals(idTarefa)) {
+            a.estado = AutorizacaoDaTarefa.Estado.CANCELADA;
+            if (pendente != null && pendente.pedidoOrigem().equals(a.pedido)) pendente = null;
+        }
+        filaDeTarefas.removeIf(a -> a.idTarefa.equals(idTarefa));
+        adiadas.values().removeIf(a -> a.idTarefa.equals(idTarefa));
+    }
 
     public Aprovacoes() { this(Clock.systemUTC(), null); }
     public Aprovacoes(Clock relogio) { this(relogio, null); }
@@ -200,6 +307,26 @@ public class Aprovacoes {
             throw new IllegalArgumentException("pedido autenticado necessario");
         PoliticaDeAutonomia.Decisao decisao = politica.decidir(acao, alvo);
         Nivel nivel = decisao.nivel();
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null && nivel != Nivel.PROIBIDO) {
+            var concessoes = politica.concessoes();
+            var recibo = concessoes == null ? java.util.Optional.<Concessao>empty()
+                    : concessoes.vigenteNaTarefa(acao, alvo, tarefa.id());
+            if (recibo.isPresent()) {
+                String texto = rodar(new Pendente(tipo, descricao, pergunta, risco, "", usuario,
+                        pedidoOrigem, relogio.instant(), executar), canal, true, null);
+                concessoes.marcarUso(recibo.get().id(), usuario, canal);
+                return new Encaminhamento(Nivel.FAZ_E_AVISA, texto, null);
+            }
+            if (nivel == Nivel.PERGUNTA) {
+                var autorizacao = adiarParaTarefa(tarefa.id(), usuario, tipo, descricao, pergunta,
+                        risco, canal, acao, alvo, executar, tarefa::avisar);
+                throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
+                        dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.APROVACAO, "", null,
+                        autorizacao::resolvida,
+                        () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(autorizacao.executar()));
+            }
+        }
         return switch (nivel) {
             case PROIBIDO -> new Encaminhamento(nivel, "Não posso " + acao.oQue(alvo)
                     + ": a minha configuração de autonomia proíbe. Nada foi feito.", null);
@@ -241,7 +368,8 @@ public class Aprovacoes {
         if (usuario <= 0 || pedidoOrigem == null || pedidoOrigem.isBlank())
             throw new IllegalArgumentException("pedido autenticado necessario");
         if (pendente != null && relogio.instant().isBefore(pendente.expira())
-                && (pendente.usuario() != usuario || pendente.pedidoOrigem().equals(pedidoOrigem)))
+                && (adiadas.containsKey(pendente.pedidoOrigem()) || pendente.usuario() != usuario
+                        || pendente.pedidoOrigem().equals(pedidoOrigem)))
             throw new IllegalStateException("ja existe uma aprovacao em aberto");
         String codigo = String.format("%06d", sorteio.nextInt(1_000_000));
         Instant expira = relogio.instant().plus(risco.validade());
@@ -382,7 +510,21 @@ public class Aprovacoes {
      * diário; lançar perderia a resposta de uma ação que já foi feita.
      */
     private String rodar(Pendente p, String canal, boolean perguntada, String pedidoAtual) {
-        ResultadoAprovado resultado = p.executar().get();
+        ResultadoAprovado resultado;
+        try { resultado = p.executar().get(); }
+        catch (dev.jarvis.tarefas.SuspensaoDaTarefa espera) {
+            // A ação já foi despachada: a continuação espera seu resultado, sem despachar outra.
+            throw new dev.jarvis.tarefas.SuspensaoDaTarefa(espera.tipo(), espera.alvo(), espera.ate(),
+                    espera::pronta, () -> {
+                        var retomado = new Pendente(p.tipo(), p.descricao(), p.pergunta(), p.risco(),
+                                p.codigo(), p.usuario(), p.pedidoOrigem(), p.expira(), () -> {
+                                    try { return new ResultadoAprovado(espera.continuar().texto(), null, true); }
+                                    catch (RuntimeException e) { throw e; }
+                                    catch (Exception e) { throw new IllegalStateException(e); }
+                                }, p.acao(), p.alvo(), p.aoRecusar());
+                        return dev.jarvis.ferramentas.ResultadoFerramenta.texto(rodar(retomado, canal, perguntada, pedidoAtual));
+                    });
+        }
         String resposta = resultado.texto();
         if (perguntada && p.acao() != null && resultado.executada()) {
             resposta += oferecer(p, canal, pedidoAtual);

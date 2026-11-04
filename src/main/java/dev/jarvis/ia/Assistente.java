@@ -363,6 +363,7 @@ public class Assistente {
         java.util.concurrent.atomic.AtomicReference<String> apagadoId = new java.util.concurrent.atomic.AtomicReference<>("");
         java.util.concurrent.atomic.AtomicLong apagadoRevisao = new java.util.concurrent.atomic.AtomicLong();
         OuvinteProgresso progresso = new OuvinteProgresso() {
+            @Override public long chatDeOrigem() { return chatId; }
             @Override public String idPedido() { return origem.idPedido(); }
             @Override public long usuarioAutenticado() { return origem.usuarioAutenticado(); }
             @Override public boolean memoriaEsquecida() { return apagou.get(); }
@@ -485,6 +486,7 @@ public class Assistente {
             } else {
                 if (holograma != null && holograma.ativo()) log.info("Holograma: caminho do modelo");
                 OuvinteProgresso comAnexo = new OuvinteProgresso() {
+                    @Override public long chatDeOrigem() { return chatId; }
                     @Override public String idPedido() { return progresso.idPedido(); }
                     @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
                     @Override public String ultimoAnexoDeArquivo() { return ultimoAnexo; }

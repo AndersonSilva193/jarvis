@@ -14,6 +14,13 @@ import dev.jarvis.ia.ErroDaApiDoModelo;
 /** Aceitação rápida na HUD; o trabalho ocorre numa virtual thread, sem chamar o Telegram. */
 @Service
 public class ConversaService {
+    private dev.jarvis.tarefas.TarefasDeFundo tarefasDeFundo;
+    private dev.jarvis.computer.TarefasComputerUse computer;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarTarefasDeFundo(dev.jarvis.tarefas.TarefasDeFundo tarefasDeFundo,
+            dev.jarvis.computer.TarefasComputerUse computer) {
+        this.tarefasDeFundo = tarefasDeFundo; this.computer = computer;
+    }
     private static final Logger log = LoggerFactory.getLogger(ConversaService.class);
     private final Assistente assistente;
     private final RegistroConversas registro;
@@ -33,6 +40,12 @@ public class ConversaService {
         if (freio != null) {
             var resposta = freio.tratar(texto, chatId, "hud");
             if (resposta.isPresent()) return registro.registrarControle(chatId, texto, resposta.get());
+        }
+        if (dev.jarvis.ia.PedidoDeParada.reconhece(texto)) {
+            boolean turno = assistente.interromperPedidoAtual(chatId);
+            boolean fundo = tarefasDeFundo != null && tarefasDeFundo.cancelarUltima(chatId);
+            boolean tela = computer != null && computer.cancelarUltima(chatId);
+            if (turno || fundo || tela) return registro.registrarControle(chatId, texto, "Parei, senhor.");
         }
         var pedido = registro.reservar(chatId, texto);
         try {

@@ -30,8 +30,10 @@ public enum Canal {
             prontos — não altere nenhum número, nome ou fato, e não acrescente nada que não recebeu."""),
 
     TAREFA("""
-            Esta é uma tarefa agendada: ninguém está lendo na hora. Comece pelo resultado, com uma
-            linha de status (concluído, em andamento ou falhou, com o motivo). Sem markdown.""");
+            Esta é uma tarefa agendada ou de fundo: ninguém está lendo na hora. Comece pelo resultado, com uma
+            linha de status (concluído, em andamento ou falhou, com o motivo). Sem markdown.
+            Em tarefa de fundo, use aguardar_tarefa para esperas, em vez de repetir consultas.
+            Aprovações necessárias são apresentadas pelo servidor no canal de origem.""");
 
     private final String regrasDeFormato;
 

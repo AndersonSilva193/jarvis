@@ -137,7 +137,9 @@ class DiarioEmArquivo {
                     Json.texto(no.path("instante")));
             return null;
         }
-        OrigemDaAcao origem = OrigemDaAcao.porChave(Json.texto(no.path("origem")));
+        String origemTexto = Json.texto(no.path("origem"));
+        String idTarefa = origemTexto.startsWith("tarefa:") ? origemTexto.substring(7) : "";
+        OrigemDaAcao origem = idTarefa.isEmpty() ? OrigemDaAcao.porChave(origemTexto) : OrigemDaAcao.TAREFA;
         // Campo ausente no JSON de uma versão anterior volta vazio, que é "nada a desfazer".
         return new AcaoRegistrada(quando, tipo, Json.texto(no.path("descricao")),
                 origem == null ? OrigemDaAcao.DESCONHECIDA : origem,
@@ -145,7 +147,7 @@ class DiarioEmArquivo {
                 no.has("id") ? Json.texto(no.path("id")) : "antigo-" + dia + "-" + indice,
                 Json.numero(no.path("usuario")), Desfazer.ler(no.path("desfazer")),
                 Json.texto(no.path("estadoDesfazer")), Json.texto(no.path("comandoDesfazer")),
-                no.path("perguntada").isBoolean() ? no.path("perguntada").asBoolean() : null);
+                no.path("perguntada").isBoolean() ? no.path("perguntada").asBoolean() : null, idTarefa);
     }
 
     /** Grava o dia inteiro. Lança {@link IOException} para quem chamou decidir o que logar. */
@@ -162,7 +164,7 @@ class DiarioEmArquivo {
             no.put("instante", acao.instante().toString());
             no.put("tipo", acao.tipo().chave());
             no.put("descricao", acao.descricao());
-            no.put("origem", acao.origem().chave());
+            no.put("origem", acao.origemCompleta());
             no.put("id", acao.id());
             if (acao.usuario() > 0) no.put("usuario", acao.usuario());
             if (acao.desfazer() != null) {

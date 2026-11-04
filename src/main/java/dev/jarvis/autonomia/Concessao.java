@@ -23,7 +23,7 @@ public record Concessao(String id, String chave, String alvo, Escopo escopo, Ins
     public enum Escopo {
         ATE("ate"),
         PERMANENTE("permanente"),
-        /** De uma tarefa do plano (passo 7.5). Guardada e listada, mas não vale em conversa. */
+        /** Recibo de um plano aprovado: cobre somente a tarefa identificada, nunca a conversa. */
         TAREFA("tarefa");
 
         private final String chave;

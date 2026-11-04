@@ -63,7 +63,7 @@ class ContextoDaAplicacaoTest {
 
     @Test
     void metadadosEDescricoesDasFerramentas() throws Exception {
-        assertEquals(51, ferramentasRegistradas.size());
+        assertEquals(53, ferramentasRegistradas.size());
         java.util.List<String> longas = new java.util.ArrayList<>();
         for (Ferramenta ferramenta : ferramentasRegistradas) {
             assertNotNull(ferramenta.grupo(), ferramenta.nome());
@@ -83,6 +83,10 @@ class ContextoDaAplicacaoTest {
         // O acessor devolve 7 mesmo sem binding; o campo cru só vem preenchido se o yml casou.
         assertEquals(Integer.valueOf(7), props.diario().concessaoTemporariaMaxDias());
         assertEquals("/data/jarvis/diario", props.diario().pasta());
+        assertNotNull(props.diario().tarefas());
+        assertEquals(Integer.valueOf(2), props.diario().tarefas().simultaneas());
+        assertEquals(Integer.valueOf(30), props.diario().tarefas().maxPassos());
+        assertEquals(Integer.valueOf(20), props.diario().tarefas().maxMinutos());
     }
 
     @Test

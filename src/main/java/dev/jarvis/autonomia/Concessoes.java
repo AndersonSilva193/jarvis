@@ -178,10 +178,34 @@ public class Concessoes {
     public synchronized Concessao conceder(AcaoAutonoma acao, String alvo, Concessao.Escopo escopo,
             Instant ate, String idTarefa, Concessao.Origem origem, String evidencia, long usuario,
             String canal) throws IOException {
+        return concederInterno(acao, alvo, escopo, ate, idTarefa, origem, evidencia, usuario, canal, false);
+    }
+
+    /** Recibo da aprovação agrupada; não é uma permissão geral para baixar os pisos. */
+    public synchronized Concessao concederPlano(AcaoAutonoma acao, String alvo, String idTarefa,
+            String evidencia, long usuario, String canal) throws IOException {
+        return concederInterno(acao, alvo, Concessao.Escopo.TAREFA, null, idTarefa,
+                Concessao.Origem.PLANO, evidencia, usuario, canal, true);
+    }
+
+    public synchronized Optional<Concessao> vigenteNaTarefa(AcaoAutonoma acao, String alvo, String idTarefa) {
+        return concessoes.stream().filter(c -> c.escopo() == Concessao.Escopo.TAREFA
+                && c.origem() == Concessao.Origem.PLANO && c.idTarefa().equals(idTarefa)
+                && c.cobre(acao, alvo)).findFirst();
+    }
+
+    public synchronized void encerrarTarefa(String idTarefa) {
+        if (concessoes.removeIf(c -> c.escopo() == Concessao.Escopo.TAREFA && idTarefa.equals(c.idTarefa())))
+            salvarSemLancar();
+    }
+
+    private Concessao concederInterno(AcaoAutonoma acao, String alvo, Concessao.Escopo escopo,
+            Instant ate, String idTarefa, Concessao.Origem origem, String evidencia, long usuario,
+            String canal, boolean planoAprovado) throws IOException {
         String alvoValido = alvo == null || alvo.isBlank() ? null : alvo.strip();
         if (alvoValido != null && (!acao.aceitaAlvo() || !AcaoAutonoma.alvoValido(alvoValido)))
             throw new IllegalArgumentException("alvo inválido para " + acao.chave());
-        if (acao.piso() != Nivel.FAZ_E_AVISA)
+        if (acao.piso() != Nivel.FAZ_E_AVISA && !planoAprovado)
             throw new IllegalArgumentException(acao.chave() + " sempre pergunta");
         Instant agora = relogio.instant();
         if (escopo == Concessao.Escopo.ATE && (ate == null || !ate.isAfter(agora)))
@@ -402,7 +426,9 @@ public class Concessoes {
                 String alvo = opcional(no, "alvo");
                 Concessao.Escopo escopo = Concessao.Escopo.porChave(Json.texto(no.path("escopo")));
                 Concessao.Origem origem = Concessao.Origem.porChave(Json.texto(no.path("origem")));
-                if (acao == null || escopo == null || origem == null || acao.piso() != Nivel.FAZ_E_AVISA
+                if (acao == null || escopo == null || origem == null
+                        || (acao.piso() != Nivel.FAZ_E_AVISA && !(escopo == Concessao.Escopo.TAREFA
+                                && origem == Concessao.Origem.PLANO))
                         || (alvo != null && (!acao.aceitaAlvo() || !AcaoAutonoma.alvoValido(alvo)))) {
                     descartadas++;
                     continue;

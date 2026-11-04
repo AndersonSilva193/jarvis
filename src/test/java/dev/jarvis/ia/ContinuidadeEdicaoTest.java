@@ -155,6 +155,16 @@ class ContinuidadeEdicaoTest {
                 """));
     }
 
+    /** Datas antigas explícitas: o relógio do Windows pode não avançar um nanossegundo entre I/Os. */
+    private void expirarTurnosEmDisco() throws Exception {
+        Path caminho = pasta.resolve("historico/chat-42.json");
+        var salvo = (ObjectNode) json.readTree(Files.readString(caminho));
+        for (var turno : salvo.path("turnos")) ((ObjectNode) turno).put("gravadoEm", "2000-01-01T00:00:00Z");
+        for (var troca : salvo.path("trocas"))
+            ((ObjectNode) troca.path("resposta")).put("concluidoEm", "2000-01-01T00:00:00Z");
+        Files.writeString(caminho, json.writeValueAsString(salvo));
+    }
+
     private JsonNode editar() {
         ObjectNode entrada = json.createObjectNode().put("destino", "original");
         entrada.putArray("operacoes").addObject().put("tipo", "preencher_celula_vazia")
@@ -197,6 +207,7 @@ class ContinuidadeEdicaoTest {
         }
         arquivo.aguardar();
         var carregador = store(Duration.ofNanos(1));
+        expirarTurnosEmDisco();
         assertTrue(carregador.carregarTudo().getFirst().turnos().isEmpty());
         var depois = assistente(carregador);
         depois.restaurarHistorico();
@@ -211,6 +222,7 @@ class ContinuidadeEdicaoTest {
         depois.responder(42, "R$ 6", Canal.TELEGRAM, autenticado(42));
         assertEquals(1, aplicacoes.get());
         carregador.aguardar();
+        expirarTurnosEmDisco();
         assertTrue(carregador.carregarTudo().isEmpty());
     }
 

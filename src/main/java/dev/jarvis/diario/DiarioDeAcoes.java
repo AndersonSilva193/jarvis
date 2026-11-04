@@ -145,9 +145,15 @@ public class DiarioDeAcoes {
     private String registrar(TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
             long usuario, Desfazer desfazer, String referencia, Boolean perguntada) {
         try {
+            var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
             AcaoRegistrada acao = new AcaoRegistrada(relogio.instant(), tipo, descricao, origem,
                     referencia, AcaoRegistrada.novoId(), usuario, desfazer, "disponivel", "",
-                    perguntada);
+                    perguntada, tarefa == null ? "" : tarefa.id());
+            if (tarefa != null) {
+                acao = new AcaoRegistrada(acao.instante(), tipo, descricao, OrigemDaAcao.TAREFA,
+                        referencia, acao.id(), tarefa.usuario(), desfazer, "disponivel", "", perguntada, tarefa.id());
+                tarefa.registrou();
+            }
             synchronized (trava) {
                 virarSePrecisar(hojeLocal());
                 if (!dia.somar(acao) && dia.descartadas() == 1) {

@@ -14,6 +14,7 @@ package dev.jarvis.diario;
  * ("3 edições de arquivo") — vai para voz, então nada de nome de constante.
  */
 public enum TipoDeAcao {
+    PASSO_DE_TAREFA("passo_de_tarefa", "passo de tarefa", "passos de tarefa", true),
 
     // ---- o que ele faz sozinho ("faz e avisa")
     EDICAO_ARQUIVO("edicao_arquivo", "edição de arquivo", "edições de arquivo", true),

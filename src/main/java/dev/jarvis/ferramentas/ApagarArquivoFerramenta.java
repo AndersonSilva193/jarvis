@@ -312,6 +312,8 @@ public class ApagarArquivoFerramenta implements Ferramenta {
      * arquivos apagados e sete esperando "Posso?" é um estado que ninguém pediu.
      */
     private synchronized boolean cabeNoOrcamento(String pedido, int quantos) {
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null) return tarefa.dados().apagados.get() + quantos <= MAX_SEM_PERGUNTA;
         if (!pedido.equals(ultimoPedido)) {
             ultimoPedido = pedido;
             apagadosNoPedido = 0;
@@ -327,6 +329,8 @@ public class ApagarArquivoFerramenta implements Ferramenta {
      * acabou.
      */
     private synchronized void contarApagado(String pedido) {
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null) { tarefa.dados().apagados.incrementAndGet(); return; }
         if (pedido.equals(ultimoPedido)) apagadosNoPedido++;
     }
 

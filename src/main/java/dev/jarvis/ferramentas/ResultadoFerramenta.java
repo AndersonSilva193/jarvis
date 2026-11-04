@@ -21,7 +21,17 @@ import dev.jarvis.tela.ComandoTela;
 public record ResultadoFerramenta(String texto, List<Artefato> artefatos,
         List<Referencia> referencias, Confirmacao confirmacao,
         List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta,
-        List<ComandoDoHolograma> holograma) {
+        List<ComandoDoHolograma> holograma, boolean encerrarTurno) {
+    public ResultadoFerramenta(String texto, List<Artefato> artefatos,
+            List<Referencia> referencias, Confirmacao confirmacao,
+            List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta,
+            List<ComandoDoHolograma> holograma) {
+        this(texto, artefatos, referencias, confirmacao, cards, comandos, escuta, holograma, false);
+    }
+    public static ResultadoFerramenta imediata(String texto, Confirmacao confirmacao) {
+        return new ResultadoFerramenta(texto, List.of(), List.of(), confirmacao,
+                List.of(), List.of(), null, List.of(), true);
+    }
     public ResultadoFerramenta(String texto, List<Artefato> artefatos,
             List<Referencia> referencias, Confirmacao confirmacao,
             List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta) {

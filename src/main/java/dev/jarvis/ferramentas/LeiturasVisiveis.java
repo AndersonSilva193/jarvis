@@ -20,7 +20,7 @@ public class LeiturasVisiveis {
     private static final Duration VALIDADE = Duration.ofMinutes(10);
     private static final int MAX_ARQUIVOS = 256;
 
-    private record Chave(long usuario, String id, String versao) { }
+    private record Chave(long usuario, String id, String versao, String execucao) { }
     private record Intervalo(int inicio, int fim) { }
     private static final class Leitura {
         int total;
@@ -52,7 +52,7 @@ public class LeiturasVisiveis {
 
         Instant agora = Instant.now();
         expurgar(agora);
-        Chave chave = new Chave(usuario, id, versao);
+        Chave chave = new Chave(usuario, id, versao, dev.jarvis.tarefas.ContextoDaTarefa.isolamento());
         Leitura leitura = porArquivo.get(chave);
         if (leitura == null || leitura.total != total) {
             leitura = new Leitura(total, agora);
@@ -76,7 +76,7 @@ public class LeiturasVisiveis {
 
     public synchronized boolean integral(long usuario, String id, String versao) {
         expurgar(Instant.now());
-        Leitura leitura = porArquivo.get(new Chave(usuario, id, versao));
+        Leitura leitura = porArquivo.get(new Chave(usuario, id, versao, dev.jarvis.tarefas.ContextoDaTarefa.isolamento()));
         return leitura != null && leitura.intervalos.size() == 1
                 && leitura.intervalos.getFirst().inicio() == 0
                 && leitura.intervalos.getFirst().fim() == leitura.total;

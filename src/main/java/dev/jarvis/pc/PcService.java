@@ -136,6 +136,12 @@ public class PcService {
         Pendente pendente = new Pendente(comando, relogio.instant().plus(
                 "criar_arquivo".equals(comando.acao()) ? Duration.ofMinutes(3) : VALIDADE),
                 new CompletableFuture<>());
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null) {
+            tarefa.registrarComando(comando.id(), comando.acao());
+            pendente.resposta().whenComplete((resultado, falha) -> tarefa.concluirComando(comando.id(),
+                    resultado == null ? "falhou" : (resultado.ok() ? "concluída: " : "falhou: ") + resultado.mensagem()));
+        }
         emAberto.put(comando.id(), pendente);
         fila.add(pendente);
         log.info("Comando {} ({}) na fila do PC", comando.id(), comando.acao());

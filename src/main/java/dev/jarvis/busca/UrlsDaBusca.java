@@ -26,6 +26,8 @@ public class UrlsDaBusca {
         if (idPedido == null || idPedido.isBlank()) {
             return;
         }
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null) { tarefa.dados().urls.addAll(novas); return; }
         if (!idPedido.equals(pedido)) {
             pedido = idPedido;
             urls.clear();
@@ -35,6 +37,9 @@ public class UrlsDaBusca {
 
     /** Se a URL apareceu numa busca deste pedido. Pedido sem identificador nunca casa. */
     public synchronized boolean apareceu(String idPedido, String url) {
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa != null) return idPedido != null && !idPedido.isBlank() && url != null
+                && tarefa.dados().urls.contains(url.strip());
         return idPedido != null && !idPedido.isBlank() && idPedido.equals(pedido)
                 && url != null && urls.contains(url.strip());
     }

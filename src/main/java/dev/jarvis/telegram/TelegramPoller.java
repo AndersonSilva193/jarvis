@@ -45,6 +45,9 @@ public class TelegramPoller implements SmartLifecycle {
     private final Assistente assistente;
     private final BriefingService briefing;
     private final TarefasComputerUse tarefas;
+    private dev.jarvis.tarefas.TarefasDeFundo tarefasDeFundo;
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurarTarefasDeFundo(dev.jarvis.tarefas.TarefasDeFundo tarefasDeFundo) { this.tarefasDeFundo = tarefasDeFundo; }
     private final long usuarioPermitido;
     private final BlockingQueue<Pendente> fila = new LinkedBlockingQueue<>();
     /** O aviso de espera é por rajada: avisar a cada mensagem seria o Jarvis falando sozinho. */
@@ -160,10 +163,11 @@ public class TelegramPoller implements SmartLifecycle {
     private boolean parar(long chatId, long usuario) {
         boolean turno = assistente.interromperPedidoAtual(usuario);
         boolean tela = tarefas.cancelarUltima(usuario);
-        if (tela && !turno) {
+        boolean fundo = tarefasDeFundo != null && tarefasDeFundo.cancelarUltima(usuario);
+        if ((tela || fundo) && !turno) {
             telegram.enviarMensagem(chatId, PAREI);
         }
-        return turno || tela;
+        return turno || tela || fundo;
     }
 
     private void trabalhar() {

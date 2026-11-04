@@ -484,7 +484,11 @@ public record JarvisProperties(
      * gravadas nesta mesma pasta ({@code concessoes.json}, ao lado do {@code freio.json}). Nulo ou
      * não positivo vale 7.
      */
-    public record Diario(String pasta, Integer concessaoTemporariaMaxDias) {
+    public record Diario(String pasta, Integer concessaoTemporariaMaxDias, Tarefas tarefas) {
+
+        public Diario(String pasta, Integer concessaoTemporariaMaxDias) {
+            this(pasta, concessaoTemporariaMaxDias, null);
+        }
 
         /**
          * Com dois construtores o Spring não escolhe sozinho e deixa o bloco inteiro nulo, sem erro
@@ -498,6 +502,18 @@ public record JarvisProperties(
             this(pasta, null);
         }
     }
+
+    public record Tarefas(Integer simultaneas, Integer maxPassos, Integer maxMinutos) { }
+    public int tarefasSimultaneas() {
+        return diario == null || diario.tarefas() == null ? 2 : positivo(diario.tarefas().simultaneas(), 2);
+    }
+    public int tarefaMaxPassos() {
+        return diario == null || diario.tarefas() == null ? 30 : positivo(diario.tarefas().maxPassos(), 30);
+    }
+    public int tarefaMaxMinutos() {
+        return diario == null || diario.tarefas() == null ? 20 : positivo(diario.tarefas().maxMinutos(), 20);
+    }
+    private static int positivo(Integer valor, int padrao) { return valor == null || valor <= 0 ? padrao : valor; }
 
     /**
      * Os avisos que o Jarvis manda sem ter sido chamado.

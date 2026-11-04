@@ -27,7 +27,15 @@ import java.time.Instant;
  */
 public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao,
         OrigemDaAcao origem, String referencia, String id, long usuario, Desfazer desfazer,
-        String estadoDesfazer, String comandoDesfazer, Boolean perguntada) {
+        String estadoDesfazer, String comandoDesfazer, Boolean perguntada, String idTarefa) {
+
+    public AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao,
+            OrigemDaAcao origem, String referencia, String id, long usuario, Desfazer desfazer,
+            String estadoDesfazer, String comandoDesfazer, Boolean perguntada) {
+        this(instante, tipo, descricao, origem, referencia, id, usuario, desfazer,
+                estadoDesfazer, comandoDesfazer, perguntada, "");
+    }
+    public String origemCompleta() { return idTarefa.isBlank() ? origem.chave() : "tarefa:" + idTarefa; }
 
     /** O corte da descrição. Um nome de arquivo com caminho longo caberia; um parágrafo, não. */
     public static final int MAX_DESCRICAO = 120;
@@ -45,6 +53,7 @@ public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao
         id = id == null || id.isBlank() ? novoId() : id;
         estadoDesfazer = estadoDesfazer == null || estadoDesfazer.isBlank() ? "disponivel" : estadoDesfazer;
         comandoDesfazer = comandoDesfazer == null ? "" : comandoDesfazer;
+        idTarefa = idTarefa == null ? "" : idTarefa;
     }
 
     public AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao, OrigemDaAcao origem,
@@ -56,7 +65,7 @@ public record AcaoRegistrada(Instant instante, TipoDeAcao tipo, String descricao
     public boolean reversivel() { return usuario > 0 && desfazer != null; }
     public AcaoRegistrada comEstado(String estado, String comando) {
         return new AcaoRegistrada(instante, tipo, descricao, origem, referencia, id, usuario,
-                desfazer, estado, comando, perguntada);
+                desfazer, estado, comando, perguntada, idTarefa);
     }
 
     /** Feita sem "Posso?". É o filtro da seção "o que fiz sozinho" e do "(aprovado)". */

@@ -2,6 +2,12 @@ package dev.jarvis.conversa;
 
 /** Nenhum ouvinte é obrigatório; falhas de observação não interrompem a execução. */
 public interface OuvinteProgresso {
+    default long chatDeOrigem() { return 0; }
+    default String idTarefaDeFundo() { return ""; }
+    /** Portões do executor, fora de qualquer lock de conversa. */
+    default void antesDoPasso() { }
+    default void antesDaFerramenta(String nome) { }
+    default void depoisDaFerramenta(String nome, String resultado, boolean erro) { }
     default String idPedido() { return null; }
     /** Identidade conferida na borda de entrada; zero significa sem autorização de memória. */
     default long usuarioAutenticado() { return 0; }

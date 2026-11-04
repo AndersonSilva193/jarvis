@@ -1514,6 +1514,49 @@ As duas configurações novas entram nos três lugares de sempre: `JarvisPropert
   token, chave e senha ficam só no `.env`. Ela fica fora da imagem e chega ao container por volume
   somente leitura (`./config:/app/config:ro`) — é isso que permite editá-la sem rebuild.
 
+## Tarefas de fundo
+
+`dev.jarvis.tarefas.TarefasDeFundo` atende pedidos longos fora do lock do `Assistente`, usando
+`CicloDeFerramentas.Execucao`. O ciclo não tem lock próprio: cada execução guarda em memória o
+system, as definições, as assinaturas repetidas e o cursor do lote de ferramentas. Uma suspensão
+preserva o cursor e a continuação; retomar não repete as ferramentas anteriores. O caminho antigo
+do Assistente continua com oito passos. O system permanece o mesmo objeto em toda a execução,
+inclusive depois de uma espera ou pausa.
+
+`iniciar_tarefa_de_fundo` encerra o turno com metadado do servidor, sem uma chamada extra ao modelo.
+Objetivo, plano, ações previstas, estado, resumo, resultado, instantes, passos, tempo ativo e custo
+ficam em `DIARIO_PASTA/tarefas.json`, com troca atômica e `.bak`; mensagens e Suppliers não vão ao
+disco. As configurações `TAREFAS_SIMULTANEAS` (2), `TAREFA_MAX_PASSOS` (30) e
+`TAREFA_MAX_MINUTOS` (20) vivem em `jarvis.diario.tarefas` e nos três lugares habituais. Esperas
+não contam como tempo ativo. Não há teto monetário individual: o teto diário autônomo pausa pelo
+Freio; passos ou tempo excedidos falham com motivo.
+Tarefas encerradas ficam consultáveis por até 30 dias, limitadas às 100 mais recentes; as ativas
+não são expurgadas. O histórico de modelo e os anexos em memória são liberados ao encerrar.
+
+O plano passa inteiro pela política antes de iniciar. Uma proibição recusa tudo. Quando precisa,
+há uma aprovação agrupada, com prazo CRITICO de dois minutos se houver energia do PC. O recibo
+`Concessoes.concederPlano`, escopo TAREFA, pode satisfazer a pergunta de uma ação com piso dentro
+daquela tarefa; isto não baixa o piso da política nem libera concessões temporárias/permanentes.
+Proibição e revogação posteriores continuam valendo. Recibos são invalidados antes de publicar o
+estado terminal. Ação imprevista pergunta normalmente. Aprovações de tarefa aguardam a vez em
+FIFO, sem substituir a pendência existente, e o prazo nasce quando a pergunta é apresentada.
+O “sim” na conversa apenas autoriza; a ação capturada roda no executor da tarefa, pelo `rodar`
+central do `Aprovacoes`.
+
+`aguardar_tarefa`, oferecida somente em TAREFA e executável somente com contexto interno, espera
+PC, operação real do PC, site da configuração ou horário ISO-8601. Não há polling do modelo.
+Computer use vinculado mantém seus limites próprios e entrega o resultado à tarefa, sem aviso
+final duplicado. O `ContextoDaTarefa` é instalado e removido pelo executor: isola URLs e orçamento
+da lixeira, identifica leituras, atribui custo a `tarefa` e diário a `tarefa:<id>`, inclusive nas
+threads de computer use. Nunca aceite esse contexto da entrada JSON do modelo.
+
+O Freio interrompe e pausa as execuções; retomar só reenfileira quando a autonomia está liberada.
+Na partida, RODANDO volta à fila com aviso de retomada e resumo, preservando orçamento. Comandos
+pendentes têm IDs persistidos e são reconciliados antes de novas ações; aprovação perdida é
+perguntada novamente. O resultado solicitado sai imediatamente no canal de origem, com fallback
+da HUD desconectada ao Telegram e anexos. Origem GATILHO usa `AvisosProativos`; o mecanismo de
+gatilhos não faz parte deste pacote.
+
 ## Como validar
 
 ```bash
@@ -1576,9 +1619,9 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
 - No Telegram só entende texto (nada de áudio ou foto). Na HUD, quem transcreve e sintetiza é o
   navegador — ou a ElevenLabs, quando `VOZ_PROVEDOR=elevenlabs`.
 - Atende **uma execução por vez**: `Assistente.responder` segura um `ReentrantLock` **justo**
-  (`new ReentrantLock(true)`) pelo turno inteiro, e conversas, tarefas e limpeza passam pelo mesmo
+  (`new ReentrantLock(true)`) pelo turno inteiro, e conversas, tarefas agendadas antigas e limpeza passam pelo mesmo
   lock. O retrato público do histórico usa um bloqueio curto separado, que nunca é mantido durante
-  I/O do modelo.
+  I/O do modelo. Tarefas de fundo e computer use têm executores próprios, fora desse lock.
 
   **Mas ler não espera mais atender.** No `TelegramPoller` são duas threads: a de leitura só faz
   `getUpdates`, confere o usuário e enfileira; quem fala com o `Assistente` é um trabalhador só

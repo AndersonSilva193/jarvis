@@ -14,7 +14,7 @@ public final class MontadorDeLinhaDoTempo {
         if (acoes.isEmpty() || acoes.size() > 500) throw new IllegalArgumentException("Dia do diário inválido");
         List<DadosDoCard.ItemDoCard> marcos = acoes.stream().map(a -> (DadosDoCard.ItemDoCard)
                 new DadosDoCard.ItemDoCard.Marco(a.instante().atZone(zona).format(DateTimeFormatter.ofPattern("HH:mm")),
-                        "[" + a.id() + "] " + a.descricao() + " · " + a.origem().chave()
+                        "[" + a.id() + "] " + a.descricao() + " · " + a.origemCompleta()
                                 + (a.reversivel() ? " · " + a.estadoDesfazer() : " · sem reversão registrada")))
                 .toList();
         String resumo = acoes.size() + " ações registradas."

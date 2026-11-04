@@ -40,7 +40,7 @@ public class Ferramentas {
      * de procurá-lo primeiro custaria uma ida a mais ao modelo justamente no caso que ele acelera.
      */
     private static final Set<String> EXTRAS_SEMPRE_CARREGADAS = Set.of(
-            "editar_arquivo", "tarefa_no_pc", "ler_procedimento");
+            "editar_arquivo", "tarefa_no_pc", "ler_procedimento", "iniciar_tarefa_de_fundo");
 
     /**
      * Por nome, em <b>ordem alfabética</b> — e é a ordem que importa, não só a busca.
@@ -140,6 +140,8 @@ public class Ferramentas {
         Map<String, String> digitais = new LinkedHashMap<>();
         for (Ferramenta f : porNome.values()) {
             if (!f.oferecida()) continue;
+            if (canal == Canal.TAREFA && "iniciar_tarefa_de_fundo".equals(f.nome())) continue;
+            if (canal != Canal.TAREFA && "aguardar_tarefa".equals(f.nome())) continue;
             if (canal == Canal.TELEGRAM && "ouvir_resposta".equals(f.nome())) continue;
             if (tarefaPlanilha && !List.of("listar_arquivos", "ler_arquivo", "editar_arquivo",
                     "verificar_site", "clima").contains(f.nome())) continue;
@@ -239,6 +241,8 @@ public class Ferramentas {
         try {
             dev.jarvis.conversa.OuvinteProgresso contexto = new dev.jarvis.conversa.OuvinteProgresso() {
                 @Override public String idPedido() { return progresso.idPedido(); }
+                @Override public long chatDeOrigem() { return progresso.chatDeOrigem(); }
+                @Override public String idTarefaDeFundo() { return progresso.idTarefaDeFundo(); }
                 @Override public long usuarioAutenticado() { return progresso.usuarioAutenticado(); }
                 @Override public String pedidoOriginal() { return progresso.pedidoOriginal(); }
                 @Override public String idTarefaPlanilha() { return progresso.idTarefaPlanilha(); }
@@ -264,23 +268,31 @@ public class Ferramentas {
                 }
             };
             ResultadoFerramenta detalhado = ferramenta.executarDetalhado(entrada, contexto);
-            // Ponto único: nenhuma ferramenta precisa lembrar de publicar, e o card chega à tela
-            // já agora, enquanto o modelo ainda está escrevendo a resposta deste turno.
-            publicarNaTela(detalhado);
-            receber.accept(detalhado);
-            String saida = detalhado.texto();
-            String textoParaModelo = LimiteDeResultado.paraModelo(
-                    saida == null || saida.isBlank() ? "(sem resultado)" : saida,
-                    resultadoMaxCaracteres, json);
-            if (leiturasVisiveis != null && "ler_arquivo".equals(nome))
-                leiturasVisiveis.registrar(progresso.usuarioAutenticado(), textoParaModelo, json);
-            return new Bloco.Resultado(chamada.id(), textoParaModelo, false);
+            return entregarResultado(chamada, progresso, detalhado, receber);
+        } catch (dev.jarvis.tarefas.ControleDaTarefa controle) {
+            throw controle;
         } catch (Exception e) {
             log.warn("Ferramenta {} falhou: {}", nome, e.getMessage());
             return new Bloco.Resultado(chamada.id(), LimiteDeResultado.paraModelo(
-                    "Erro ao executar " + nome + ": " + e.getMessage(), resultadoMaxCaracteres, json),
-                    true);
+                    "Erro ao executar " + nome + ": " + e.getMessage(), resultadoMaxCaracteres, json), true);
         }
+    }
+
+    /** Entrega também o resultado de uma continuação, sem repetir a ferramenta ou sua contagem. */
+    public Bloco.Resultado entregarResultado(Bloco.Chamada chamada,
+            dev.jarvis.conversa.OuvinteProgresso progresso, ResultadoFerramenta detalhado,
+            java.util.function.Consumer<ResultadoFerramenta> receber) {
+        // Ponto único: nenhuma ferramenta precisa lembrar de publicar, e o card chega à tela
+        // já agora, enquanto o modelo ainda está escrevendo a resposta deste turno.
+        publicarNaTela(detalhado);
+        receber.accept(detalhado);
+        String saida = detalhado.texto();
+        String textoParaModelo = LimiteDeResultado.paraModelo(
+                saida == null || saida.isBlank() ? "(sem resultado)" : saida,
+                resultadoMaxCaracteres, json);
+        if (leiturasVisiveis != null && "ler_arquivo".equals(chamada.nome()))
+            leiturasVisiveis.registrar(progresso.usuarioAutenticado(), textoParaModelo, json);
+        return new Bloco.Resultado(chamada.id(), textoParaModelo, false);
     }
 
     /** Uma HUD que caiu não pode derrubar o pedido, por isso cada aviso vai dentro do avisar(). */
