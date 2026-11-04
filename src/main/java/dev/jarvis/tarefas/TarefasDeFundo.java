@@ -110,10 +110,15 @@ public class TarefasDeFundo {
             TarefaDeFundo.Origem origem) {
         if (fechando || usuario <= 0 || chat <= 0 || (canal != Canal.HUD && canal != Canal.TELEGRAM))
             return ResultadoFerramenta.imediata("Pedido autenticado de conversa necessário.", null);
-        if (objetivo == null || objetivo.isBlank() || objetivo.length() > 4000 || plano == null
-                || plano.isEmpty() || plano.size() > 8 || plano.stream().anyMatch(p -> p == null || p.isBlank() || p.length() > 300)
-                || acoes == null || acoes.size() > 20)
-            return ResultadoFerramenta.imediata("Objetivo ou plano inválido; nada foi iniciado.", null);
+        String problema = objetivo == null || objetivo.isBlank() ? "objetivo vazio"
+                : objetivo.length() > 4000 ? "objetivo acima de 4000 caracteres"
+                : plano == null || plano.isEmpty() ? "plano vazio (mande uma lista de passos)"
+                : plano.size() > 8 ? "plano com mais de 8 passos"
+                : plano.stream().anyMatch(p -> p == null || p.isBlank()) ? "passo do plano vazio"
+                : plano.stream().anyMatch(p -> p.length() > 300) ? "passo do plano acima de 300 caracteres"
+                : acoes == null || acoes.size() > 20 ? "mais de 20 ações previstas" : null;
+        if (problema != null)
+            return ResultadoFerramenta.imediata("Nada foi iniciado: " + problema + ". Corrija e chame de novo.", null);
         for (var a : acoes) if (politica.nivel(a.acao(), a.alvo()) == Nivel.PROIBIDO)
             return ResultadoFerramenta.imediata("Não posso " + a.acao().oQue(a.alvo())
                     + ": a configuração proíbe. Não iniciei a tarefa.", null);

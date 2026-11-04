@@ -17,10 +17,11 @@ public final class TarefaDeFundo {
         public AcaoPrevista {
             var acao = AcaoAutonoma.porChave(chave);
             if (acao == null) throw new IllegalArgumentException("Ação desconhecida: " + chave);
-            alvo = alvo == null || alvo.isBlank() ? null : alvo.strip();
-            if ((alvo != null && (!acao.aceitaAlvo() || !alvo.matches("[a-z0-9][a-z0-9_.-]{0,31}")))
-                    || (acao.aceitaAlvo() && alvo == null))
-                throw new IllegalArgumentException("Alvo inválido para " + chave);
+            // Ação sem alvo vale inteira na política, então descartar um alvo enfeitado não amplia nada.
+            alvo = alvo == null || alvo.isBlank() || !acao.aceitaAlvo() ? null : alvo.strip();
+            if (acao.aceitaAlvo() && (alvo == null || !alvo.matches("[a-z0-9][a-z0-9_.-]{0,31}")))
+                throw new IllegalArgumentException("Alvo inválido para " + chave
+                        + ": informe o nome exato da rotina, em minúsculas e sem espaços.");
         }
         public AcaoAutonoma acao() { return AcaoAutonoma.porChave(chave); }
     }

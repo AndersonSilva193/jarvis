@@ -474,6 +474,29 @@ class TarefasDeFundoTest {
         assertFalse(ferramentas.definicoes(Canal.TAREFA).toString().contains("iniciar_tarefa_de_fundo"));
     }
 
+    @Test void ferramentaDeInicioAceitaPlanoEmStringEAlvoSobrandoEmAcaoSemAlvo() throws Exception {
+        @SuppressWarnings("unchecked") ObjectProvider<TarefasDeFundo> provider = mock(ObjectProvider.class);
+        var iniciar = new IniciarTarefaDeFundoFerramenta(provider, json);
+        montar(); when(provider.getObject()).thenReturn(tarefas);
+        var contexto = new OuvinteProgresso() {
+            @Override public long usuarioAutenticado() { return 42; }
+            @Override public String idPedido() { return "pedido-clima"; }
+            @Override public String canal() { return "telegram"; }
+            @Override public long chatDeOrigem() { return 42; }
+        };
+        var entrada = json.createObjectNode().put("objetivo", "relatório do clima daqui a dez minutos")
+                .put("plano", "[\"Aguardar dez minutos\", \"Consultar o clima\"]")
+                .put("acoes_previstas", "[{\"chave\":\"planilha.agendar\",\"alvo\":\"clima\"}]");
+        var resultado = iniciar.executarDetalhado(entrada, contexto);
+        assertFalse(resultado.texto().contains("Nada foi iniciado"), resultado.texto());
+        var salva = tarefas.listar(42).getFirst();
+        assertEquals(List.of("Aguardar dez minutos", "Consultar o clima"), salva.plano());
+        assertNull(salva.acoesPrevistas().getFirst().alvo());
+
+        var semPlano = json.createObjectNode().put("objetivo", "x"); semPlano.putArray("plano"); semPlano.putArray("acoes_previstas");
+        assertTrue(iniciar.executarDetalhado(semPlano, contexto).texto().contains("plano vazio"));
+    }
+
     @Test void operacaoIncertaAposReinicioNaoEsperaUmResultadoQueNuncaVira() throws Exception {
         String id = java.util.UUID.randomUUID().toString();
         when(operacoes.chatId(id)).thenReturn(42L);

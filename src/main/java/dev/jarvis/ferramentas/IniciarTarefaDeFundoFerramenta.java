@@ -26,7 +26,8 @@ public class IniciarTarefaDeFundoFerramenta implements Ferramenta {
     @Override public String descricao() {
         return "Inicia em segundo plano pedidos com muitos passos, que levam minutos ou precisam esperar PC, site ou horário. "
                 + "A conversa fica livre e o servidor avisa ao terminar. Passe objetivo completo, plano curto e ações sensíveis "
-                + "previstas (chave do catálogo e alvo exato da rotina); lista vazia se não houver. O servidor monta uma única "
+                + "previstas (chave do catálogo; alvo só em rotina.rodar, com o nome exato da rotina); lista vazia se não houver. "
+                + "Esperar um horário não é ação prevista: use aguardar_tarefa dentro da tarefa. O servidor monta uma única "
                 + "aprovação se necessário. Delegue antes de executar os passos; não use para pedidos simples.";
     }
     @Override public ObjectNode esquemaEntrada() {
@@ -48,13 +49,27 @@ public class IniciarTarefaDeFundoFerramenta implements Ferramenta {
                 || !(contexto.canal().equals("telegram") || contexto.canal().equals("hud")))
             return ResultadoFerramenta.imediata("Início exige pedido autenticado de conversa.", null);
         try {
-            var plano = new ArrayList<String>(); entrada.path("plano").forEach(p -> plano.add(p.asText()));
+            var plano = new ArrayList<String>();
+            JsonNode passos = lista(entrada.path("plano"));
+            if (passos.isString()) plano.add(passos.stringValue());
+            else passos.forEach(p -> plano.add(p.asText()));
             var acoes = new ArrayList<TarefaDeFundo.AcaoPrevista>();
-            entrada.path("acoes_previstas").forEach(a -> acoes.add(new TarefaDeFundo.AcaoPrevista(
+            lista(entrada.path("acoes_previstas")).forEach(a -> acoes.add(new TarefaDeFundo.AcaoPrevista(
                     Json.texto(a.path("chave")), Json.texto(a.path("alvo")))));
             return tarefas.getObject().iniciar(Json.texto(entrada.path("objetivo")), plano, acoes,
                     contexto.usuarioAutenticado(), Canal.valueOf(contexto.canal().toUpperCase(java.util.Locale.ROOT)),
                     contexto.chatDeOrigem(), TarefaDeFundo.Origem.PEDIDO);
-        } catch (IllegalArgumentException e) { return ResultadoFerramenta.imediata(e.getMessage(), null); }
+        } catch (IllegalArgumentException e) {
+            return ResultadoFerramenta.imediata("Nada foi iniciado: " + e.getMessage() + " Corrija e chame de novo.", null);
+        }
+    }
+
+    /** O modelo às vezes manda o array como string JSON; sem isto o plano chegava vazio. */
+    private JsonNode lista(JsonNode no) {
+        if (!no.isString()) return no;
+        String texto = no.stringValue().strip();
+        if (!texto.startsWith("[")) return no;
+        try { return json.readTree(texto); }
+        catch (RuntimeException e) { return no; }
     }
 }
