@@ -16,6 +16,8 @@ public enum OrigemDaAcao {
     HUD("hud"),
     ANOTADOR("anotador"),
     TAREFA("tarefa"),
+    /** Uma regra de gatilho disparou: como o anotador, não é canal de conversa. */
+    GATILHO("gatilho"),
     DESCONHECIDA("desconhecida");
 
     private final String chave;
@@ -50,6 +52,6 @@ public enum OrigemDaAcao {
         OrigemDaAcao achada = porChave(canal);
         // "briefing" é canal, mas nada no briefing escreve em disco; se um dia escrever, é melhor
         // aparecer como não registrada do que ser contada como pedido do dono.
-        return achada == null || achada == ANOTADOR ? DESCONHECIDA : achada;
+        return achada == null || achada == ANOTADOR || achada == GATILHO ? DESCONHECIDA : achada;
     }
 }

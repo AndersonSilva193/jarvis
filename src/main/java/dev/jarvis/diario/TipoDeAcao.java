@@ -32,6 +32,9 @@ public enum TipoDeAcao {
     // por aqui. Esquecer um procedimento não entra: é o dono pedindo, e o arquivo não some.
     APRENDER_PROCEDIMENTO("aprender_procedimento", "procedimento aprendido",
             "procedimentos aprendidos", true),
+    // Uma regra que o dono ditou disparou e virou tarefa de fundo. Autônoma: a regra foi dele, mas
+    // o instante em que ela pegou o evento ele não viu.
+    GATILHO_DISPARADO("gatilho_disparado", "gatilho disparado", "gatilhos disparados", true),
 
     // ---- o que ele só faz depois de um "sim" ("pergunta antes")
     ROTINA("rotina", "rotina executada", "rotinas executadas", false),

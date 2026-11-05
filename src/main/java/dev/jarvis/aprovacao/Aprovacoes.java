@@ -217,6 +217,22 @@ public class Aprovacoes {
         return autorizacao;
     }
 
+    private volatile java.util.function.Predicate<String> segurar = id -> false;
+
+    /**
+     * Quais tarefas não podem perguntar agora — a de gatilho no horário de silêncio. A pergunta não
+     * é descartada: espera na fila, e o prazo só nasce quando ela for apresentada (o desenho do
+     * {@code Supplier} do {@code AvisosProativos}, pelo mesmo motivo).
+     */
+    public void segurarPerguntas(java.util.function.Predicate<String> idTarefa) {
+        segurar = idTarefa == null ? id -> false : idTarefa;
+    }
+
+    private boolean segurada(String idTarefa) {
+        try { return segurar.test(idTarefa); }
+        catch (RuntimeException e) { log.warn("Não consegui conferir o silêncio da tarefa {}: {}", idTarefa, e.getMessage()); return false; }
+    }
+
     /** O prazo nasce junto da pergunta, nunca enquanto ela aguarda outra aprovação. */
     @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 250)
     public void processarFilaDeTarefas() {
@@ -233,9 +249,13 @@ public class Aprovacoes {
             }
             if (pendente != null && !agora.isBefore(pendente.expira())) pendente = null;
             if (pendente != null) return;
-            while (!filaDeTarefas.isEmpty()) {
-                var a = filaDeTarefas.removeFirst();
-                if (a.estado != AutorizacaoDaTarefa.Estado.NA_FILA) continue;
+            var fila = filaDeTarefas.iterator();
+            while (fila.hasNext()) {
+                var a = fila.next();
+                if (a.estado != AutorizacaoDaTarefa.Estado.NA_FILA) { fila.remove(); continue; }
+                // Segurada: continua na fila, no mesmo lugar, e o prazo ainda não nasceu.
+                if (segurada(a.idTarefa)) continue;
+                fila.remove();
                 String codigo = String.format("%06d", sorteio.nextInt(1_000_000));
                 Instant expira = agora.plus(a.risco.validade());
                 a.original = new Pendente(a.tipo, a.descricao, a.pergunta, a.risco, codigo,

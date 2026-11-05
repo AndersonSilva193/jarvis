@@ -16,6 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import dev.jarvis.aprovacao.Aprovacoes;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.gatilhos.EventoDeGatilho;
+import dev.jarvis.gatilhos.FonteDeGatilho;
 import dev.jarvis.pc.OperacoesPcService;
 import dev.jarvis.pc.RelogioFalso;
 import tools.jackson.databind.json.JsonMapper;
@@ -157,77 +159,41 @@ class MonitorDeSitesTest {
         assertTrue(entregue.contains("Ficou fora por 25 minutos"), entregue);
     }
 
-    // ---------------------------------------------------------------- a pergunta
+    // ---------------------------------------------------------------- eventos de gatilho
 
     @Test
-    @DisplayName("com rotina associada e fora do silêncio, o aviso termina na pergunta")
-    void comRotinaAPerguntaEntra() {
+    @DisplayName("com SITES_ACOES, o aviso sai sem pergunta: quem oferece a rotina agora é a regra")
+    void comRotinaOAvisoSaiSemPergunta() {
         var c = new Cenario("2026-10-26T17:05:00Z", "23:00-07:00", "loja=reiniciar_api");
         c.comRotinaNoPc("reiniciar_api");
         c.sites.roteiro(false, false);
         c.monitor.checar();
         c.monitor.checar();
-        assertEquals("O site da loja está fora do ar desde 14h05 (HTTP 502). "
-                + "Posso rodar a rotina reiniciar_api para tentar resolver?", c.telegram.ultima());
-        assertTrue(c.aprovacoes.pendenciaDe(DONO, "mensagem-nova").isPresent(),
-                "a pendência tem de estar em aberto para o próximo 'pode' do dono");
+        assertEquals("O site da loja está fora do ar desde 14h05 (HTTP 502).", c.telegram.ultima());
+        assertFalse(c.aprovacoes.pendenciaDe(DONO, "mensagem-nova").isPresent());
     }
 
     @Test
-    @DisplayName("sem rotina associada, só o aviso — e nenhuma pendência")
-    void semRotinaNaoPergunta() {
+    @DisplayName("a queda e a volta saem como evento de gatilho, com o nome do site")
+    void quedaEVoltaPublicamEvento() {
         var c = new Cenario("2026-10-26T17:05:00Z", "23:00-07:00", "");
-        c.comRotinaNoPc("reiniciar_api");
-        c.sites.roteiro(false, false);
+        List<Object> publicados = new ArrayList<>();
+        c.monitor.configurarEventos(publicados::add);
+        c.sites.roteiro(false, false, false, true);
+        c.monitor.checar();
+        assertTrue(publicados.isEmpty(), "uma falha só não é queda");
         c.monitor.checar();
         c.monitor.checar();
-        assertEquals("O site da loja está fora do ar desde 14h05 (HTTP 502).", c.telegram.ultima());
-        assertFalse(c.aprovacoes.pendenciaDe(DONO, "mensagem-nova").isPresent());
-    }
-
-    @Test
-    @DisplayName("durante o silêncio não nasce pendência: ela expiraria antes de ser lida")
-    void noSilencioNaoNascePendencia() {
-        var c = new Cenario("2026-10-27T05:00:00Z", "23:00-07:00", "loja=reiniciar_api");
-        c.comRotinaNoPc("reiniciar_api");
-        c.sites.roteiro(false, false);
+        c.relogio.avancar(Duration.ofMinutes(10));
         c.monitor.checar();
-        c.monitor.checar();
-        assertFalse(c.aprovacoes.pendenciaDe(DONO, "mensagem-nova").isPresent(),
-                "dez minutos de validade não sobrevivem a cinco horas de silêncio");
-
-        c.relogio.avancar(Duration.ofHours(6));
-        c.avisos.entregarAcumulados();
-        assertEquals("O site da loja está fora do ar desde 02h00 (HTTP 502).",
-                c.telegram.ultima().replace(AvisosProativos.CABECALHO_DO_ACUMULO + "\n- ", ""));
-    }
-
-    @Test
-    @DisplayName("aprovação já em aberto não é atropelada: o aviso sai sem a pergunta")
-    void pendenciaEmAbertoNaoEhAtropelada() {
-        var c = new Cenario("2026-10-26T17:05:00Z", "23:00-07:00", "loja=reiniciar_api");
-        c.comRotinaNoPc("reiniciar_api");
-        c.aprovacoes.pedir("pc", "Apagar relatorio.md", "Vou apagar relatorio.md. Posso?",
-                Aprovacoes.Risco.COMUM, DONO, "pedido-do-dono", () -> "apaguei");
-        c.sites.roteiro(false, false);
-        c.monitor.checar();
-        c.monitor.checar();
-        assertEquals("O site da loja está fora do ar desde 14h05 (HTTP 502).", c.telegram.ultima());
-        assertEquals("Vou apagar relatorio.md. Posso?",
-                c.aprovacoes.pendenciaDe(DONO, "mensagem-nova").orElseThrow(),
-                "a pergunta que o dono está lendo tem de continuar sendo a dele");
-    }
-
-    @Test
-    @DisplayName("rotina fora do catálogo do PC não vira pergunta")
-    void rotinaDesconhecidaNaoPergunta() {
-        var c = new Cenario("2026-10-26T17:05:00Z", "23:00-07:00", "loja=reiniciar_api");
-        c.comRotinaNoPc("outra_coisa");
-        c.sites.roteiro(false, false);
-        c.monitor.checar();
-        c.monitor.checar();
-        assertEquals("O site da loja está fora do ar desde 14h05 (HTTP 502).", c.telegram.ultima());
-        assertFalse(c.aprovacoes.pendenciaDe(DONO, "mensagem-nova").isPresent());
+        assertEquals(2, publicados.size(), "uma queda e uma volta: " + publicados);
+        var caiu = (EventoDeGatilho) publicados.get(0);
+        assertEquals(FonteDeGatilho.SITE_CAIU, caiu.fonte());
+        assertEquals("loja", caiu.dado("site"));
+        assertEquals("HTTP 502", caiu.dado("motivo"));
+        var voltou = (EventoDeGatilho) publicados.get(1);
+        assertEquals(FonteDeGatilho.SITE_VOLTOU, voltou.fonte());
+        assertEquals("loja", voltou.dado("site"));
     }
 
     // ---------------------------------------------------------------- destino e histórico

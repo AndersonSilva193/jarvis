@@ -65,6 +65,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.agente` | `Freio` (pausa persistente e teto autônomo), `ComandoDoFreio` e `ControleDoFreio` (atalhos nas duas entradas, antes do modelo e do lock) |
 | `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
 | `dev.jarvis.proativo` | O Jarvis falando primeiro: `AvisosProativos` (o único caminho do aviso não pedido), `MonitorDeSites`, `FalasService` (o catálogo das frases, com marcadores), `JanelaDeSilencio` e `HistoricoDeDisponibilidade`/`DisponibilidadeEmArquivo`/`DiaDeDisponibilidade` (o JSON por dia no volume `proativo`) |
+| `dev.jarvis.gatilhos` | As regras "quando X, faça Y": `FonteDeGatilho` (o catálogo fechado), `EventoDeGatilho`, `Filtro`, `RegraDeGatilho`, `Gatilhos`/`GatilhosEmArquivo` (o `gatilhos.json` e a migração do `SITES_ACOES`), `MotorDeGatilhos` (evento → tarefa de fundo), `RelogioDosGatilhos` (o horário), `VigiaDaEntrada` (a pasta `entrada` do PC) e `DadoDoEvento` (o evento como DADO) |
 | `dev.jarvis.voz` | A voz da HUD: `ProvedorVoz`/`ElevenLabsVoz`, `CacheDeVoz` (MP3 em disco), `MonitorDeCotaVoz` (reserva, aviso antecipado e volta ao navegador), `DiarioDeVoz` (o uso por dia, de onde sai a projeção), `TextoParaVoz` e `VozService` |
 | `dev.jarvis.tela` | A tela dirigida pelo Jarvis: `CardTela`/`DadosDoCard`/`ComandoTela`, `TelaEvento`, `EstadoDaTela`/`TelaEstadoService` (o retrato da HUD), `MontadorDeCardDePesquisa`, `YoutubeService`, `PaginaService`, `GuardaSsrf`, `FalaDaTela`/`FalaDaTelaService` (o catálogo fechado de frases) e a porta `PresencaDaHud` |
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `CatalogoDoPc` (os apps e as rotinas que o PC anunciou, em disco), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
@@ -667,32 +668,13 @@ contrário, é anunciada na **primeira** checagem boa: a assimetria é de propó
 demorar a dizer "voltou" é o dono preocupado à toa. O `desde` que a frase afirma é o instante da
 **primeira** falha da sequência, não o da segunda — é a hora em que o site caiu.
 
-### A pergunta nasce com a mensagem, não antes
+### A rotina do site virou regra
 
-Com uma rotina associada em `SITES_ACOES` (`nome_do_site=nome_da_rotina`), o aviso termina num
-"Posso rodar a rotina X para tentar resolver?" criado no `Aprovacoes` com risco `COMUM`. Três
-detalhes que o desenho resolve e que são fáceis de errar:
-
-- **A pergunta entra como `Supplier`, não como texto**, e só é avaliada quando a mensagem realmente
-  sai. É isso que cumpre "durante o silêncio, não crie pendência": uma pendência `COMUM` vale dez
-  minutos, e criada às 2h expiraria horas antes de o dono ler a pergunta — ele responderia "pode" a
-  um "Posso?" que já não existe. Mesmo idioma do `Supplier` do `Aprovacoes`, pelo mesmo motivo: a
-  ação nasce no instante em que faz sentido.
-- **O monitor confere `pendenciaDe` antes de `pedir`.** O `Aprovacoes.pedir` *sobrescreve calado*
-  uma pendência do mesmo usuário com outro `pedidoOrigem` (a exceção é só para outro usuário ou
-  para o mesmo pedido). Sem essa checagem, um site caindo no instante errado trocaria o "Posso?"
-  que o dono está lendo por outro, e o "pode" dele executaria algo que ele não leu. Havendo
-  pendência em aberto, o aviso sai **sem** a pergunta.
-- **O `pedidoOrigem` é sintético** (`proativo:site_fora:<site>:<instante>`), porque `pedir` exige
-  usuário autenticado e pedido de origem, e a confirmação só vale em **mensagem nova**. Um id que
-  nunca colide com o de uma mensagem real é o que faz a próxima mensagem do dono poder confirmar.
-
-O `tipo` da pendência é o **`"rotina"`** que já existe, e não um novo: é literalmente uma rotina, a
-frase fixa já é `confirmo rotina <código>` e o `Aprovacoes.tipoNoDiario` já a anota como
-`TipoDeAcao.ROTINA` — a execução aprovada entra no diário sem tocar em `Aprovacoes`. O
-enfileiramento em si mora no `OperacoesPcService.iniciarRotina`, que a `RodarRotinaFerramenta`
-passou a chamar: são os mesmos trinta segundos de espera e o mesmo `pedirAviso` no timeout, e duas
-cópias disso divergiriam na primeira correção feita num lado só.
+O aviso de queda terminava num "Posso rodar a rotina X?" quando havia par em `SITES_ACOES`. Isso
+saiu do monitor: o aviso é só aviso, e a queda e a volta saem também como `EventoDeGatilho`. Na
+partida, cada par do `SITES_ACOES` vira **uma** regra de gatilho equivalente (ver "Gatilhos"); é a
+tarefa da regra que pergunta, pelo `Aprovacoes.encaminhar`, como qualquer ação de tarefa. O
+`Supplier` de pergunta do `AvisosProativos.avisar` continua existindo para quem precisar dele.
 
 ### O resultado estruturado do `SitesService`
 
@@ -1170,7 +1152,10 @@ elas o YAML leria os dois-pontos do default como um mapa.
 ### Os avisos proativos
 
 `PROATIVO_SILENCIO` (a faixa em que nada sai), `PROATIVO_PASTA` (volume `proativo`),
-`SITES_INTERVALO_MINUTOS` e `SITES_ACOES` são as quatro do bloco `jarvis.proativo`. Os 30 dias de
+`SITES_INTERVALO_MINUTOS` e `SITES_ACOES` (obsoleto: migrado para gatilhos na partida) são as quatro
+do bloco `jarvis.proativo`, mais o sub-bloco `gatilhos` (`GATILHO_MAX_POR_HORA`, padrão 3, e
+`GATILHO_ENTRADA_MINUTOS`, padrão 10), que entrou como quinto componente do `Proativo` com o
+construtor de compatibilidade de quatro argumentos. Os 30 dias de
 retenção do histórico e as **duas** falhas seguidas antes de dar um site como fora são
 **constantes** (`HistoricoDeDisponibilidade.DIAS_GUARDADOS` e `MonitorDeSites.FALHAS_PARA_AVISAR`),
 pela regra de sempre: não vale um componente num record construído por posição para um número que
@@ -1598,6 +1583,62 @@ a suspensão libera o trabalhador e quem acorda é o `varrer`, pelo `Clock`. O p
 a HUD de hoje descarta id que não é o do pedido pendente, então aparecer lá depende de ajuste no
 jarvis-hud. No Telegram não sai nada por passo: só o aviso final, as perguntas e o "PC voltou".
 
+## Gatilhos
+
+O dono dita a regra na conversa ("quando a barbearia cair, pergunta se pode rodar a rotina
+reinicia", "toda segunda às 8h, me manda o resumo") e o Jarvis reage sozinho ao evento. Cada
+disparo vira uma **tarefa de fundo** de origem `GATILHO`, e as ações dela passam pela
+`PoliticaDeAutonomia` na hora, como as de qualquer tarefa.
+
+```
+MonitorDeSites ─┐ SITE_CAIU / SITE_VOLTOU
+PcService ──────┤ PcVoltou (com ausência) → PC_LIGOU · PcDesligou → PC_DESLIGOU
+MonitorDeCotaVoz┤ COTA_VOZ (tipo antecipado | reserva)
+TarefasDeFundo ─┤ TAREFA_FALHOU (só de tarefa PEDIDO)
+VigiaDaEntrada ─┤ ARQUIVO_NOVO_NA_ENTRADA
+RelogioDosGatilhos HORARIO
+                └─► EventoDeGatilho ─► MotorDeGatilhos ─► TarefasDeFundo.iniciarPorGatilho
+```
+
+- **As fontes são um catálogo fechado** (`FonteDeGatilho`), e cada uma é publicada pelo serviço que
+  já sabe do fato, por `ApplicationEventPublisher` num setter `@Autowired` (nulo nos testes que montam
+  o serviço à mão, e aí nada é publicado). Fonte nova toca **três** lugares: a constante (com os
+  campos de filtro que ela entende), a publicação, e o `Filtro.casa`/`descreverEvento`.
+- **`criar_gatilho` tem as travas do `conceder_permissao`**: canal `telegram`/`hud`, usuário
+  autenticado, `idPedido`, e `evidencia` literal da mensagem do dono (`Texto.normalizar`). Tarefa de
+  fundo, inclusive a de gatilho, não cria nem mexe em gatilho. Não há pergunta extra: a regra em si
+  não faz nada, e cada ação dela continua passando pela política. A frase de volta é montada em
+  Java ("Combinado: quando <evento>, eu <instrução>. Para desligar, diga 'apaga esse gatilho'.").
+  `listar_gatilhos`, `pausar_gatilho` (com `reativar`) e `apagar_gatilho` não pedem aprovação;
+  "esse gatilho" é o único, ou o criado há menos de dez minutos.
+- **O evento é DADO, nunca instrução.** A instrução da tarefa é a regra do dono; os dados do evento
+  (motivo do erro de um site, nome de um arquivo que alguém pôs na pasta) entram entre
+  `<<<DADO_DO_EVENTO` e `>>>FIM_DADO_DO_EVENTO`, com os sinais `<<<`/`>>>` tirados de cada valor
+  (`DadoDoEvento`), e o texto da tarefa avisa que nada ali dentro manda.
+- **Três travas no disparo**: `Freio.podeAgirSozinho("gatilho")` (pausa ou teto autônomo: não
+  dispara e não entra no diário); `GATILHO_MAX_POR_HORA` disparos por regra, contados em memória; e
+  a cascata — tarefa nascida de gatilho não publica `TAREFA_FALHOU`. O disparo entra no diário como
+  `GATILHO_DISPARADO` (`OrigemDaAcao.GATILHO`, autônomo), com regra, evento e tarefa.
+- **No silêncio a tarefa roda, mas fala pelo `AvisosProativos`**: todo `notificar` de tarefa de
+  gatilho vira `avisar("tarefa:<id>", ...)`, que acumula. Pergunta não nasce no silêncio: o
+  `Aprovacoes.segurarPerguntas` deixa a autorização na fila sem apresentar (o prazo só nasce quando
+  ela sai) e a tarefa fica `PAUSADA` sem `pausa` do dono, voltando sozinha a "esperando você".
+- **O custo vai ao balde `gatilho`**: o `ContextoDaTarefa.deGatilho()` faz o `MedidorDeCusto`
+  registrar `Origem.GATILHO`, que o teto autônomo já somava.
+- **PC_LIGOU é só a volta depois de uma ausência**: o primeiro contato da partida (`ausencia` nula) é
+  a VPS que reiniciou. O `PcService.vigiarAusencia` (tique de 15 s) publica `PcDesligou` uma vez por
+  ausência de mais de 90 s; o contato seguinte rearma.
+- **HORARIO**: `quando` + a `Repeticao` dos lembretes; o `RelogioDosGatilhos` avança a regra
+  **antes** de disparar, desliga a única depois do disparo, e atraso maior que 15 min pula para a
+  próxima ocorrência — automação atrasada horas pode fazer o errado.
+- **A pasta `entrada`** é uma subpasta fixa da `pastaArquivos` do PC: o agente (`CatalogoDeArquivos`)
+  aceita `"pasta": "entrada"` no `listar_arquivos` e devolve o mesmo campo de eco, que a
+  `VigiaDaEntrada` confere — agente antigo, que lista a raiz, não pode virar "arquivo novo na
+  entrada". A primeira conferência é a linha de base (não dispara), e os IDs vistos ficam no
+  `gatilhos.json`. Arquivo da entrada é lido e apagado pelo ID; restaurado da lixeira, volta à raiz.
+- **Migração**: cada par do `SITES_ACOES` vira uma regra `SITE_CAIU` na partida, uma vez só (o par
+  fica em `migrados`; a regra apagada pelo dono não volta).
+
 ## Como validar
 
 ```bash
@@ -1634,7 +1675,8 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   avisado); o custo em `CUSTO_PASTA` (volume `custo`), um JSON por data por 90 dias; e o que o
   Jarvis fez em `DIARIO_PASTA` (volume `diario`), um JSON por data por 30 dias, mais o
   `ultimo-briefing.json` que marca até onde a seção "o que fiz sozinho" já contou, o `freio.json` e
-  o `concessoes.json` com as permissões que o dono deu; e a
+  o `concessoes.json` com as permissões que o dono deu, e o `gatilhos.json` com as regras, os pares
+  do `SITES_ACOES` já migrados e os IDs da pasta `entrada` já vistos; e a
   disponibilidade dos sites em `PROATIVO_PASTA` (volume `proativo`), um JSON por data por 30 dias; e
   a galeria de hologramas em `HOLOGRAMA_PASTA` (volume `holograma`), um JSON e um PNG por objeto, até 60.
   Todos usam a troca atômica do `ArquivoAtomico`.

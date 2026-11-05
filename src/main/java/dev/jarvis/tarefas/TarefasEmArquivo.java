@@ -37,6 +37,8 @@ final class TarefasEmArquivo {
             if (t.retomarEm() != null) n.put("retomarEm", t.retomarEm().toString());
             if (t.esperaDesde() != null) n.put("esperaDesde", t.esperaDesde().toString());
             if (!t.pausa().isBlank()) n.put("pausa", t.pausa());
+            if (!t.regra().isBlank()) n.put("regra", t.regra());
+            if (!t.dadosDoEvento().isBlank()) n.put("dadosDoEvento", t.dadosDoEvento());
             var plano = n.putArray("plano"); t.plano().forEach(plano::add);
             var resumo = n.putArray("resumo"); t.resumo().forEach(resumo::add);
             var acoes = n.putArray("acoesPrevistas");
@@ -76,6 +78,7 @@ final class TarefasEmArquivo {
                         t.atualizadaEm = java.util.Objects.requireNonNullElse(instante(n, "atualizadaEm"), t.criadaEm);
                         t.concluidaEm = instante(n, "concluidaEm"); t.retomarEm = instante(n, "retomarEm");
                         t.esperaDesde = instante(n, "esperaDesde");
+                        t.regra = Json.texto(n.path("regra")); t.dadosDoEvento = Json.texto(n.path("dadosDoEvento"));
                         String pausa = Json.texto(n.path("pausa"));
                         t.pausa = List.of(TarefaDeFundo.PAUSA_DONO, TarefaDeFundo.PAUSA_SEM_RESPOSTA).contains(pausa) ? pausa : "";
                         t.passos = Math.max(0, n.path("passos").asInt()); t.tempoAtivoMillis = Math.max(0, n.path("tempoAtivoMillis").asLong());

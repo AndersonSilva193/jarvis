@@ -11,14 +11,15 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.aprovacao.Aprovacoes;
-import dev.jarvis.autonomia.AcaoAutonoma;
-import dev.jarvis.autonomia.Nivel;
 import dev.jarvis.briefing.fontes.SitesService;
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.gatilhos.EventoDeGatilho;
+import dev.jarvis.gatilhos.FonteDeGatilho;
 import dev.jarvis.pc.OperacoesPcService;
 
 /**
@@ -36,6 +37,10 @@ import dev.jarvis.pc.OperacoesPcService;
  *
  * <p>O {@code desde} que a frase afirma é o instante da <b>primeira</b> falha da sequência, não o
  * da segunda: é a hora em que o site caiu, e é o que "está fora desde 14h05" quer dizer.
+ *
+ * <p>O aviso é só aviso. O que fazer quando um site cai — rodar uma rotina, perguntar antes — é
+ * regra de gatilho: a queda e a volta saem também como {@code EventoDeGatilho}, e o antigo
+ * {@code SITES_ACOES} virou regra na partida.
  */
 @Component
 public class MonitorDeSites {
@@ -56,13 +61,12 @@ public class MonitorDeSites {
     private final AvisosProativos avisos;
     private final FalasService falas;
     private final HistoricoDeDisponibilidade historico;
-    private final Aprovacoes aprovacoes;
-    private final OperacoesPcService e2;
     private final JarvisProperties props;
     private final Clock relogio;
-    private dev.jarvis.agente.Freio freio;
+    /** Nulo nos testes que montam o monitor à mão: aí a queda não vira evento de gatilho. */
+    private ApplicationEventPublisher eventos;
     @Autowired
-    void configurarFreio(dev.jarvis.agente.Freio freio) { this.freio = freio; }
+    public void configurarEventos(ApplicationEventPublisher eventos) { this.eventos = eventos; }
 
     private final Map<String, Vigia> vigias = new HashMap<>();
 
@@ -73,6 +77,10 @@ public class MonitorDeSites {
         this(sites, avisos, falas, historico, aprovacoes, e2, props, Clock.systemUTC());
     }
 
+    /**
+     * {@code aprovacoes} e {@code e2} ficaram sem uso desde que a oferta de rotina passou para as
+     * regras de gatilho; continuam na assinatura para os testes e o Spring não mudarem.
+     */
     public MonitorDeSites(SitesService sites, AvisosProativos avisos, FalasService falas,
             HistoricoDeDisponibilidade historico, Aprovacoes aprovacoes, OperacoesPcService e2,
             JarvisProperties props, Clock relogio) {
@@ -80,8 +88,6 @@ public class MonitorDeSites {
         this.avisos = avisos;
         this.falas = falas;
         this.historico = historico;
-        this.aprovacoes = aprovacoes;
-        this.e2 = e2;
         this.props = props;
         this.relogio = relogio;
     }
@@ -131,6 +137,8 @@ public class MonitorDeSites {
             avisos.avisar("site:" + nome, "dentro", falas.frase("site_voltou", Map.of(
                     "site", nome,
                     "duracao", FalasService.duracaoFalada(quanto))), null);
+            publicar(EventoDeGatilho.de(FonteDeGatilho.SITE_VOLTOU, agora, "site", nome,
+                    "foraDesde", antes.desde().toString(), "duracao", FalasService.duracaoFalada(quanto)));
         }
     }
 
@@ -139,64 +147,15 @@ public class MonitorDeSites {
                 "site", nome,
                 "desde", HORA.format(desde.atZone(props.zona())),
                 "motivo", motivo));
-        String rotina = props.acoesDeSites().get(nome);
-        // O Supplier é avaliado dentro do AvisosProativos, e só se a mensagem sair agora: durante o
-        // silêncio a pendência expiraria horas antes de o dono ler a pergunta.
-        avisos.avisar("site:" + nome, "fora", texto,
-                rotina == null ? null : () -> pedirParaRodar(nome, rotina));
+        avisos.avisar("site:" + nome, "fora", texto, null);
+        publicar(EventoDeGatilho.de(FonteDeGatilho.SITE_CAIU, relogio.instant(), "site", nome,
+                "desde", desde.toString(), "motivo", motivo == null ? "" : motivo));
     }
 
-    /**
-     * Encaminha a rotina pela política e devolve o que entra no aviso: a pergunta, o que saiu da
-     * rotina que rodou sozinha, ou vazio se ela não pode ou não deve ser oferecida.
-     *
-     * <p>Confere {@code pendenciaDe} <b>antes</b> de pedir porque o {@code Aprovacoes.pedir}
-     * sobrescreve calado uma pendência do mesmo usuário com outro {@code pedidoOrigem}: sem esta
-     * checagem, um site caindo no instante errado trocaria o "Posso?" que o dono está lendo por
-     * outro, e o "pode" dele executaria algo que ele não leu.
-     */
-    private String pedirParaRodar(String nome, String rotina) {
-        if (freio != null && !freio.podeAgirSozinho("gatilho")) return "";
-        long usuario = props.telegram() == null ? 0 : props.telegram().usuarioPermitido();
-        if (usuario == 0) {
-            return "";
-        }
-        if (!e2.online() || e2.rotinas().stream().noneMatch(r -> r.nome().equals(rotina))) {
-            log.info("Site {} caiu, mas a rotina '{}' não está disponível no PC agora", nome,
-                    rotina);
-            return "";
-        }
-        // Id sintético: nunca igual ao de uma mensagem real, então a próxima mensagem do dono
-        // satisfaz a regra do "confirme em nova mensagem".
-        String pedidoOrigem = "proativo:site_fora:" + nome + ":" + relogio.instant();
-        // Só a pergunta disputa a vaga da pendência; rodar já ou recusar não sobrescreve nada.
-        if (aprovacoes.nivel(AcaoAutonoma.ROTINA_RODAR, rotina) == Nivel.PERGUNTA
-                && aprovacoes.pendenciaDe(usuario, pedidoOrigem).isPresent()) {
-            log.info("Site {} caiu, mas já havia uma aprovação em aberto; aviso sem a pergunta",
-                    nome);
-            return "";
-        }
-        String pergunta = "Posso rodar a rotina " + rotina + " para tentar resolver?";
-        String pedido = "O site " + nome + " está fora do ar; rodar a rotina " + rotina + ".";
-        try {
-            // Tipo "rotina" reaproveitado de propósito: é literalmente uma rotina, a frase fixa já
-            // é "confirmo rotina <código>" e o Aprovacoes.tipoNoDiario já a anota como ROTINA.
-            // A política decide por rotina: com faz_e_avisa ela roda já e o aviso diz o que saiu;
-            // proibida, o aviso da queda vai sozinho, sem oferta.
-            var encaminhamento = aprovacoes.encaminhar(AcaoAutonoma.ROTINA_RODAR, rotina, "rotina",
-                    "Executar rotina " + rotina, pergunta, Aprovacoes.Risco.COMUM, usuario,
-                    pedidoOrigem, "telegram",
-                    Aprovacoes.frase(() -> e2.iniciarRotina(rotina, pedido, "telegram", usuario)));
-            return switch (encaminhamento.nivel()) {
-                case PERGUNTA -> pergunta;
-                case FAZ_E_AVISA -> "Mandei rodar a rotina " + rotina + " para tentar resolver: "
-                        + encaminhamento.texto();
-                case PROIBIDO -> "";
-            };
-        } catch (IllegalArgumentException | IllegalStateException recusa) {
-            log.warn("Não consegui abrir a aprovação da rotina '{}': {}", rotina,
-                    recusa.getMessage());
-            return "";
-        }
+    /** Evento para as regras de gatilho; o aviso acima continua saindo de qualquer jeito. */
+    private void publicar(EventoDeGatilho evento) {
+        if (eventos == null) return;
+        try { eventos.publishEvent(evento); }
+        catch (RuntimeException e) { log.warn("Ouvinte do evento {} falhou: {}", evento.fonte().chave(), e.getMessage()); }
     }
 }

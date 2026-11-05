@@ -188,7 +188,8 @@ public class TarefasComputerUse {
             if (tarefa.pai == null) executar(tarefa);
             else try (var contexto = dev.jarvis.tarefas.ContextoDaTarefa.entrar(tarefa.pai.id(),
                     tarefa.usuario, tarefa.pai::somarCusto, tarefa.pai::avisar, tarefa.pai.dados())
-                    .observarOperacoes(tarefa.pai::registrarComando, tarefa.pai::concluirComando)) { executar(tarefa); }
+                    .observarOperacoes(tarefa.pai::registrarComando, tarefa.pai::concluirComando)
+                    .deGatilho(tarefa.pai.deGatilho())) { executar(tarefa); }
         });
         if (tarefa.pai != null) throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
                 dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.COMPUTER_USE, id, null,

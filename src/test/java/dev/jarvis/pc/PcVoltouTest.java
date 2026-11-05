@@ -39,4 +39,25 @@ class PcVoltouTest {
         assertEquals(1, eventos.size(), "o E2 e o caminho antigo não publicam duas vezes");
         assertTrue(pc.online());
     }
+
+    @Test void desligouSaiUmaVezPorAusenciaEORetornoRearma() {
+        var relogio = new RelogioFalso(); List<Object> eventos = new ArrayList<>();
+        var pc = new PcService(relogio, eventos::add);
+        pc.vigiarAusencia();
+        assertEquals(0, eventos.size(), "sem contato nenhum não há o que dar como desligado");
+        pc.proximoComando(Duration.ZERO, null);
+        eventos.clear();
+
+        relogio.avancar(Duration.ofSeconds(60)); pc.vigiarAusencia();
+        assertTrue(eventos.isEmpty(), "60 s ainda é o PC no ar");
+        relogio.avancar(Duration.ofSeconds(31)); pc.vigiarAusencia(); pc.vigiarAusencia();
+        assertEquals(1, eventos.size(), "uma ausência, um aviso: " + eventos);
+        var desligou = (PcDesligou) eventos.getFirst();
+        assertEquals(relogio.instant().minusSeconds(91), desligou.ultimoContato());
+
+        pc.proximoComando(Duration.ZERO, null);
+        assertInstanceOf(PcVoltou.class, eventos.getLast());
+        relogio.avancar(Duration.ofSeconds(100)); pc.vigiarAusencia();
+        assertInstanceOf(PcDesligou.class, eventos.getLast(), "o contato rearmou a vigia");
+    }
 }

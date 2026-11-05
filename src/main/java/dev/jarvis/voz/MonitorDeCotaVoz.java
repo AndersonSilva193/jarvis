@@ -13,10 +13,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.gatilhos.EventoDeGatilho;
+import dev.jarvis.gatilhos.FonteDeGatilho;
 import dev.jarvis.proativo.AvisosProativos;
 import dev.jarvis.proativo.FalasService;
 
@@ -86,6 +89,13 @@ public class MonitorDeCotaVoz {
     private volatile SaldoDeVoz saldo = SaldoDeVoz.desconhecido();
     private volatile Motivo motivo;
     private final AtomicLong usadosDesdeAConsulta = new AtomicLong();
+    /** Nulo nos testes que montam o monitor à mão: aí a cota não vira evento de gatilho. */
+    private ApplicationEventPublisher eventos;
+
+    @Autowired
+    public void configurarEventos(ApplicationEventPublisher eventos) {
+        this.eventos = eventos;
+    }
 
     @Autowired
     public MonitorDeCotaVoz(ElevenLabsVoz elevenLabs, AvisosProativos avisos, FalasService falas,
@@ -249,6 +259,19 @@ public class MonitorDeCotaVoz {
         // aviso idêntico esperando as 7h ao lado do primeiro seria pior que nenhum.
         diario.marcarAvisoDoPeriodo(periodo);
         avisos.avisar(CHAVE_DA_COTA, "alta:" + periodo, falaDaCotaAlta(novo), null);
+        publicar("antecipado", novo);
+    }
+
+    /** O mesmo fato como evento para as regras de gatilho; o aviso acima sai de qualquer jeito. */
+    private void publicar(String tipo, SaldoDeVoz atual) {
+        if (eventos == null) return;
+        try {
+            eventos.publishEvent(EventoDeGatilho.de(FonteDeGatilho.COTA_VOZ, relogio.instant(),
+                    "tipo", tipo, "percentual", String.valueOf(atual.percentualUsado()),
+                    "restante", String.valueOf(atual.restante())));
+        } catch (RuntimeException e) {
+            log.warn("Ouvinte do evento de cota de voz falhou: {}", e.getMessage());
+        }
     }
 
     /**
@@ -304,6 +327,7 @@ public class MonitorDeCotaVoz {
                 : falas.frase("voz_indisponivel", Map.of("motivo", novo.explicacao()));
         avisos.avisar(CHAVE_DO_PROVEDOR, "navegador:" + novo.name().toLowerCase(Locale.ROOT), texto,
                 null);
+        if (novo == Motivo.RESERVA) publicar("reserva", saldo);
     }
 
     private void voltarParaElevenLabs() {

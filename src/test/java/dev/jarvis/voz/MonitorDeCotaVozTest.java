@@ -377,4 +377,27 @@ class MonitorDeCotaVozTest {
 
         verify(telegram, never()).enviarMensagem(anyLong(), anyString());
     }
+
+    @Test
+    @DisplayName("o aviso antecipado e a reserva saem também como evento de gatilho")
+    void cotaPublicaEventoDeGatilho() throws Exception {
+        var monitor = monitor(5);
+        java.util.List<Object> eventos = new java.util.ArrayList<>();
+        monitor.configurarEventos(eventos::add);
+        when(elevenLabs.consultarSaldo()).thenReturn(saldo(25_000, 30_000));
+        monitor.consultarSaldo();
+        assertEquals(1, eventos.size(), "83% passa dos 80% do aviso: " + eventos);
+        var antecipado = (dev.jarvis.gatilhos.EventoDeGatilho) eventos.getFirst();
+        assertEquals(dev.jarvis.gatilhos.FonteDeGatilho.COTA_VOZ, antecipado.fonte());
+        assertEquals("antecipado", antecipado.dado("tipo"));
+        assertEquals("83", antecipado.dado("percentual"));
+
+        when(elevenLabs.consultarSaldo()).thenReturn(saldo(29_000, 30_000));
+        monitor.consultarSaldo();
+        assertEquals(2, eventos.size());
+        assertEquals("reserva", ((dev.jarvis.gatilhos.EventoDeGatilho) eventos.getLast()).dado("tipo"));
+
+        monitor.consultarSaldo();
+        assertEquals(2, eventos.size(), "já na reserva, não publica de novo");
+    }
 }

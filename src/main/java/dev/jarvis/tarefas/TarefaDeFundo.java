@@ -33,7 +33,7 @@ public final class TarefaDeFundo {
             Instant atualizadaEm, Instant concluidaEm, int passos, long tempoAtivoMillis,
             double custoUsd, Origem origem, boolean retomada, boolean planoAprovado,
             String esperaTipo, String esperaAlvo, Instant retomarEm, java.util.Map<String, String> comandos,
-            String pausa, Instant esperaDesde) { }
+            String pausa, Instant esperaDesde, String regra, String dadosDoEvento) { }
 
     final String id, objetivo;
     final long usuario, chat;
@@ -50,6 +50,8 @@ public final class TarefaDeFundo {
     /** Desde quando espera o PC (persistido: o teto de espera vale também depois de um restart). */
     volatile Instant esperaDesde;
     volatile String pausa = "";
+    /** O gatilho que criou a tarefa (vazio quando veio de um pedido) e o evento, já como DADO. */
+    volatile String regra = "", dadosDoEvento = "";
     /** A frase final no lugar da de sempre; vazia quando quem cancelou já respondeu ao dono. */
     volatile String avisoFinal;
     volatile int passos;
@@ -84,6 +86,7 @@ public final class TarefaDeFundo {
         return new Retrato(id, usuario, canal.nome(), chat, objetivo, plano, acoes, status,
                 List.copyOf(resumo), resultado, criadaEm, iniciadaEm, atualizadaEm, concluidaEm,
                 passos, tempoAtivo(agora), custoUsd, origem, retomada, planoAprovado,
-                esperaTipo, esperaAlvo, retomarEm, java.util.Map.copyOf(comandos), pausa, esperaDesde);
+                esperaTipo, esperaAlvo, retomarEm, java.util.Map.copyOf(comandos), pausa, esperaDesde,
+                regra, dadosDoEvento);
     }
 }

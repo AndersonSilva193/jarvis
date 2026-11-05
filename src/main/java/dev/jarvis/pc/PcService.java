@@ -71,6 +71,8 @@ public class PcService {
 
     private volatile Instant ultimoContato;
     private final Object contato = new Object();
+    /** Houve contato desde o último {@link PcDesligou}: a próxima ausência ainda não foi anunciada. */
+    private boolean ausenciaArmada;
     private final ApplicationEventPublisher eventos;
     /** O último {@code X-Pc-Ia}, cru, e quando chegou. Quem interpreta é a {@code DisponibilidadeLocal}. */
     private volatile EstadoIa estadoIa;
@@ -371,12 +373,35 @@ public class PcService {
      * Os dois caminhos (o antigo e o E2) passam por aqui, então a volta é decidida num lugar só e
      * sai uma vez. O evento é publicado fora da trava; quem ouve só marca estado.
      */
+    /**
+     * Dá o PC como desligado quando o {@link #online()} cai depois de ter estado de pé, e publica
+     * {@link PcDesligou} uma vez por ausência. É a outra metade do {@link PcVoltou}: aquele nasce
+     * de um contato, este da falta dele, então precisa de um tique.
+     */
+    @Scheduled(fixedDelay = 15_000, initialDelay = 15_000)
+    public void vigiarAusencia() {
+        if (online()) return;
+        Instant visto;
+        synchronized (contato) {
+            // Um contato que chegou entre o online() e a trava rearmou e renovou: não é ausência.
+            if (!ausenciaArmada || ultimoContato == null || Duration.between(ultimoContato,
+                    relogio.instant()).compareTo(LIMITE_SEM_CONTATO) < 0) return;
+            ausenciaArmada = false;
+            visto = ultimoContato;
+        }
+        if (visto == null) return;
+        log.info("PC sem contato desde {}", visto);
+        try { eventos.publishEvent(new PcDesligou(visto, relogio.instant())); }
+        catch (RuntimeException e) { log.warn("Ouvinte de PcDesligou falhou: {}", e.getMessage()); }
+    }
+
     private void registrarContato() {
         Instant agora = relogio.instant();
         Instant visto;
         synchronized (contato) {
             visto = ultimoContato;
             ultimoContato = agora;
+            ausenciaArmada = true;
         }
         if (visto == null || Duration.between(visto, agora).compareTo(LIMITE_SEM_CONTATO) > 0) {
             Duration ausencia = visto == null ? null : Duration.between(visto, agora);

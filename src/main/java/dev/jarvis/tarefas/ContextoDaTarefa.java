@@ -37,6 +37,10 @@ public final class ContextoDaTarefa implements AutoCloseable {
         var tarefa = atual();
         if (tarefa != null && tarefa.esperaPeloPc != null) throw tarefa.esperaPeloPc.get();
     }
+    private boolean deGatilho;
+    /** Instalado pelo executor: a tarefa nasceu de uma regra, e o custo vai ao balde do gatilho. */
+    public ContextoDaTarefa deGatilho(boolean valor) { deGatilho = valor; return this; }
+    public boolean deGatilho() { return deGatilho; }
     public void registrarComando(String id, String acao) { aoComando.accept(id, acao); }
     public void concluirComando(String id, String resultado) { aoResultado.accept(id, resultado); }
 

@@ -175,8 +175,13 @@ jarvis:
     # Minutos entre duas checagens dos SITES_MONITORADOS. Um site só é dado como fora depois de
     # duas checagens seguidas com falha, então o aviso chega em até o dobro disso.
     sites-intervalo-minutos: ${SITES_INTERVALO_MINUTOS:5}
-    # Formato: nome_do_site=nome_da_rotina  (a rotina tem de existir no agente do PC)
+    # OBSOLETO: na partida cada par nome_do_site=nome_da_rotina vira uma regra de gatilho.
     sites-acoes: ${SITES_ACOES:}
+    gatilhos:
+      # Disparos por regra por hora; o teto contra o efeito cascata.
+      max-por-hora: ${GATILHO_MAX_POR_HORA:3}
+      # Minutos entre duas conferencias da subpasta "entrada" da pasta de arquivos do PC.
+      entrada-minutos: ${GATILHO_ENTRADA_MINUTOS:10}
   holograma:
     # Quem gera o holograma: anthropic (Haiku, com o local de reserva enquanto nenhuma peça saiu) ou
     # local (o Ollama do PC, com o Claude de reserva). O pedido pode trocar com ?provedor=haiku|local.

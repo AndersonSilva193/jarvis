@@ -534,10 +534,31 @@ public record JarvisProperties(
      *                   ignorado com WARN.
      */
     public record Proativo(String silencio, String pasta, int sitesIntervaloMinutos,
-            String sitesAcoes) {
+            String sitesAcoes, Gatilhos gatilhos) {
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Proativo { }
+        /** A aridade de antes dos gatilhos, pelo motivo de sempre: construção por posição. */
+        public Proativo(String silencio, String pasta, int sitesIntervaloMinutos, String sitesAcoes) {
+            this(silencio, pasta, sitesIntervaloMinutos, sitesAcoes, null);
+        }
         public Proativo(String silencio, String pasta) { this(silencio, pasta, 5, ""); }
+    }
+
+    /**
+     * As regras que o dono dita ("quando o site cair, ..."): quantas vezes uma regra pode disparar
+     * por hora e de quanto em quanto tempo a pasta {@code entrada} do PC é conferida. Nulo ou não
+     * positivo vale o padrão.
+     */
+    public record Gatilhos(Integer maxPorHora, Integer entradaMinutos) { }
+
+    /** Disparos por regra por hora; o teto contra o efeito cascata. */
+    public int gatilhoMaxPorHora() {
+        return proativo == null || proativo.gatilhos() == null ? 3 : positivo(proativo.gatilhos().maxPorHora(), 3);
+    }
+
+    /** Minutos entre duas conferências da subpasta {@code entrada} da pasta de arquivos do PC. */
+    public int gatilhoEntradaMinutos() {
+        return proativo == null || proativo.gatilhos() == null ? 10 : positivo(proativo.gatilhos().entradaMinutos(), 10);
     }
 
     /** Se a busca no YouTube está disponível. Sem chave, a ferramenta avisa em vez de falhar. */
