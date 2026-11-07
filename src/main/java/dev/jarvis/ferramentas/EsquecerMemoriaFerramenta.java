@@ -47,6 +47,7 @@ public class EsquecerMemoriaFerramenta extends FerramentaMemoria {
     }
 
     @Override public String nome() { return "esquecer_memoria"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
     @Override public boolean simples() { return false; }
 

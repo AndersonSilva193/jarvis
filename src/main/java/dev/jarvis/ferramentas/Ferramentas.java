@@ -40,9 +40,10 @@ public class Ferramentas {
      * de procurá-lo primeiro custaria uma ida a mais ao modelo justamente no caso que ele acelera.
      */
     private static final Set<String> EXTRAS_SEMPRE_CARREGADAS = Set.of(
-            "editar_arquivo", "tarefa_no_pc", "ler_procedimento", "iniciar_tarefa_de_fundo", "aguardar");
+            "editar_arquivo", "tarefa_no_pc", "ler_procedimento", "iniciar_tarefa_de_fundo", "aguardar",
+            "concluir_tarefa");
     /** Só fazem sentido dentro de uma tarefa de fundo. */
-    private static final Set<String> SO_EM_TAREFA = Set.of("aguardar_tarefa", "aguardar");
+    private static final Set<String> SO_EM_TAREFA = Set.of("aguardar_tarefa", "aguardar", "concluir_tarefa");
     /** Uma tarefa não cria outra nem mexe nas tarefas do dono: isso é da conversa. */
     private static final Set<String> FORA_DE_TAREFA = Set.of("iniciar_tarefa_de_fundo", "tarefas_em_andamento",
             "cancelar_tarefa", "pausar_tarefa", "retomar_tarefa");
@@ -205,6 +206,15 @@ public class Ferramentas {
         if (!removidas.isEmpty()) texto.append(" -").append(String.join(", -", removidas));
         log.warn("Definições de ferramenta mudaram em {}:{} — o cache de prompt de tools, system e "
                 + "messages foi invalidado neste pedido", chave, texto);
+    }
+
+    /**
+     * Se esta chamada muda algo fora da conversa ({@link Ferramenta#mudaEstado(JsonNode)}).
+     * Ferramenta desconhecida não muda nada: ela nem roda.
+     */
+    public boolean mudaEstado(String nome, JsonNode entrada) {
+        Ferramenta ferramenta = porNome.get(nome);
+        return ferramenta != null && ferramenta.mudaEstado(entrada);
     }
 
     /** Recebe um bloco "tool_use" do modelo e devolve o bloco "tool_result" correspondente. */

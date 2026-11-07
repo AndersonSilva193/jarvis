@@ -63,6 +63,7 @@ public class CriarGatilhoFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "criar_gatilho"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
     @Override public boolean simples() { return false; }
 

@@ -21,6 +21,7 @@ public class DesfazerEdicaoFerramenta implements Ferramenta {
         this.fluxo = fluxo; this.json = json;
     }
     @Override public String nome() { return "desfazer_edicao"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Restaura o backup de uma edição original "

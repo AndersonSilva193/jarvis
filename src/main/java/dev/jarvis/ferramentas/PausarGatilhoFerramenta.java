@@ -22,6 +22,7 @@ public class PausarGatilhoFerramenta extends FerramentaDeGatilho {
     }
 
     @Override public String nome() { return "pausar_gatilho"; }
+    @Override public boolean mudaEstado() { return true; }
 
     @Override public String descricao() {
         return "Pausa um gatilho (ele para de disparar, mas continua guardado) ou o religa com "

@@ -33,7 +33,10 @@ public enum Canal {
             Esta é uma tarefa agendada ou de fundo: ninguém está lendo na hora. Comece pelo resultado, com uma
             linha de status (concluído, em andamento ou falhou, com o motivo). Sem markdown.
             Em tarefa de fundo, use aguardar_tarefa para esperas, em vez de repetir consultas.
-            Aprovações necessárias são apresentadas pelo servidor no canal de origem.""");
+            Aprovações necessárias são apresentadas pelo servidor no canal de origem.
+            Depois de mudar algo, confira com uma ferramenta de leitura antes de concluir. Nunca diga
+            que deu certo sem ter conferido; se não houver como conferir, diga isso no resultado.
+            Em tarefa de fundo, termine chamando concluir_tarefa com o resultado e como conferiu.""");
 
     private final String regrasDeFormato;
 

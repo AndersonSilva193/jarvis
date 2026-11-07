@@ -23,6 +23,7 @@ public class AgendarTarefaPlanilhaFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "agendar_tarefa_planilha"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Agenda edição recorrente de um XLSX inteiro por ID "

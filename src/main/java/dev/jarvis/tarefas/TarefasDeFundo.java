@@ -41,6 +41,8 @@ import static dev.jarvis.tarefas.TarefaDeFundo.Status.*;
 @Service
 public class TarefasDeFundo {
     public static final String COMECO = "Começando. Te aviso quando terminar.";
+    /** O motivo da tarefa que terminou sem o {@code concluir_tarefa}. */
+    public static final String NAO_CONFIRMOU = "Não confirmou o resultado. ";
     private final Object trava = new Object();
     private final LinkedHashMap<String, TarefaDeFundo> tarefas = new LinkedHashMap<>();
     private final CicloDeFerramentas ciclo;
@@ -362,7 +364,9 @@ public class TarefasDeFundo {
                         + "\nPassos já feitos (registro do servidor):\n" + resumo;
                 turno.add(Mensagem.texto(Mensagem.Papel.USUARIO, instrucao));
                 t.ciclo = ciclo.novaExecucao(new ArrayDeque<>(), turno, Canal.TAREFA, ouvinte(t),
-                        t.detalhados, () -> t.cancelar, new CicloDeFerramentas.Limites(props.tarefaMaxPassos() - t.passos));
+                        t.detalhados, () -> t.cancelar, new CicloDeFerramentas.Limites(props.tarefaMaxPassos() - t.passos))
+                        .perguntarAoFalhar((pergunta, continuar) -> aprovacoes.perguntarNaTarefa(
+                                "segunda_tentativa", t.objetivo, pergunta, continuar));
             }
             t.espera = null; t.esperaTipo = ""; t.esperaAlvo = ""; t.retomarEm = null;
             if (t.resultadoProvisorio) {
@@ -378,7 +382,17 @@ public class TarefasDeFundo {
                         pendentes.keySet().iterator().next(), null, t.comandos::isEmpty,
                         () -> ResultadoFerramenta.texto("Operações externas terminadas."));
             }
-            finalizar(t, t.ciclo.semAvanco() ? FALHOU : CONCLUIDA, resultado);
+            // CONCLUIDA só pelo concluir_tarefa, que o ciclo só aceita depois da conferência.
+            // Terminar falando, sem ele, é dizer que deu certo sem ter mostrado que deu.
+            if (t.ciclo.semAvanco()) finalizar(t, FALHOU, resultado);
+            else if (t.ciclo.concluiu()) {
+                // O resultado já traz o "Conferi ..." montado pela ferramenta: é a linha que diz ao
+                // dono, depois, como o Jarvis soube que deu certo.
+                if (diario != null) diario.registrar(TipoDeAcao.TAREFA_CONCLUIDA, "Tarefa concluída: "
+                        + resultado.substring(0, Math.min(400, resultado.length())), OrigemDaAcao.TAREFA, t.usuario, null);
+                finalizar(t, CONCLUIDA, resultado);
+            }
+            else finalizar(t, FALHOU, NAO_CONFIRMOU + resultado.substring(0, Math.min(400, resultado.length())));
         } catch (SuspensaoDaTarefa espera) {
             synchronized (trava) {
                 t.espera = espera; t.esperaTipo = espera.tipo().name(); t.esperaAlvo = espera.alvo(); t.retomarEm = espera.ate();
@@ -425,6 +439,8 @@ public class TarefasDeFundo {
                 t.registrosAntes = ContextoDaTarefa.atual().registros();
             }
             @Override public void depoisDaFerramenta(String nome, String resultado, boolean erro) {
+                // A conclusão não é um passo: vira o resultado da tarefa e a linha TAREFA_CONCLUIDA.
+                if ("concluir_tarefa".equals(nome)) return;
                 String registro = nome + ": " + (erro ? "falhou: " : "") + resultado.substring(0, Math.min(400, resultado.length()));
                 synchronized (trava) { t.resumo.add(registro); }
                 if (diario != null && ContextoDaTarefa.atual().registros() == t.registrosAntes)

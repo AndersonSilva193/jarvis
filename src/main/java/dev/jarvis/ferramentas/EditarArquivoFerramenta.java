@@ -52,6 +52,7 @@ public class EditarArquivoFerramenta implements Ferramenta {
         this.maxOperacoes = Math.clamp(maxOperacoes, 1, 50);
     }
     @Override public String nome() { return "editar_arquivo"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() { return "Edita TXT/MD/JSON e Excel/XLSX. Omita id e versaoEsperada "

@@ -88,6 +88,7 @@ public class ConcederPermissaoFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "conceder_permissao"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
     @Override public boolean simples() { return false; }
 

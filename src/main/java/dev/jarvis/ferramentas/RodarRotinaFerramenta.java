@@ -20,6 +20,7 @@ public class RodarRotinaFerramenta implements Ferramenta {
         this.e2 = e2; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "rodar_rotina"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() {

@@ -44,6 +44,11 @@ public class CriarLembreteFerramenta implements Ferramenta {
     public String nome() {
         return "criar_lembrete";
     }
+
+    @Override
+    public boolean mudaEstado() {
+        return true;
+    }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.LEMBRETES; }
     @Override public boolean simples() { return true; }
 

@@ -47,6 +47,11 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
     public String nome() {
         return "restaurar_arquivo";
     }
+
+    @Override
+    public boolean mudaEstado() {
+        return true;
+    }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return false; }
 
@@ -103,10 +108,10 @@ public class RestaurarArquivoFerramenta implements Ferramenta {
         try {
             resultado = lixeira.restaurar(idLixeira, contexto);
         } catch (IllegalStateException falha) {
-            return ResultadoFerramenta.texto("Não restaurei: " + falha.getMessage());
+            return ResultadoFerramenta.falha("Não restaurei: " + falha.getMessage());
         }
         if (!resultado.ok())
-            return ResultadoFerramenta.texto("Não restaurei: " + resultado.mensagem());
+            return ResultadoFerramenta.falha("Não restaurei: " + resultado.mensagem());
         if (resultado.dados() == null)
             return ResultadoFerramenta.texto("O PC não disse qual arquivo voltou; "
                     + "confira com listar_arquivos.");

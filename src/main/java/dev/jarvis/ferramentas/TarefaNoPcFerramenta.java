@@ -33,6 +33,7 @@ public class TarefaNoPcFerramenta implements Ferramenta {
         this.tarefas = tarefas; this.aprovacoes = aprovacoes; this.json = json;
     }
     @Override public String nome() { return "tarefa_no_pc"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
     @Override public boolean simples() { return false; }
     /**

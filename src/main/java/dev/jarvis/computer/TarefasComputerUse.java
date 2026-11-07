@@ -193,8 +193,13 @@ public class TarefasComputerUse {
         });
         if (tarefa.pai != null) throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
                 dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.COMPUTER_USE, id, null,
-                () -> finalizada(tarefa.estado), () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(
-                        "Tarefa no PC " + tarefa.estado + ": " + tarefa.motivo));
+                () -> finalizada(tarefa.estado), () -> {
+                    var texto = dev.jarvis.ferramentas.ResultadoFerramenta.texto(
+                            "Tarefa no PC " + tarefa.estado + ": " + tarefa.motivo);
+                    // A falha conta para a segunda tentativa da tarefa de fundo; incerto e
+                    // cancelado não são "tentei e não deu".
+                    return "falhou".equals(tarefa.estado) ? texto.comoFalha() : texto;
+                });
         return avisoInicio(tarefa.nome);
     }
     public Retrato estado(String id, long usuario) {

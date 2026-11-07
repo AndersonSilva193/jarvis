@@ -33,6 +33,7 @@ public class RevogarPermissaoFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "revogar_permissao"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
     @Override public boolean simples() { return true; }
 

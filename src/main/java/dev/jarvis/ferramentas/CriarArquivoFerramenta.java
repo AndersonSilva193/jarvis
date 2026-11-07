@@ -48,6 +48,7 @@ public class CriarArquivoFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "criar_arquivo"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return true; }
     @Override public String descricao() { return """
@@ -110,7 +111,7 @@ public class CriarArquivoFerramenta implements Ferramenta {
             Thread.currentThread().interrupt();
             throw e;
         }
-        if (!resultado.ok()) return ResultadoFerramenta.texto("Não criei o arquivo: " + resultado.mensagem());
+        if (!resultado.ok()) return ResultadoFerramenta.falha("Não criei o arquivo: " + resultado.mensagem());
         // O efeito já aconteceu, mesmo se a entrega do anexo falhar.
         if (diario != null) {
             String confirmado = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");

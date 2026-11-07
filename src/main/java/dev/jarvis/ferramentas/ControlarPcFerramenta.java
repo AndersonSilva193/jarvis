@@ -137,6 +137,16 @@ public class ControlarPcFerramenta implements Ferramenta {
         return esquema;
     }
 
+    /** As ações que mexem no PC; consulta (captura, status, leitura) e redirecionamento não. */
+    private static final java.util.Set<String> MUDAM = java.util.Set.of("abrir_app", "abrir_url",
+            "abrir_hud", "bloquear_tela", "volume", "desligar", "reiniciar", "cancelar_desligamento",
+            "modo_repouso", "falso_positivo");
+
+    @Override
+    public boolean mudaEstado(JsonNode entrada) {
+        return entrada != null && MUDAM.contains(Json.texto(entrada.path("acao")).trim());
+    }
+
     @Override
     public String executar(JsonNode entrada) throws Exception {
         return executarDetalhado(entrada, new OuvinteProgresso() { }).texto();
@@ -223,7 +233,7 @@ public class ControlarPcFerramenta implements Ferramenta {
             return doPrint(resultado);
         }
         if (!resultado.ok()) {
-            return ResultadoFerramenta.texto("O PC recusou: " + resultado.mensagem());
+            return ResultadoFerramenta.falha("O PC recusou: " + resultado.mensagem());
         }
         return ResultadoFerramenta.texto(resultado.mensagem().isEmpty()
                 ? "Feito no PC."

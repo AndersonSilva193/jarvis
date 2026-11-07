@@ -1542,6 +1542,44 @@ perguntada novamente. O resultado solicitado sai imediatamente no canal de orige
 da HUD desconectada ao Telegram e anexos. Origem GATILHO usa `AvisosProativos`; o mecanismo de
 gatilhos não faz parte deste pacote.
 
+### Conferir antes de concluir, e uma segunda tentativa
+
+A tarefa de fundo só vira `CONCLUIDA` pelo `concluir_tarefa(resultado, como_conferi)` (só no canal
+`tarefa`, sempre carregada). Terminar o laço falando, sem ele, é `FALHOU` com
+`TarefasDeFundo.NAO_CONFIRMOU` ("Não confirmou o resultado.") mais o texto do modelo. Quem decide se
+a conclusão pode rodar é o `CicloDeFerramentas`, que viu a sequência: o estado mora numa
+`ConferenciaDoResultado` por `Execucao`, ativa só com `Canal.TAREFA` **e** `idTarefaDeFundo` — a
+conversa, a tarefa de planilha e a tarefa agendada antiga não mudam.
+
+- **`Ferramenta.mudaEstado()`** (padrão `false`; `mudaEstado(entrada)` para quem depende da entrada,
+  como a `controlar_pc`, cujas ações de consulta não mudam nada) marca o que mexe fora da conversa:
+  arquivos, rotina, computer use, PC, planilha, lembretes, memória, gatilhos, permissões e o
+  `desfazer_acao`. É só Java: não entra na definição nem no cache.
+- **O portão** vem depois do de repetição: depois da última mudança, sem uma ferramenta de leitura
+  que rodou sem `is_error` (fora de `NAO_CONFEREM`: concluir, aguardar, tela, holograma...), o
+  `concluir_tarefa` volta `is_error` com "Antes de concluir, confira o resultado (por exemplo com
+  <sugestão>)." — a sugestão sai do mapa `SUGESTOES`. Conferida, falta ainda o `como_conferi`.
+  Tarefa sem mudança conclui direto. O texto do aviso final é montado pela ferramenta
+  ("Organizei 14 arquivos em 4 pastas. Conferi listando a pasta de novo.") e entra no diário como
+  `TAREFA_CONCLUIDA`; a conclusão não é passo (`PASSO_DE_TAREFA`). Operações pendentes que terminam
+  depois (`conferirResultados`) contam como conferência e desfazem a conclusão: o modelo conclui de
+  novo, e a nota entra na mesma mensagem do `tool_result` em vez de duas do usuário seguidas.
+- **A falha é estruturada**: `ResultadoFerramenta.falhou` (`falha(texto)`, `comoFalha()`), marcada
+  na origem, onde o `ok` do agente é conhecido — continuação da rotina, `controlar_pc` recusado,
+  edição, criar/apagar/restaurar arquivo, computer use `falhou` — ou o `is_error` de exceção. **Não**
+  são falha: recusa da política, pergunta aberta, PC offline e validação de entrada; "tente outro
+  caminho" depois de "a configuração proíbe" convidaria o modelo a contornar a política.
+- **Duas falhas seguidas de mudança** (uma mudança que dá certo zera): na primeira o `tool_result`
+  ganha "tente outro caminho uma vez, se houver"; na segunda o ciclo lança a pergunta do gancho
+  `perguntarAoFalhar`, que a `TarefasDeFundo` liga ao `Aprovacoes.perguntarNaTarefa` (tipo
+  `segunda_tentativa`, fora do `tipoNoDiario`). A frase é montada em Java ("Tentei a e b, e os dois
+  falharam (motivo). Quer que eu tente outra coisa ou deixo assim?") e a tarefa fica
+  `ESPERANDO_VOCE`. "Sim" volta sem reexecutar a ferramenta, com a falha mais a nota do dono; "não"
+  é o "Certo, parei <objetivo>." de qualquer pergunta recusada.
+
+Ferramenta nova que muda estado declara `mudaEstado`, marca a falha na origem e, se houver como
+conferir, ganha uma linha no `SUGESTOES`.
+
 ### Acompanhar, pausar e esperar sozinho
 
 Quatro ferramentas da conversa, fora do canal `tarefa`: `tarefas_em_andamento` (objetivo, status em

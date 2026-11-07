@@ -114,6 +114,16 @@ class ControlarPcFerramentaTest {
     }
 
     @Test
+    @DisplayName("mudaEstado depende da ação: abrir e bloquear mudam, capturar e consultar não")
+    void mudaEstadoPorAcao() {
+        for (String acao : List.of("abrir_app", "bloquear_tela", "volume", "desligar"))
+            assertTrue(ferramenta.mudaEstado(JSON.createObjectNode().put("acao", acao)), acao);
+        for (String acao : List.of("captura_tela", "status_pc", "ler_arquivo", "listar_arquivos", "criar_arquivo", ""))
+            assertFalse(ferramenta.mudaEstado(JSON.createObjectNode().put("acao", acao)), acao);
+        assertFalse(ferramenta.mudaEstado(), "sem entrada, a ferramenta não presume mudança");
+    }
+
+    @Test
     @DisplayName("PC offline não enfileira nada e avisa o modelo na hora")
     void offlineNaoEnfileira() {
         String resposta = texto("bloquear_tela", null);

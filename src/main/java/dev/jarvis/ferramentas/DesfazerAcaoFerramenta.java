@@ -15,6 +15,7 @@ public class DesfazerAcaoFerramenta implements Ferramenta {
     private final JsonMapper json;
     public DesfazerAcaoFerramenta(DesfazedorDeAcoes desfazedor, JsonMapper json) { this.desfazedor = desfazedor; this.json = json; }
     @Override public String nome() { return "desfazer_acao"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.SISTEMA; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() {

@@ -217,6 +217,33 @@ public class Aprovacoes {
         return autorizacao;
     }
 
+    /**
+     * Uma pergunta da tarefa de fundo em curso que não é ação do catálogo — hoje, a da segunda
+     * falha seguida ("Tentei a e b ... Quer que eu tente outra coisa ou deixo assim?"). Passa pela
+     * mesma fila das aprovações de tarefa: o prazo nasce quando ela é apresentada, "sim" continua
+     * pela {@code continuar}, "não" cancela a tarefa e sem resposta ela fica pausada. A pergunta é
+     * montada em Java por quem chama; o tipo fica fora do {@code tipoNoDiario}.
+     *
+     * @return a suspensão a lançar no lugar do resultado da ferramenta
+     */
+    public dev.jarvis.tarefas.SuspensaoDaTarefa perguntarNaTarefa(String tipo, String descricao,
+            String pergunta, java.util.concurrent.Callable<dev.jarvis.ferramentas.ResultadoFerramenta> continuar) {
+        var tarefa = dev.jarvis.tarefas.ContextoDaTarefa.atual();
+        if (tarefa == null) throw new IllegalStateException("pergunta de tarefa fora de uma tarefa");
+        var autorizacao = adiarParaTarefa(tarefa.id(), tarefa.usuario(), tipo, descricao, pergunta,
+                Risco.COMUM, "tarefa", null, null, frase(() -> "Pode tentar outra coisa."), tarefa::avisar);
+        return suspensaoDe(autorizacao, () -> { autorizacao.executar(); return continuar.call(); });
+    }
+
+    private static dev.jarvis.tarefas.SuspensaoDaTarefa suspensaoDe(AutorizacaoDaTarefa autorizacao,
+            java.util.concurrent.Callable<dev.jarvis.ferramentas.ResultadoFerramenta> continuar) {
+        return new dev.jarvis.tarefas.SuspensaoDaTarefa(
+                dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.APROVACAO, "", null,
+                autorizacao::resolvida, continuar,
+                new dev.jarvis.tarefas.SuspensaoDaTarefa.Pergunta(autorizacao::recusada,
+                        autorizacao::semResposta, autorizacao::renovar));
+    }
+
     private volatile java.util.function.Predicate<String> segurar = id -> false;
 
     /**
@@ -354,12 +381,8 @@ public class Aprovacoes {
             if (nivel == Nivel.PERGUNTA) {
                 var autorizacao = adiarParaTarefa(tarefa.id(), usuario, tipo, descricao, pergunta,
                         risco, canal, acao, alvo, executar, tarefa::avisar);
-                throw new dev.jarvis.tarefas.SuspensaoDaTarefa(
-                        dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.APROVACAO, "", null,
-                        autorizacao::resolvida,
-                        () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(autorizacao.executar()),
-                        new dev.jarvis.tarefas.SuspensaoDaTarefa.Pergunta(autorizacao::recusada,
-                                autorizacao::semResposta, autorizacao::renovar));
+                throw suspensaoDe(autorizacao,
+                        () -> dev.jarvis.ferramentas.ResultadoFerramenta.texto(autorizacao.executar()));
             }
         }
         return switch (nivel) {

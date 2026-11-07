@@ -47,6 +47,9 @@ public enum TipoDeAcao {
     // ---- o que o dono pediu com todas as letras, sem pergunta no meio
     // Não é autônoma: quem disse "modo local" sabe que trocou, e a seção do briefing é para o resto.
     TROCA_DE_MODELO("troca_de_modelo", "troca de modelo", "trocas de modelo", false),
+    // A tarefa de fundo terminou pelo concluir_tarefa, com o como_conferi na descrição. Não é
+    // autônoma: a tarefa foi pedida (ou a regra ditada), e cada passo dela já entra como passo.
+    TAREFA_CONCLUIDA("tarefa_concluida", "tarefa concluída", "tarefas concluídas", false),
 
     // ---- as permissões que o dono deu (Concessoes). Nenhuma é autônoma: criar e revogar foram
     // pedidos dele, e a ação que uma permissão libera já entra no diário como feita sem pergunta —

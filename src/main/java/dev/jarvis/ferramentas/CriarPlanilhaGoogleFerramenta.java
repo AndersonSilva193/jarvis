@@ -16,6 +16,7 @@ public class CriarPlanilhaGoogleFerramenta implements Ferramenta {
         this.google = google; this.json = json;
     }
     @Override public String nome() { return "criar_planilha_google"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
     @Override public boolean simples() { return true; }
     /**

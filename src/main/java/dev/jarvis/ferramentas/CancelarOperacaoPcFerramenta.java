@@ -15,6 +15,7 @@ public class CancelarOperacaoPcFerramenta implements Ferramenta {
         this.operacoes = operacoes; this.json = json;
     }
     @Override public String nome() { return "cancelar_operacao_pc"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PC; }
     @Override public boolean simples() { return false; }
     @Override public String descricao() {

@@ -14,6 +14,7 @@ public class RegistrarMemoriaFerramenta extends FerramentaMemoria {
     void configurarDiario(dev.jarvis.diario.DiarioDeAcoes diario) { this.diario = diario; }
     public RegistrarMemoriaFerramenta(MemoriaService memoria, JsonMapper json) { super(memoria, json); }
     @Override public String nome() { return "registrar_memoria"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
     @Override public boolean simples() { return true; }
     @Override public String descricao() {

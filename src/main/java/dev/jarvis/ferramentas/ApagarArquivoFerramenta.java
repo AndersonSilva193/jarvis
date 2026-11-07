@@ -93,6 +93,11 @@ public class ApagarArquivoFerramenta implements Ferramenta {
     public String nome() {
         return "apagar_arquivo";
     }
+
+    @Override
+    public boolean mudaEstado() {
+        return true;
+    }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.ARQUIVOS; }
     @Override public boolean simples() { return false; }
 
@@ -171,8 +176,12 @@ public class ApagarArquivoFerramenta implements Ferramenta {
                         + "backups de edição não saem de vista. Nada foi apagado.");
 
         String pedido = contexto.idPedido();
-        if (cabeNoOrcamento(pedido, alvos.size()))
-            return ResultadoFerramenta.texto(mover(alvos, pedido, contexto));
+        if (cabeNoOrcamento(pedido, alvos.size())) {
+            Movidos movidos = mover(alvos, pedido, contexto);
+            // Nada saiu de vista: é a tentativa que falhou, e conta para a segunda tentativa.
+            return movidos.nenhum() ? ResultadoFerramenta.falha(movidos.frase())
+                    : ResultadoFerramenta.texto(movidos.frase());
+        }
 
         // A pergunta é montada aqui, dos nomes do catálogo, e é o que o usuário responde. Texto do
         // modelo neste lugar o deixaria escolher o que o "sim" significa.
@@ -184,7 +193,7 @@ public class ApagarArquivoFerramenta implements Ferramenta {
             return ResultadoFerramenta.de(aprovacoes.encaminhar(AcaoAutonoma.ARQUIVO_APAGAR_LOTE, null,
                     Aprovacoes.TIPO_PC_LIXEIRA, "apagar " + alvos.size() + " arquivos", pergunta,
                     Aprovacoes.Risco.COMUM, contexto.usuarioAutenticado(), pedido, contexto.canal(),
-                    Aprovacoes.frase(() -> mover(alvos, pedido, contexto))));
+                    Aprovacoes.frase(() -> mover(alvos, pedido, contexto).frase())));
         } catch (IllegalArgumentException | IllegalStateException falhaConfirmacao) {
             return ResultadoFerramenta.texto(falhaConfirmacao.getMessage());
         }
@@ -203,7 +212,10 @@ public class ApagarArquivoFerramenta implements Ferramenta {
      * primeiro arquivo aberto no Excel deixaria o resto por fazer sem ninguém saber. A frase conta
      * as duas metades.
      */
-    private String mover(List<Alvo> alvos, String pedido, OuvinteProgresso contexto) {
+    /** A frase do que foi feito, e se nada saiu do lugar. */
+    private record Movidos(String frase, boolean nenhum) { }
+
+    private Movidos mover(List<Alvo> alvos, String pedido, OuvinteProgresso contexto) {
         List<String> apagados = new ArrayList<>();
         List<String> falhas = new ArrayList<>();
         int dias = 0;
@@ -239,7 +251,7 @@ public class ApagarArquivoFerramenta implements Ferramenta {
             anotar(alvo.nome(), resultado, contexto);
             if (dias == 0) dias = diasDeRetencao(resultado);
         }
-        return frase(apagados, falhas, dias);
+        return new Movidos(frase(apagados, falhas, dias), apagados.isEmpty() && !falhas.isEmpty());
     }
 
     /**

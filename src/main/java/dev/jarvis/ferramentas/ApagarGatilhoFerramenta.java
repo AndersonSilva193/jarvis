@@ -21,6 +21,7 @@ public class ApagarGatilhoFerramenta extends FerramentaDeGatilho {
     }
 
     @Override public String nome() { return "apagar_gatilho"; }
+    @Override public boolean mudaEstado() { return true; }
 
     @Override public String descricao() {
         return "Apaga um gatilho de vez ('apaga esse gatilho'). Sem gatilho, vale o único ou o que "

@@ -21,7 +21,28 @@ import dev.jarvis.tela.ComandoTela;
 public record ResultadoFerramenta(String texto, List<Artefato> artefatos,
         List<Referencia> referencias, Confirmacao confirmacao,
         List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta,
-        List<ComandoDoHolograma> holograma, boolean encerrarTurno) {
+        List<ComandoDoHolograma> holograma, boolean encerrarTurno, boolean falhou) {
+    /**
+     * @param falhou a ação tentou e não conseguiu — marcado pela ferramenta, onde o resultado
+     *               estruturado (o {@code ok} do agente) é conhecido, nunca farejado da prosa. Não é
+     *               {@code is_error}: o modelo recebe o texto de sempre. Recusa da política, pergunta
+     *               aberta e erro de validação de entrada não são falha.
+     */
+    public ResultadoFerramenta(String texto, List<Artefato> artefatos,
+            List<Referencia> referencias, Confirmacao confirmacao,
+            List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta,
+            List<ComandoDoHolograma> holograma, boolean encerrarTurno) {
+        this(texto, artefatos, referencias, confirmacao, cards, comandos, escuta, holograma, encerrarTurno, false);
+    }
+    /** A ação tentou e não conseguiu (ver {@code falhou}). */
+    public static ResultadoFerramenta falha(String texto) {
+        return texto(texto).comoFalha();
+    }
+    /** O mesmo resultado, marcado como falha. */
+    public ResultadoFerramenta comoFalha() {
+        return new ResultadoFerramenta(texto, artefatos, referencias, confirmacao, cards, comandos,
+                escuta, holograma, encerrarTurno, true);
+    }
     public ResultadoFerramenta(String texto, List<Artefato> artefatos,
             List<Referencia> referencias, Confirmacao confirmacao,
             List<CardTela> cards, List<ComandoTela> comandos, EscutaResposta escuta,

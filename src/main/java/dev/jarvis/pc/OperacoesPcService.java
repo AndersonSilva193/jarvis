@@ -330,8 +330,9 @@ public class OperacoesPcService {
                         dev.jarvis.tarefas.SuspensaoDaTarefa.Tipo.OPERACAO_PC, comando.id(), null,
                         futuro::isDone, () -> {
                             var resultado = futuro.get();
-                            return dev.jarvis.ferramentas.ResultadoFerramenta.texto("Operação " + comando.id()
+                            var texto = dev.jarvis.ferramentas.ResultadoFerramenta.texto("Operação " + comando.id()
                                     + (resultado.ok() ? " concluída: " : " falhou: ") + resultado.mensagem());
+                            return resultado.ok() ? texto : texto.comoFalha();
                         });
             }
             try {

@@ -27,6 +27,16 @@ public interface Ferramenta {
      */
     default boolean oferecida() { return true; }
 
+    /**
+     * Se a ferramenta muda algo fora da conversa (arquivo, PC, lembrete, memória, regra, permissão).
+     * Em tarefa de fundo, uma mudança exige conferência antes do {@code concluir_tarefa}, e duas
+     * falhas seguidas dela viram pergunta ao dono. Só Java: não entra na definição nem no cache.
+     */
+    default boolean mudaEstado() { return false; }
+
+    /** Para quem depende da entrada, como a {@code controlar_pc}; o padrão ignora a entrada. */
+    default boolean mudaEstado(JsonNode entrada) { return mudaEstado(); }
+
     /** Explica ao modelo o que a ferramenta faz e quando usar. Quanto mais claro, melhor ele escolhe. */
     String descricao();
 

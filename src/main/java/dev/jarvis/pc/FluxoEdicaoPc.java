@@ -87,7 +87,7 @@ public class FluxoEdicaoPc {
             operacoes.pedirAviso(comando.id());
             return ResultadoFerramenta.texto("Ainda em andamento; avisarei o resultado.");
         } catch (RuntimeException e) {
-            return ResultadoFerramenta.texto("Não apliquei: " + e.getMessage());
+            return ResultadoFerramenta.falha("Não apliquei: " + e.getMessage());
         }
         if (contexto.contextoArquivo() != null) {
             boolean incerto = resultado.dados() != null
@@ -104,7 +104,7 @@ public class FluxoEdicaoPc {
             contexto.contextoArquivo().exigirReleitura();
         }
         if (!resultado.ok())
-            return ResultadoFerramenta.texto("Não apliquei: " + resultado.mensagem());
+            return ResultadoFerramenta.falha("Não apliquei: " + resultado.mensagem());
         String nome = resultado.mensagem().replaceFirst("^salvo, entrega falhou: ", "");
         // Daqui para baixo o arquivo já mudou no disco do PC, e os três retornos abaixo só diferem
         // na entrega do anexo. É aqui, então, que a ação entra no diário — uma vez, e com o nome

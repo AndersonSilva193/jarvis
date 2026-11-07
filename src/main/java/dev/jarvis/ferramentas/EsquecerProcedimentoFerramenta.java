@@ -27,6 +27,7 @@ public class EsquecerProcedimentoFerramenta implements Ferramenta {
     }
 
     @Override public String nome() { return "esquecer_procedimento"; }
+    @Override public boolean mudaEstado() { return true; }
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.MEMORIA; }
     @Override public boolean simples() { return true; }
 
