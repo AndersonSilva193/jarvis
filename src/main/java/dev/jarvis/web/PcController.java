@@ -92,9 +92,10 @@ public class PcController {
 
     @GetMapping("/v2/comandos")
     public ResponseEntity<?> comandosE2(@RequestHeader(value = "X-Pc-Apps", required = false) String apps,
-            @RequestHeader(value = "X-Pc-Ia", required = false) String ia)
+            @RequestHeader(value = "X-Pc-Ia", required = false) String ia,
+            @RequestHeader(value = "X-Pc-Foco", required = false) String foco)
             throws InterruptedException {
-        pc.proximoComando(Duration.ZERO, apps, ia);
+        pc.proximoComando(Duration.ZERO, apps, ia, foco);
         return e2.proximo(espera).<ResponseEntity<?>>map(entrega -> ResponseEntity.ok(Map.of(
                 "versao", OperacoesPcService.VERSAO, "comando", PcDto.de(entrega.comando()),
                 "prazoInicio", entrega.prazoInicio(), "prazoExecucao", entrega.prazoExecucao())))
@@ -194,12 +195,15 @@ public class PcController {
      *             ausente mantém a lista anterior, presente e vazio zera
      * @param ia   o {@code X-Pc-Ia}, o estado do Ollama do PC; quem o lê é a
      *             {@code DisponibilidadeLocal}
+     * @param foco o {@code X-Pc-Foco}, o nome do processo em primeiro plano; ausente apaga o
+     *             anterior, e quem o revalida antes do prompt é o {@code RetratoDoMomento}
      */
     @GetMapping("/comandos")
     public ResponseEntity<?> comandos(
             @RequestHeader(value = "X-Pc-Apps", required = false) String apps,
-            @RequestHeader(value = "X-Pc-Ia", required = false) String ia) {
-        return pc.proximoComando(espera, apps, ia)
+            @RequestHeader(value = "X-Pc-Ia", required = false) String ia,
+            @RequestHeader(value = "X-Pc-Foco", required = false) String foco) {
+        return pc.proximoComando(espera, apps, ia, foco)
                 .<ResponseEntity<?>>map(comando -> ResponseEntity.ok(PcDto.de(comando)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }

@@ -158,6 +158,17 @@ class PcHttpTest {
     }
 
     @Test
+    @DisplayName("GET /api/pc/comandos guarda o X-Pc-Foco, sem caractere de controle")
+    void registraFocoNoCaminhoAntigo() throws Exception {
+        pc.enfileirar(ComandoPc.nova("volume", "subir", java.time.Instant.now()));
+        mvc().perform(get("/api/pc/comandos")
+                .header(HttpHeaders.AUTHORIZATION, bearer(PC_TOKEN))
+                .header("X-Pc-Foco", "WINWORD"))
+                .andExpect(status().isOk());
+        assertEquals("WINWORD", pc.foco().orElseThrow().nome());
+    }
+
+    @Test
     @DisplayName("POST /api/pc/resultado recusa corpo sem id, sem ok ou com base64 inválido")
     void recusaCorpoInvalido() throws Exception {
         for (String corpo : new String[] {

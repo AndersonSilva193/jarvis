@@ -250,6 +250,20 @@ class PcE2HttpTest {
         assertEquals("ativo=1;ollama=1;carregado=1", pc.estadoIa().orElseThrow().cabecalho());
     }
 
+    @Test void cabecalhoFocoChegaAoPcServiceEAusenteApaga() throws Exception {
+        var e2 = new OperacoesPcService(JsonMapper.builder().build(),
+                temporaria.resolve("operacoes.json"), Clock.systemUTC());
+        var pc = new PcService(e2);
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(pc,
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+        http.perform(get("/api/pc/v2/comandos").header("X-Pc-Foco", "chrome"))
+                .andExpect(status().isNoContent());
+        assertEquals("chrome", pc.foco().orElseThrow().nome());
+        // O agente omite o cabeçalho quando não tem nome válido: o foco de antes não vale mais.
+        http.perform(get("/api/pc/v2/comandos")).andExpect(status().isNoContent());
+        assertTrue(pc.foco().isEmpty());
+    }
+
     private static void iniciar(MockMvc http, String id) throws Exception {
         http.perform(get("/api/pc/v2/comandos")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.comando.id").value(id));

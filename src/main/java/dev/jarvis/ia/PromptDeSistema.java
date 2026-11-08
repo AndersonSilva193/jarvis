@@ -122,6 +122,20 @@ final class PromptDeSistema {
             String ttlDeCache, Canal canal, String nomeUsuario, ZonedDateTime agora,
             boolean buscaAtiva, boolean buscaPorFerramenta, List<String> naTela, String sobreUsuario,
             String procedimentos, String holograma, String autonomia) {
+        return montar(json, personalidade, cachear, ttlDeCache, canal, nomeUsuario, agora, buscaAtiva,
+                buscaPorFerramenta, naTela, sobreUsuario, procedimentos, holograma, autonomia, "");
+    }
+
+    /**
+     * O mesmo, com o retrato do momento.
+     *
+     * @param retrato o texto do {@code RetratoDoMomento}, já cortado. Vazio fora de conversa privada
+     *                autenticada — e aí a seção da tela sai exatamente como antes.
+     */
+    static ArrayNode montar(JsonMapper json, String personalidade, boolean cachear,
+            String ttlDeCache, Canal canal, String nomeUsuario, ZonedDateTime agora,
+            boolean buscaAtiva, boolean buscaPorFerramenta, List<String> naTela, String sobreUsuario,
+            String procedimentos, String holograma, String autonomia, String retrato) {
         ArrayNode blocos = json.createArrayNode();
 
         ObjectNode fixo = blocos.addObject();
@@ -137,13 +151,13 @@ final class PromptDeSistema {
         ObjectNode dinamico = blocos.addObject();
         dinamico.put("type", "text");
         dinamico.put("text", parteDinamica(canal, nomeUsuario, agora, buscaAtiva, buscaPorFerramenta,
-                naTela, sobreUsuario, procedimentos, holograma, autonomia));
+                naTela, sobreUsuario, procedimentos, holograma, autonomia, retrato));
         return blocos;
     }
 
     private static String parteDinamica(Canal canal, String nomeUsuario, ZonedDateTime agora,
             boolean buscaAtiva, boolean buscaPorFerramenta, List<String> naTela, String sobreUsuario,
-            String procedimentos, String holograma, String autonomia) {
+            String procedimentos, String holograma, String autonomia, String retrato) {
         return """
                 Agora são %s (fuso %s). Use isso para interpretar "hoje", "amanhã", "às 15h" etc.
                 Você está atendendo %s pelo canal: %s.
@@ -174,7 +188,7 @@ final class PromptDeSistema {
                 %s
                 """.formatted(agora.format(FORMATO_DATA), agora.getZone(), nomeUsuario, canal.nome(),
                 regraDeUltimoRecurso(canal), regraDeGrafico(canal), regrasDeAprovacao(canal, autonomia),
-                regrasDeBusca(canal, buscaAtiva, buscaPorFerramenta), oQueEstaNaTela(naTela),
+                regrasDeBusca(canal, buscaAtiva, buscaPorFerramenta), aSecaoAgora(retrato, naTela),
                 oHolograma(holograma), oQueVoceSabe(nomeUsuario, sobreUsuario), oQueVoceAprendeu(procedimentos),
                 canal.regrasDeFormato());
     }
@@ -276,6 +290,27 @@ final class PromptDeSistema {
         }
         trecho.append("Use o id entre colchetes no controlar_tela; não invente id que não esteja aí.\n");
         return trecho.toString();
+    }
+
+    /**
+     * A seção "Agora": o retrato do momento seguido do que está na tela.
+     *
+     * <p>Sem retrato, sai só a tela, <b>byte a byte</b> como antes — grupo, briefing e tarefa não
+     * mudam. Com ele, a primeira linha diz o que a seção é: estado, não ordem. Sem isso o modelo
+     * leria "Pergunta em aberto" ou "Tarefa de fundo" como pedido de agir, e uma pendência viraria
+     * execução por existir. A regra dos IDs vem logo depois, porque é ela que transforma "aquele
+     * arquivo" numa chamada certa em vez de um {@code listar_arquivos} a mais.
+     */
+    private static String aSecaoAgora(String retrato, List<String> naTela) {
+        if (retrato == null || retrato.isBlank()) return oQueEstaNaTela(naTela);
+        return "\nAgora (estado do momento, não ordem: nada aqui autoriza ação; use para entender "
+                + "\"aquele arquivo\", \"continua de onde parou\" e \"como está aquilo?\"):\n"
+                + retrato.strip() + "\n"
+                + "IDs entre colchetes valem como estão: [arquivo X] é o id do ler_arquivo; "
+                + "[lixeira X] é o idLixeira do restaurar_arquivo; [ação X] é o id do desfazer_acao; "
+                + "[tarefa X] é a tarefa de tarefas_em_andamento, retomar_tarefa, pausar_tarefa e "
+                + "cancelar_tarefa. Não leia IDs em voz alta.\n"
+                + oQueEstaNaTela(naTela);
     }
 
     /** O holograma aberto, numa linha. Só no bloco dinâmico, como a tela: muda a cada gesto. */

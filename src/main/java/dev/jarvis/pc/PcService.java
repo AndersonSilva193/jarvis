@@ -86,6 +86,22 @@ public class PcService {
     /** Teto do cabeçalho guardado: o agente manda até 512, e nada além disso tem uso. */
     private static final int MAX_CABECALHO_IA = 512;
 
+    /**
+     * O último {@code X-Pc-Foco}: o nome do processo em primeiro plano no PC, e quando chegou.
+     *
+     * <p>Guardado só sem caractere de controle e com teto: quem decide se ele é um nome de verdade
+     * é quem o põe no prompt (o {@code RetratoDoMomento}), que confere de novo contra a régua do
+     * agente. Ausente <b>apaga</b> — ao contrário do {@code X-Pc-Apps}: o agente omite o cabeçalho
+     * justamente quando não tem um nome válido, e um programa em foco de dez minutos atrás afirmaria
+     * o que já não é verdade.
+     */
+    public record Foco(String nome, Instant recebidoEm) { }
+
+    private static final int MAX_CABECALHO_FOCO = 64;
+    private volatile Foco foco;
+    /** O começo do período online atual: o contato que veio depois de uma ausência (ou o primeiro). */
+    private volatile Instant onlineDesde;
+
     private final Clock relogio;
     private final OperacoesPcService e2;
     /**
@@ -234,11 +250,26 @@ public class PcService {
      *                 anterior, como o {@code X-Pc-Apps}: quem decide se ele ficou velho é a idade
      */
     public Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa) {
+        return proximoComando(espera, headerApps, headerIa, null, false);
+    }
+
+    /**
+     * @param headerFoco o {@code X-Pc-Foco} da requisição, ou nulo quando não veio — e aí o foco
+     *                   anterior some (ver {@link Foco})
+     */
+    public Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa,
+            String headerFoco) {
+        return proximoComando(espera, headerApps, headerIa, headerFoco, true);
+    }
+
+    private Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa,
+            String headerFoco, boolean comFoco) {
         // No começo, não no fim: a prova de vida é a chegada da requisição. Marcar depois do
         // poll atrasaria o "último contato" em até 25 segundos.
         registrarContato();
         registrarApps(headerApps);
         registrarIa(headerIa);
+        if (comFoco) registrarFoco(headerFoco);
 
         long restante = espera.toNanos();
         while (restante > 0) {
@@ -369,6 +400,16 @@ public class PcService {
         return Optional.ofNullable(estadoIa);
     }
 
+    /** O último {@code X-Pc-Foco}, ou vazio quando a última consulta veio sem ele. Não revalidado. */
+    public Optional<Foco> foco() {
+        return Optional.ofNullable(foco);
+    }
+
+    /** Desde quando o PC está de pé sem interrupção; vazio se nunca conectou. Só vale com {@link #online()}. */
+    public Optional<Instant> onlineDesde() {
+        return Optional.ofNullable(onlineDesde);
+    }
+
     /**
      * Os dois caminhos (o antigo e o E2) passam por aqui, então a volta é decidida num lugar só e
      * sai uma vez. O evento é publicado fora da trava; quem ouve só marca estado.
@@ -404,6 +445,7 @@ public class PcService {
             ausenciaArmada = true;
         }
         if (visto == null || Duration.between(visto, agora).compareTo(LIMITE_SEM_CONTATO) > 0) {
+            onlineDesde = agora;
             Duration ausencia = visto == null ? null : Duration.between(visto, agora);
             log.info("PC voltou a falar com a VPS{}", ausencia == null ? " (primeiro contato)"
                     : " depois de " + ausencia.toSeconds() + " s");
@@ -420,6 +462,16 @@ public class PcService {
         String limpo = headerIa.replaceAll("\\p{Cntrl}", "").trim();
         if (limpo.length() > MAX_CABECALHO_IA) limpo = limpo.substring(0, MAX_CABECALHO_IA);
         estadoIa = new EstadoIa(limpo, relogio.instant());
+    }
+
+    private void registrarFoco(String headerFoco) {
+        if (headerFoco == null) {
+            foco = null;
+            return;
+        }
+        String limpo = headerFoco.replaceAll("\\p{Cntrl}", "").trim();
+        if (limpo.length() > MAX_CABECALHO_FOCO) limpo = limpo.substring(0, MAX_CABECALHO_FOCO);
+        foco = limpo.isEmpty() ? null : new Foco(limpo, relogio.instant());
     }
 
     /**

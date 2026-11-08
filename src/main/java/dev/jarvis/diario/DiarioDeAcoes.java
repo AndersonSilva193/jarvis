@@ -175,6 +175,19 @@ public class DiarioDeAcoes {
         return registrar(tipo, descricao, OrigemDaAcao.porCanal(canal), usuario, desfazer);
     }
 
+    /**
+     * Como o {@link #registrarDoCanal(TipoDeAcao, String, String, long, Desfazer)}, guardando em
+     * {@code referencia} o identificador do lado de lá — o ID do catálogo do arquivo editado, que o
+     * {@code Desfazer.Edicao} não carrega. É o que deixa o "lê aquele arquivo de novo" achar o arquivo
+     * pelo {@code RetratoDoMomento}. Vazia cai na regra de sempre (o {@code idLixeira}).
+     */
+    public String registrarDoCanal(TipoDeAcao tipo, String descricao, String canal,
+            long usuario, Desfazer desfazer, String referencia) {
+        String ref = referencia == null || referencia.isBlank()
+                ? (desfazer instanceof Desfazer.Lixeira d ? d.idLixeira() : "") : referencia;
+        return registrar(tipo, descricao, OrigemDaAcao.porCanal(canal), usuario, desfazer, ref, null);
+    }
+
     public java.util.Optional<AcaoRegistrada> localizar(String id, long usuario) {
         if (usuario <= 0) return java.util.Optional.empty();
         return periodo(DIAS_GUARDADOS).acoes().stream()

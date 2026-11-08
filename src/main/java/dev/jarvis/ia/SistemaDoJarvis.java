@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import dev.jarvis.agente.RetratoDoMomento;
 import dev.jarvis.autonomia.PoliticaDeAutonomia;
 import dev.jarvis.config.JarvisProperties;
 import dev.jarvis.ia.provedor.ConversorAnthropic;
@@ -45,6 +46,8 @@ public class SistemaDoJarvis {
     private final boolean buscaPorFerramenta;
     /** Pode ser nula: os construtores antigos ficam sem o resumo, que é o padrão do código. */
     private final PoliticaDeAutonomia autonomia;
+    /** O "Agora" do bloco dinâmico. Nulo nos construtores antigos: aí só a tela entra, como sempre. */
+    private final RetratoDoMomento retrato;
 
     /** Sem HUD e sem memória: o que vale para teste e para quem chama de dentro do processo. */
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props) {
@@ -74,11 +77,19 @@ public class SistemaDoJarvis {
         this(personalidade, json, props, tela, hud, memoria, procedimentos, holograma, null);
     }
 
-    @Autowired
     public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
             TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
             ProcedimentosService procedimentos, EstadoDoHologramaService holograma,
             PoliticaDeAutonomia autonomia) {
+        this(personalidade, json, props, tela, hud, memoria, procedimentos, holograma, autonomia, null);
+    }
+
+    @Autowired
+    public SistemaDoJarvis(PersonalidadeService personalidade, JsonMapper json, JarvisProperties props,
+            TelaEstadoService tela, PresencaDaHud hud, MemoriaService memoria,
+            ProcedimentosService procedimentos, EstadoDoHologramaService holograma,
+            PoliticaDeAutonomia autonomia, RetratoDoMomento retrato) {
+        this.retrato = retrato;
         this.autonomia = autonomia;
         this.holograma = holograma;
         this.procedimentos = procedimentos;
@@ -128,6 +139,20 @@ public class SistemaDoJarvis {
 
     public ArrayNode blocos(Canal canal, long usuario, String mensagem,
             dev.jarvis.conversa.ContextoArquivo contextoArquivo) {
+        return blocos(canal, usuario, mensagem, contextoArquivo, "");
+    }
+
+    /**
+     * Os mesmos blocos, com o retrato do momento ({@link RetratoDoMomento}) na seção "Agora".
+     *
+     * <p>O retrato segue a regra do resumo da memória — pedido autenticado em conversa privada — e é
+     * montado aqui, junto com os blocos, para valer a mesma garantia deles: uma vez por pedido, o
+     * mesmo texto em todas as idas e vindas de ferramenta.
+     *
+     * @param idPedido o pedido corrente; é o que separa a pergunta em aberto da que nasceu agora
+     */
+    public ArrayNode blocos(Canal canal, long usuario, String mensagem,
+            dev.jarvis.conversa.ContextoArquivo contextoArquivo, String idPedido) {
         String texto = personalidade.texto();
         boolean cachear = PersonalidadeService.estimarTokens(PromptDeSistema.textoFixo(texto))
                 >= props.anthropic().cacheMinimoTokens();
@@ -142,10 +167,12 @@ public class SistemaDoJarvis {
         // Com o modo aberto e alguém na HUD, uma linha só; fechado, nada — nem o título.
         String doHolograma = holograma != null && hud.conectada()
                 && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? holograma.linha() : "";
+        String agora = retrato != null && usuario > 0
+                && (canal == Canal.TELEGRAM || canal == Canal.HUD) ? retrato.montar(usuario, idPedido) : "";
         ArrayNode blocos = PromptDeSistema.montar(json, texto, cachear, props.anthropic().ttlDeCache(), canal,
                 props.nomeUsuario(), ZonedDateTime.now(props.zona()), buscaAtiva,
                 buscaPorFerramenta, naTela, sobreUsuario, aprendidos, doHolograma,
-                autonomia == null ? "" : autonomia.resumo());
+                autonomia == null ? "" : autonomia.resumo(), agora);
         if (usuario > 0 && (canal == Canal.HUD || canal == Canal.TELEGRAM)
                 && contextoArquivo != null && contextoArquivo.estado() != null) {
             var dinamico = (tools.jackson.databind.node.ObjectNode) blocos.get(1);

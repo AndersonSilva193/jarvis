@@ -60,4 +60,34 @@ class RegistrosReversiveisPcTest {
             assertEquals(new Desfazer.Arquivo(arquivoId), diario.deHoje().acoes().get(1).desfazer());
         } finally { diario.fechar(); }
     }
+
+    /** O "lê aquele arquivo de novo" do retrato do momento depende do ID do catálogo estar na linha. */
+    @Test void edicaoEDesfazerGuardamOIdDoCatalogoNaReferencia() throws Exception {
+        var diario = new DiarioDeAcoes(props(), json, new RelogioFalso(), pasta.resolve("diario"));
+        var selecionado = new dev.jarvis.conversa.ContextoArquivo();
+        assertTrue(selecionado.registrar(json.createObjectNode().put("id", arquivoId).put("nome", "nota.md")
+                .put("formato", "md").put("versaoEsperada", "a".repeat(64)), true));
+        var comAlvo = new OuvinteProgresso() {
+            @Override public long usuarioAutenticado() { return 42; }
+            @Override public String idPedido() { return "pedido"; }
+            @Override public String canal() { return "hud"; }
+            @Override public dev.jarvis.conversa.ContextoArquivo contextoArquivo() { return selecionado; }
+        };
+        var operacoes = mock(OperacoesPcService.class); when(operacoes.online()).thenReturn(true);
+        // O agente não devolve o id no resultado: quem diz qual arquivo foi é o alvo validado.
+        when(operacoes.enfileirar(any(), any(), any(), anyString(), anyLong())).thenAnswer(c ->
+                CompletableFuture.completedFuture(new ResultadoPc(((ComandoPc)c.getArgument(0)).id(), true,
+                        "nota.md", null, null, false, json.createObjectNode().put("versao", "b".repeat(64)))));
+        var fluxo = new FluxoEdicaoPc(operacoes, mock(ArquivosPcService.class), mock(TelegramClient.class), json, diario);
+        try {
+            fluxo.aplicar("aplicar_edicao", editId, comAlvo, n -> "Atualizei " + n, true);
+            // O desfazer acha o arquivo pela edição que desfaz, mesmo sem alvo selecionado.
+            fluxo.aplicar("aplicar_desfazer", editId, contexto, n -> "Voltei " + n, true);
+            var acoes = diario.deHoje().acoes();
+            assertEquals(TipoDeAcao.EDICAO_ARQUIVO, acoes.get(0).tipo());
+            assertEquals(arquivoId, acoes.get(0).referencia());
+            assertEquals(TipoDeAcao.DESFAZER_EDICAO, acoes.get(1).tipo());
+            assertEquals(arquivoId, acoes.get(1).referencia());
+        } finally { diario.fechar(); }
+    }
 }

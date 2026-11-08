@@ -37,12 +37,22 @@ Toda chamada ao Claude leva o `system` em **dois blocos**, nesta ordem:
 | Bloco | Conteúdo | Cache |
 |---|---|---|
 | fixo | o texto de `config/personalidade.md` e um parágrafo constante com as categorias de ferramentas | `cache_control: ephemeral` |
-| dinâmico | data e hora com fuso, canal do pedido, retrato da tela, regras técnicas e de formato | nunca |
+| dinâmico | data e hora com fuso, canal do pedido, a seção "Agora" (retrato do momento e da tela), regras técnicas e de formato | nunca |
 
 A ordem importa: o cache de prompt da Anthropic casa **prefixo exato**, então qualquer coisa que muda
 a cada pedido (a começar pelo relógio) tem de ficar *depois* do bloco cacheado. O marcador de cache
 só é enviado quando o bloco fixo passa de `ANTHROPIC_CACHE_MINIMO_TOKENS` — abaixo disso a API o
 ignoraria calada.
+
+Na conversa privada (Telegram com você, ou a HUD), o bloco dinâmico abre com a seção **"Agora"**: um
+retrato de até 600 caracteres, montado uma vez por pedido, com o PC online ou offline e há quanto
+tempo, o programa em primeiro plano (do cabeçalho `X-Pc-Foco` do agente), o freio, a pergunta que
+está esperando sua resposta, as tarefas de fundo ativas, as três últimas ações do diário e o próximo
+lembrete. É por isso que *"lê aquele arquivo de novo"*, *"continua de onde parou"* e *"como está
+aquilo?"* funcionam sem explicação: as linhas trazem os IDs reais (`[arquivo …]`, `[lixeira …]`,
+`[ação …]`, `[tarefa …]`) que `ler_arquivo`, `restaurar_arquivo`, `desfazer_acao` e as ferramentas de
+tarefa aceitam. A seção é estado, não ordem — o prompt diz isso com todas as letras —, e em grupo ela
+não existe.
 
 ### Economia de tokens nas ferramentas
 
@@ -1094,8 +1104,13 @@ inclusive `arquivos` e `imagens`: é o que deduplica comando reentregue e susten
   a resposta avisa que a lista está incompleta; o que foi recusado não volta.
 - No Telegram, recebe somente texto (nada de áudio ou foto). Na HUD, o navegador converte voz em
   texto e sintetiza a resposta — ou a ElevenLabs sintetiza, com `VOZ_PROVEDOR=elevenlabs`.
-- Atende **uma execução por vez**: conversas, tarefas e limpeza passam pelo mesmo `ReentrantLock`
-  justo do `Assistente`. Um segundo pedido vindo da HUD recebe `409` em vez de entrar em fila.
+- A **conversa** atende uma mensagem por vez: Telegram, HUD, tarefas agendadas antigas e limpeza
+  passam pelo mesmo `ReentrantLock` justo do `Assistente`, e um segundo pedido vindo da HUD recebe
+  `409` em vez de entrar em fila. O resto já não espera a conversa: tarefas de fundo, gatilhos e
+  computer use rodam em executores próprios.
+- O retrato "Agora" cabe em 600 caracteres e corta por linha, da menos importante para trás: num
+  dia cheio, o próximo lembrete e as ações mais antigas saem antes do PC, do freio e da pergunta em
+  aberto. Edição feita antes desta versão não tem o ID do arquivo no diário e aparece sem ele.
 - A cota da YouTube Data API é de 10.000 unidades por dia e cada busca custa 100, ou seja umas
   100 buscas diárias. O cache de 24 h por consulta estica isso; estourando, o Jarvis avisa.
 - A formatação do Telegram cobre o básico (negrito, código e listas); itálico, links e citações ainda saem

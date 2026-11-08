@@ -89,6 +89,13 @@ public class Freio {
         if (mudou) notificar(retomadas);
     }
 
+    /**
+     * Se o teto autônomo de hoje já foi atingido, pela última avaliação (o tique de um minuto ou
+     * uma chamada ao {@link #podeAgirSozinho}). Só leitura: quem descreve o momento, como o
+     * {@code RetratoDoMomento}, não pode disparar o aviso de teto por ter olhado.
+     */
+    public boolean tetoAtingido() { synchronized (trava) { return tetoBloqueado; } }
+
     public boolean podeAgirSozinho(String origem) {
         avaliarCusto();
         synchronized (trava) { return estado == Estado.ATIVO && !tetoBloqueado; }

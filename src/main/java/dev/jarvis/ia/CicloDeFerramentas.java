@@ -151,7 +151,8 @@ public final class CicloDeFerramentas {
             this.progresso = progresso; this.detalhados = detalhados;
             this.parado = parado; this.limites = limites;
             system = SistemaDoJarvis.instrucoes(sistema.blocos(canal,
-                    progresso.usuarioAutenticado(), turno.getFirst().texto(), progresso.contextoArquivo()));
+                    progresso.usuarioAutenticado(), turno.getFirst().texto(), progresso.contextoArquivo(),
+                    progresso.idPedido()));
             // As ferramentas também: elas são renderizadas antes do system e entram no mesmo prefixo
             // do cache de prompt. As adiadas são achadas pela busca de ferramentas do provedor, e a da
             // busca na web é server-side — quem executa é a Anthropic, e só ela a recebe.

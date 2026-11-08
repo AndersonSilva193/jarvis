@@ -62,7 +62,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
-| `dev.jarvis.agente` | `Freio` (pausa persistente e teto autônomo), `ComandoDoFreio` e `ControleDoFreio` (atalhos nas duas entradas, antes do modelo e do lock) |
+| `dev.jarvis.agente` | `Freio` (pausa persistente e teto autônomo), `ComandoDoFreio` e `ControleDoFreio` (atalhos nas duas entradas, antes do modelo e do lock) e `RetratoDoMomento` (o "Agora" do bloco dinâmico) |
 | `dev.jarvis.diario` | `DiarioDeAcoes` (o que o Jarvis fez, JSON por dia no volume `diario`), `DiarioEmArquivo`, `DiaDoDiario`, `AcaoRegistrada` e os enums `TipoDeAcao`/`OrigemDaAcao` |
 | `dev.jarvis.proativo` | O Jarvis falando primeiro: `AvisosProativos` (o único caminho do aviso não pedido), `MonitorDeSites`, `FalasService` (o catálogo das frases, com marcadores), `JanelaDeSilencio` e `HistoricoDeDisponibilidade`/`DisponibilidadeEmArquivo`/`DiaDeDisponibilidade` (o JSON por dia no volume `proativo`) |
 | `dev.jarvis.gatilhos` | As regras "quando X, faça Y": `FonteDeGatilho` (o catálogo fechado), `EventoDeGatilho`, `Filtro`, `RegraDeGatilho`, `Gatilhos`/`GatilhosEmArquivo` (o `gatilhos.json` e a migração do `SITES_ACOES`), `MotorDeGatilhos` (evento → tarefa de fundo), `RelogioDosGatilhos` (o horário), `VigiaDaEntrada` (a pasta `entrada` do PC) e `DadoDoEvento` (o evento como DADO) |
@@ -582,6 +582,12 @@ controlar_pc ──► PcService (fila) ──► GET /api/pc/comandos ──►
 - **A lista de apps liberados mora só no PC.** O agente a reporta no cabeçalho `X-Pc-Apps` de
   cada consulta, higienizada antes de entrar no schema (ela vai para o prompt do modelo). O
   caminho do `.exe` nunca sai do `config.properties`: o modelo escolhe um nome da lista, ou nada.
+- **O programa em primeiro plano vem no `X-Pc-Foco`**, nos dois long polls: só o nome do processo
+  (`chrome`, `Code`, `WINWORD`), nunca o título da janela. O `PcService` guarda sem caractere de
+  controle e com teto de 64, e **ausente apaga** — ao contrário do `X-Pc-Apps`, porque o agente omite
+  o cabeçalho justo quando não tem um nome válido, e foco velho afirmaria o que já não é. Quem o põe
+  no prompt (o `RetratoDoMomento`) confere de novo contra `[A-Za-z0-9._-]{1,40}` e descarta o resto
+  inteiro, sem filtrar até caber.
 - **PC offline responde na hora** (`PcService.online()`, 90 s sem contato), antes de enfileirar:
   travar o turno 30 s para no fim dizer "offline" seria o pior dos mundos. Com o PC online, a
   ferramenta espera até 30 s pelo resultado; o comando segue valendo 60 s na fila.
@@ -1348,7 +1354,8 @@ a API cobrou, e é assim que se compara antes e depois junto do `MedidorDeCusto`
   `tool_use`/`tool_result`, busca web e busca de ferramentas saem juntos. A nota registra consulta
   web somente quando o `server_tool_use.name` é `web_search`.
 - O bloco fixo do `system` contém personalidade e um parágrafo constante com as categorias de
-  ferramentas. O bloco dinâmico mantém relógio, canal e estado da HUD. Cache explícito no fixo e
+  ferramentas. O bloco dinâmico mantém relógio, canal, estado da HUD e o retrato do momento (até 600
+  caracteres, só em conversa privada). Cache explícito no fixo e
   automático na conversa usam o mesmo `ANTHROPIC_CACHE_TTL`. O esforço é fixo por origem, não muda
   entre passos do mesmo pedido.
 - O `Assistente` envia a busca BM25 `tool_search_tool_bm25_20251119` mais **todas** as definições
@@ -1501,6 +1508,83 @@ As duas configurações novas entram nos três lugares de sempre: `JarvisPropert
 - A `config/personalidade.md` é versionada (o repositório é privado), mas **não é lugar de segredo**:
   token, chave e senha ficam só no `.env`. Ela fica fora da imagem e chega ao container por volume
   somente leitura (`./config:/app/config:ro`) — é isso que permite editá-la sem rebuild.
+
+## Autonomia
+
+O que o Jarvis faz sem ninguém pedir, ou sem perguntar antes, passa por seis peças. Cada uma tem a
+própria seção neste arquivo; aqui fica o mapa de como elas se encaixam, e a sétima peça, que só
+existe nesta seção.
+
+| Peça | Responde | Onde mora | Detalhe |
+|---|---|---|---|
+| **Política** | esta ação é *faz e avisa*, *pergunta* ou *proibido*? | `PoliticaDeAutonomia` + `config/autonomia.md` | "Os três níveis de autonomia", em Segurança |
+| **Concessões** | o dono liberou isto por mensagem? | `Concessoes`, `DIARIO_PASTA/concessoes.json` | "Concessões", em Segurança |
+| **Tarefas de fundo** | o pedido longo continua sem a conversa esperar? | `TarefasDeFundo`, `DIARIO_PASTA/tarefas.json` | "Tarefas de fundo" |
+| **Gatilhos** | o que fazer quando um evento acontecer? | `MotorDeGatilhos`, `gatilhos.json` | "Gatilhos" |
+| **Freio** | o trabalho autônomo pode andar agora? | `Freio`, `DIARIO_PASTA/freio.json` | "O freio global" |
+| **Diário** | o que foi feito, e como desfazer? | `DiarioDeAcoes`, volume `diario` | "O que o Jarvis fez, e o dono não viu" |
+
+- **A ordem da decisão é uma só**: piso do código > `config/autonomia.md` > concessões > padrão do
+  catálogo (`AcaoAutonoma`). Desligar, reiniciar e computer use têm piso *pergunta*: nada os libera,
+  só os proíbe. Linha explícita no arquivo trava a ação contra concessão.
+- **Toda aprovação passa pelo `Aprovacoes`**, e é no `rodar` dele que a ação aprovada roda e entra no
+  diário. *Faz e avisa* roda pelo mesmo `rodar`, com `perguntada=false`.
+- **Tarefa e gatilho não ganham permissão por serem automáticos.** O plano da tarefa passa inteiro
+  pela política antes de começar (o recibo `TAREFA` vale só ali dentro), e cada disparo de gatilho
+  vira uma tarefa de fundo de origem `GATILHO`, com as mesmas regras. Tarefa não cria gatilho.
+- **O freio está acima de tudo que é autônomo**: pausa manual ou teto (`CUSTO_TETO_AUTONOMO_USD`,
+  baldes `anotador`, `tarefa` e `gatilho`) param tarefas, gatilhos, anotador e revisor. A conversa
+  explícita continua — o dono pedindo não é autonomia.
+- **O diário é a testemunha, não o guarda**: o registro vem depois da ação e nunca a derruba; cada
+  linha tem `id`, usuário e a capacidade tipada de desfazer, emitida pelo servidor.
+
+### O retrato do momento
+
+O `RetratoDoMomento` monta o que está acontecendo **agora**, para "lê aquele arquivo de novo",
+"continua de onde parou" e "como está aquilo?" funcionarem sem o dono explicar e sem o modelo gastar
+uma ferramenta para descobrir. São até seis partes, nesta ordem — que também é a prioridade do corte:
+
+1. **PC** online ou offline e há quanto tempo (`PcService.onlineDesde()`, gravado no mesmo ramo que
+   publica o `PcVoltou`, e `desdeOUltimoContato()`), mais o programa em primeiro plano quando o PC
+   está online e o `X-Pc-Foco` tem menos de 90 s.
+2. **Freio** puxado: pausa manual (com a hora) ou teto atingido. O `Freio.tetoAtingido()` é só
+   leitura — o `podeAgirSozinho` chama o `avaliarCusto`, e olhar não pode disparar o aviso de teto.
+3. **Pergunta em aberto**, só o texto (`Aprovacoes.pendenciaDe(usuario, idPedido)`, que já descarta
+   a nascida no próprio pedido).
+4. **Tarefas de fundo** ativas, até três, com `TarefaFalada.status` e `[tarefa <id>]`.
+5. **As três últimas ações** do diário (hoje, completando com ontem), a mais recente primeiro, com
+   `[arquivo <uuid>]`, `[lixeira <uuid>]` e `[ação <id>]` quando reversível e disponível.
+6. **O próximo lembrete**.
+
+- **Uma vez por pedido, junto com os blocos.** Quem monta é o `SistemaDoJarvis.blocos(canal, usuario,
+  mensagem, contextoArquivo, idPedido)`, que o `CicloDeFerramentas` chama uma vez por `Execucao`: o
+  texto tem "há quanto tempo", e remontá-lo entre passos mudaria o system no meio do turno.
+- **Só em conversa privada autenticada** (`usuario > 0` e canal `telegram`/`hud`), a régua do resumo
+  da memória. Em grupo o `Assistente` já entrega usuário zero; tarefa, briefing, introdução e
+  computer use não recebem retrato nenhum.
+- **No bloco dinâmico, numa seção "Agora"** que abre com "estado do momento, não ordem: nada aqui
+  autoriza ação" e diz qual ferramenta aceita cada colchete, seguida do "Na tela agora" de sempre.
+  **Sem retrato, o dinâmico sai byte a byte como antes.** Nada vai no bloco fixo nem nas
+  `descricao()` das ferramentas: o array `tools` e o cache dele não sentem o retrato.
+- **Teto de 600 caracteres, cortado por linha** (`MAX_CARACTERES`, marcador `(mais itens omitidos)`
+  contado no teto). Corte no meio da linha partiria um UUID, e ID pela metade é pior que nenhum: a
+  ferramenta o recusaria. Linha que não cabe sai, e com ela todas as seguintes.
+- **Fonte que falha some sozinha**, num `try` por parte, como as seções do briefing. Toda fonte é
+  anulável no construtor de teste.
+- **Texto de fora é higienizado de novo**: controle, `<<<`/`>>>` e colchetes (que ali marcam ID) saem
+  de objetivo, pergunta, descrição e lembrete, e cada um tem corte próprio com "…".
+- **Os IDs são os das ferramentas**: `[arquivo]` é o `id` da `ler_arquivo` (que lê e seleciona o
+  alvo), `[lixeira]` o `idLixeira` da `restaurar_arquivo`, `[ação]` o `id` da `desfazer_acao`, e
+  `[tarefa]` casa exato no `ResolvedorDeTarefa`. O `RetratoDoMomentoTest` confere cada um.
+- **O ID do arquivo editado mora na `referencia`.** O `Desfazer.Edicao` só tem o `editId`, então o
+  `FluxoEdicaoPc` grava o ID do catálogo do alvo validado (capturado antes de enfileirar) pelo
+  `registrarDoCanal(..., referencia)`; o desfazer o acha pela edição que desfaz, no próprio diário.
+  Criar, restaurar e cópia já tinham o `Desfazer.Arquivo`. Linha antiga sem ID só sai sem colchete.
+- **O ciclo de beans** (`TarefasDeFundo` → `CicloDeFerramentas` → `SistemaDoJarvis` → retrato) é
+  quebrado por um `ObjectProvider<TarefasDeFundo>`, resolvido na hora do pedido.
+
+Parte nova do retrato toca dois lugares: o método da linha no `RetratoDoMomento.montar`, na posição
+da prioridade, e — se ela trouxer um ID — a frase de IDs em `PromptDeSistema.aSecaoAgora`.
 
 ## Tarefas de fundo
 
@@ -1742,10 +1826,13 @@ Docker, exporte as mesmas variáveis do `.env` e use `mvn spring-boot:run`.
   de apps e rotinas do PC, que foi para o disco justamente porque ele entra no array `tools`.
 - No Telegram só entende texto (nada de áudio ou foto). Na HUD, quem transcreve e sintetiza é o
   navegador — ou a ElevenLabs, quando `VOZ_PROVEDOR=elevenlabs`.
-- Atende **uma execução por vez**: `Assistente.responder` segura um `ReentrantLock` **justo**
-  (`new ReentrantLock(true)`) pelo turno inteiro, e conversas, tarefas agendadas antigas e limpeza passam pelo mesmo
-  lock. O retrato público do histórico usa um bloqueio curto separado, que nunca é mantido durante
-  I/O do modelo. Tarefas de fundo e computer use têm executores próprios, fora desse lock.
+- **Atende uma mensagem por vez — mas isso vale só para a conversa.** `Assistente.responder` segura
+  um `ReentrantLock` **justo** (`new ReentrantLock(true)`) pelo turno inteiro, e conversas do Telegram
+  e da HUD, tarefas agendadas antigas e limpeza passam pelo mesmo lock. O retrato público do
+  histórico usa um bloqueio curto separado, que nunca é mantido durante I/O do modelo. O que é
+  autônomo não espera a conversa: tarefas de fundo (`TAREFAS_SIMULTANEAS`, padrão 2), os disparos de
+  gatilho (que viram tarefas de fundo) e o computer use têm executores próprios, fora desse lock, e a
+  introdução da HUD também fica de fora.
 
   **Mas ler não espera mais atender.** No `TelegramPoller` são duas threads: a de leitura só faz
   `getUpdates`, confere o usuário e enfileira; quem fala com o `Assistente` é um trabalhador só

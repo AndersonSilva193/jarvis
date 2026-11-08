@@ -76,7 +76,7 @@ class TarefasDeFundoTest {
         when(pc.online()).thenReturn(true);
         when(sites.sites()).thenReturn(Map.of("loja", "https://example.com"));
         // A forma do system precisa ser um array não vazio de blocos, como na API real.
-        when(sistema.blocos(any(Canal.class), anyLong(), anyString(), nullable(ContextoArquivo.class)))
+        when(sistema.blocos(any(Canal.class), anyLong(), anyString(), nullable(ContextoArquivo.class), nullable(String.class)))
                 .thenAnswer(i -> {
                     var blocos = json.createArrayNode(); blocos.addObject().put("type", "text").put("text", "fixo");
                     blocos.addObject().put("type", "text").put("text", "dinâmico"); return blocos;
@@ -246,7 +246,7 @@ class TarefasDeFundoTest {
         aprovacoes.executarPendente(42, "pode"); assertEquals(0, executadas.get());
         terminou(id); assertEquals(CONCLUIDA, tarefas.estado(id, 42).status()); assertEquals(1, executadas.get());
         assertEquals(0, tarefas.estado(id, 42).tempoAtivoMillis(), "a espera de trinta minutos não consome tempo ativo");
-        verify(sistema, times(1)).blocos(eq(Canal.TAREFA), anyLong(), anyString(), nullable(ContextoArquivo.class));
+        verify(sistema, times(1)).blocos(eq(Canal.TAREFA), anyLong(), anyString(), nullable(ContextoArquivo.class), nullable(String.class));
     }
 
     @Test void limiteDePassosFalhaComMotivo() throws Exception {

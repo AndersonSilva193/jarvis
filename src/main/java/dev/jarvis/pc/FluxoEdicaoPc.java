@@ -74,6 +74,10 @@ public class FluxoEdicaoPc {
         if (!operacoes.online())
             return ResultadoFerramenta.pcOffline("Agente do PC offline; edição não iniciada.");
         ComandoPc comando = novo(acao, json.createObjectNode().put("editId", editId));
+        // O alvo é capturado antes de enfileirar: depois do resultado o contexto já pode ter mudado
+        // (cópia vira o novo alvo), e é este o arquivo que a proposta preparou e o erroEdicao validou.
+        var alvo = contexto.contextoArquivo() == null ? null : contexto.contextoArquivo().estado();
+        String idDoAlvo = alvo == null ? "" : alvo.id();
         ResultadoPc resultado;
         try {
             var futuro = operacoes.enfileirar(comando, Duration.ofSeconds(30),
@@ -109,7 +113,7 @@ public class FluxoEdicaoPc {
         // Daqui para baixo o arquivo já mudou no disco do PC, e os três retornos abaixo só diferem
         // na entrega do anexo. É aqui, então, que a ação entra no diário — uma vez, e com o nome
         // que o agente devolveu, nunca o que o modelo escreveu.
-        anotarNoDiario(acao, nome, contexto, editId, original, resultado);
+        anotarNoDiario(acao, nome, contexto, editId, original, resultado, idDoAlvo);
         if (!resultado.arquivo()) return ResultadoFerramenta.texto(sucesso.apply(nome)
                 + " Salvo, mas a entrega do arquivo falhou.");
         var arquivo = arquivos.obter(comando.id());
@@ -130,10 +134,25 @@ public class FluxoEdicaoPc {
      * protegido de cada versão), então o registro é o único jeito de o dono saber depois.
      *
      * A cópia entra como edição também — ela cria um arquivo no PC do dono do mesmo jeito.
+     *
+     * <p>O ID do catálogo do arquivo mexido vai em {@code referencia}: na sobrescrita do original é o
+     * alvo validado, e no desfazer é o da edição que ele desfaz (achada pelo {@code editId} no próprio
+     * diário — o arquivo selecionado agora pode ser outro). Na cópia quem diz o ID é o
+     * {@code Desfazer.Arquivo}. O {@code RetratoDoMomento} lê daí o "aquele arquivo".
      */
     private void anotarNoDiario(String acao, String nome, OuvinteProgresso contexto,
-            String editId, boolean original, ResultadoPc resultado) {
+            String editId, boolean original, ResultadoPc resultado, String idDoAlvo) {
         if (diario == null) return;
+        String referencia = "";
+        if ("aplicar_edicao".equals(acao) && original) {
+            String devolvido = resultado.dados() == null ? "" : Json.texto(resultado.dados().path("id"));
+            referencia = devolvido.matches("[0-9a-fA-F-]{36}") ? devolvido : idDoAlvo;
+        } else if ("aplicar_desfazer".equals(acao)) {
+            referencia = diario.porDesfazer(contexto.usuarioAutenticado(),
+                    d -> d instanceof dev.jarvis.diario.Desfazer.Edicao e && e.editId().equals(editId))
+                    .map(dev.jarvis.diario.AcaoRegistrada::referencia).orElse("");
+        }
+        if (!referencia.matches("[0-9a-fA-F-]{36}")) referencia = "";
         TipoDeAcao tipo = "aplicar_desfazer".equals(acao)
                 ? TipoDeAcao.DESFAZER_EDICAO : TipoDeAcao.EDICAO_ARQUIVO;
         String descricao = tipo == TipoDeAcao.DESFAZER_EDICAO
@@ -148,7 +167,8 @@ public class FluxoEdicaoPc {
                 if (!id.isBlank()) desfazer = new dev.jarvis.diario.Desfazer.Arquivo(id);
             }
         }
-        diario.registrarDoCanal(tipo, descricao, contexto.canal(), contexto.usuarioAutenticado(), desfazer);
+        diario.registrarDoCanal(tipo, descricao, contexto.canal(), contexto.usuarioAutenticado(),
+                desfazer, referencia);
     }
 
     public Optional<String> ultimaEdicaoConcluida(long usuario) {
