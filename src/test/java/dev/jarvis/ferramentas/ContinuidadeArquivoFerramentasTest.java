@@ -144,4 +144,45 @@ class ContinuidadeArquivoFerramentasTest {
         verify(fluxo, times(1)).preparar(anyString(), any(), any());
         verify(fluxo, never()).aplicar(anyString(), anyString(), any(), any(), anyBoolean());
     }
+
+    /**
+     * "Acha o arquivo que fala de X": listar devolve vários, e é lendo cada um que se acha o certo.
+     * A ambiguidade trava a edição no pedido, não a consulta — e o que foi consultado nesse pedido
+     * não vira o alvo, senão o último lido seria o "esse arquivo" da mensagem seguinte.
+     */
+    @Test void selecaoAmbiguaTravaEdicaoMasNaoConsultas() throws Exception {
+        var alvo = new ContextoArquivo();
+        var pc = mock(PcService.class);
+        when(pc.online()).thenReturn(true);
+        when(pc.enfileirar(any(), anyString(), anyLong())).thenAnswer(chamada -> {
+            ComandoPc c = chamada.getArgument(0);
+            if ("ler_arquivo".equals(c.acao()))
+                return CompletableFuture.completedFuture(new ResultadoPc(c.id(), true, "consulta concluída",
+                        null, null, false, leitura(c.dados().path("id").asText())));
+            var lista = json.createObjectNode().put("total", 2).put("pagina", 1)
+                    .put("tamanhoPagina", 20).put("temMais", false);
+            lista.putArray("arquivos").add(leitura(ID)).add(leitura(OUTRO));
+            return CompletableFuture.completedFuture(new ResultadoPc(c.id(), true, "consulta concluída",
+                    null, null, false, lista));
+        });
+        var ouvinte = contexto(alvo, "acha o arquivo que fala de velho");
+        var listar = new ListarArquivosFerramenta(pc, json);
+        var ler = new LerArquivoFerramenta(pc, json);
+        listar.executarDetalhado(json.createObjectNode(), ouvinte);
+        assertTrue(alvo.aguardaEsclarecimento("pedido"));
+
+        assertTrue(listar.executarDetalhado(json.createObjectNode().put("formato", "md"), ouvinte)
+                .texto().contains("\"arquivos\""));
+        assertTrue(ler.executarDetalhado(json.createObjectNode().put("id", ID), ouvinte)
+                .texto().contains("\"conteudo\""));
+        assertTrue(ler.executarDetalhado(json.createObjectNode().put("id", OUTRO), ouvinte)
+                .texto().contains("\"conteudo\""));
+        verify(pc, times(4)).enfileirar(any(), anyString(), anyLong());
+
+        assertNull(alvo.estado(), "consulta num pedido ambíguo não escolhe o alvo");
+        var fluxo = mock(FluxoEdicaoPc.class);
+        assertTrue(new EditarArquivoFerramenta(fluxo, json).executarDetalhado(edicao().put("id", OUTRO), ouvinte)
+                .texto().contains("mais de um arquivo"));
+        verifyNoInteractions(fluxo);
+    }
 }

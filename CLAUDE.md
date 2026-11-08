@@ -486,7 +486,10 @@ ao `Assistente`, guarda o alvo real por usuário autenticado, chat e canal. ID, 
 formato e versão vêm do catálogo/leitor ou de edição confirmada, nunca da narrativa
 do modelo. `ler_arquivo` pode omitir ID; `editar_arquivo` pode omitir ID e versão.
 “Esse arquivo”, “nessa planilha” e complementos como “R$ 6” podem usar o mesmo alvo
-TXT/MD/JSON/XLSX sem repetir o nome. Seleção ambígua não conserva o alvo anterior;
+TXT/MD/JSON/XLSX sem repetir o nome. Seleção ambígua não conserva o alvo anterior, e no
+resto daquele pedido trava a **edição**, não a consulta: listar de novo e ler cada candidato pelo
+ID continuam indo ao PC (é assim que se acha um arquivo pelo conteúdo), mas nada consultado ali
+vira o alvo — senão o último lido seria o "esse arquivo" da mensagem seguinte;
 nome explícito diferente exige localizar e ler o novo arquivo. O **nome falado** — o nome sem extensão, como
 “assistentes ia mais usados 2026” — vale para todo formato editável, e não só para planilha;
 quem garante que ele aponta para um arquivo só é o `apelidoUnico` que o agente calcula contra o

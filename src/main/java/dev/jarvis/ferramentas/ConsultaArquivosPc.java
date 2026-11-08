@@ -34,9 +34,17 @@ final class ConsultaArquivosPc {
     static String executar(PcService pc, String acao, JsonNode entrada,
             OuvinteProgresso progresso) throws Exception {
         ContextoArquivo contexto = progresso.contextoArquivo();
-        if (contexto != null && contexto.aguardaEsclarecimento(progresso.idPedido()))
-            return "A seleção de arquivo está ambígua. Peça ao usuário um detalhe para distinguir "
-                    + "o arquivo em nova mensagem; não escolha um resultado silenciosamente.";
+        // Com a seleção ambígua neste pedido, consultar continua valendo — refinar a listagem e ler
+        // cada candidato é como se acha o arquivo certo, inclusive pelo conteúdo. O que a ambiguidade
+        // trava é a edição (EditarArquivoFerramenta) e a escolha do alvo: nada consultado aqui vira
+        // o "esse arquivo" da mensagem seguinte, senão seria o último lido, escolhido em silêncio.
+        if (contexto != null && contexto.aguardaEsclarecimento(progresso.idPedido())) {
+            if ("ler_arquivo".equals(acao) && (entrada == null || !entrada.isObject() || !entrada.has("id")))
+                return "Há mais de um arquivo possível neste pedido. Leia pelo id que listar_arquivos "
+                        + "devolveu; não escolha um resultado silenciosamente.";
+            Resposta resposta = consultar(pc, acao, entrada, progresso);
+            return resposta.temDados() ? resposta.dados().toString() : resposta.recado();
+        }
         if (contexto != null && "listar_arquivos".equals(acao) && entrada != null
                 && !Json.texto(entrada.path("nome")).isBlank()) contexto.limpar();
         if (contexto != null && "ler_arquivo".equals(acao) && entrada != null && entrada.isObject()) {
