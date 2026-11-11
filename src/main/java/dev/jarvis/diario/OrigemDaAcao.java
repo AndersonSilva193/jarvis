@@ -18,6 +18,8 @@ public enum OrigemDaAcao {
     TAREFA("tarefa"),
     /** Uma regra de gatilho disparou: como o anotador, não é canal de conversa. */
     GATILHO("gatilho"),
+    /** Um agente do escritório (Hermes Agent) pelo servidor MCP: não é o dono pedindo. */
+    ESCRITORIO("escritorio"),
     DESCONHECIDA("desconhecida");
 
     private final String chave;

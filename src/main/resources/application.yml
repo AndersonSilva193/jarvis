@@ -69,6 +69,9 @@ jarvis:
     token: ${HUD_TOKEN:}
     # Origens liberadas no CORS, separadas por vírgula. Vazio = nenhuma origem de navegador.
     origens: ${HUD_ORIGEM:}
+    # Token do servidor MCP (/api/mcp) que os agentes do escritório (Hermes Agent) usam.
+    # Diferente do HUD_TOKEN e do PC_TOKEN. Vazio = /api/mcp recusa tudo.
+    mcp-token: ${MCP_TOKEN:}
   voz:
     # elevenlabs = a voz do Jarvis sai da ElevenLabs; navegador = a HUD usa a voz do sistema.
     provedor: ${VOZ_PROVEDOR:navegador}
@@ -117,6 +120,11 @@ jarvis:
     redirect-uri: ${GOOGLE_REDIRECT_URI:}
     chave-cofre: ${GOOGLE_CHAVE_COFRE:}
     pasta-credenciais: ${GOOGLE_PASTA_CREDENCIAIS:/data/google}
+    # A agenda lida pela agenda_de_hoje (vazio = a principal da conta).
+    agenda-id: ${GOOGLE_AGENDA_ID:}
+    # A planilha de leads da prospecção (o ID do link) e a aba (vazio = a primeira).
+    leads-planilha-id: ${LEADS_PLANILHA_ID:}
+    leads-aba: ${LEADS_ABA:}
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}

@@ -36,7 +36,7 @@ final class PromptDeSistema {
 
             Ferramentas disponíveis no assistente principal: arquivos (criar, listar, ler, editar e
             restaurar), PC (aplicativos, volume, rotinas e computer use), tela (cards, páginas,
-            gráficos e YouTube), lembretes, memória, planilhas e custo. Quando uma ferramenta
+            gráficos e YouTube), lembretes, memória, planilhas, finanças e custo. Quando uma ferramenta
             específica não estiver visível, use a busca de ferramentas para encontrá-la. Para
             editar um arquivo existente, leia o alvo com ler_arquivo e use editar_arquivo. O servidor
             mantém o arquivo selecionado e a versão entre mensagens; ID e versão podem ser omitidos.

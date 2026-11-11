@@ -58,7 +58,13 @@ public enum TipoDeAcao {
     CONCESSAO_USADA("concessao_usada", "permissão usada pela primeira vez",
             "permissões usadas pela primeira vez", false),
     CONCESSAO_EXPIRADA("concessao_expirada", "permissão expirada", "permissões expiradas", false),
-    CONCESSAO_REVOGADA("concessao_revogada", "permissão revogada", "permissões revogadas", false);
+    CONCESSAO_REVOGADA("concessao_revogada", "permissão revogada", "permissões revogadas", false),
+    // As finanças. Autônomas: ninguém perguntou "Posso?" antes — o dono pediu na conversa ou um
+    // agente do escritório lançou pelo MCP, e é justamente este segundo caso que ele precisa ver.
+    LANCAMENTO_FINANCEIRO("lancamento_financeiro", "lançamento financeiro",
+            "lançamentos financeiros", true),
+    LANCAMENTO_REMOVIDO("lancamento_removido", "lançamento removido", "lançamentos removidos",
+            true);
 
     private final String chave;
     private final String singular;

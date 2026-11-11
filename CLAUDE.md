@@ -58,7 +58,7 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream, para o SSE ou sem cliente pelo `DestinoDaGeracao`), o controle por conversa (`EstadoDoHologramaService`, `ResolvedorDeAlvo`, `ComandoDoHolograma`, `IntentoDoHolograma`/`AtalhoDoHolograma`, `FalasDoHolograma`), `GaleriaDeHologramas` (os objetos completos em disco, a chave do cache e as miniaturas), `BenchmarkDeHolograma`/`MedidaDaGeracao` (os dez objetos de referência por gerador, relatório em `HOLOGRAMA_PASTA/benchmark`), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
-| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa (opcional) |
+| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth, criação de planilha nativa e leitura (`ler`); `AgendaGoogleService` (os compromissos do dia) e `LeadsService` (a planilha de leads da prospecção) |
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
@@ -71,7 +71,9 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.pc` | O PC Windows: `PcService` e `OperacoesPcService` (as filas de comando), `CatalogoDoPc` (os apps e as rotinas que o PC anunciou, em disco), `ComandoPc`/`ResultadoPc`, `ArquivosPcService` e `FluxoEdicaoPc` (arquivos e edição), `TarefasPlanilhaService` e `AvisosOperacoesPc` |
 | `dev.jarvis.autonomia` | `PoliticaDeAutonomia` (lê `config/autonomia.md` e decide, para cada ação do catálogo, faz e avisa / pergunta / proibido), `AcaoAutonoma` (o catálogo fechado, com padrão e piso), `Nivel`, `Concessoes`/`Concessao` (as permissões que o dono deu, em `DIARIO_PASTA/concessoes.json`) e `ClassificadorDeConcessao` (a segunda leitura de "pode fazer X sem me perguntar") |
 | `dev.jarvis.aprovacao` | `Aprovacoes`: a aprovação humana de uso único por onde passa **toda** confirmação, com o nível `Risco` que define o prazo — e o único ponto onde a ação aprovada roda, logo o único que a anota no diário |
-| `dev.jarvis.web` | API da HUD e do agente do PC: controllers, SSE (`EventosHud`), os dois filtros de token e CORS |
+| `dev.jarvis.financas` | `FinancasService` (o livro de gastos e ganhos em `DIARIO_PASTA/financas.json`, em centavos), `Lancamento` e `PeriodoFinanceiro` |
+| `dev.jarvis.mcp` | O servidor MCP do escritório: `ServidorMcp` (o JSON-RPC à mão), `FerramentaMcp`/`ResultadoMcp` e as ferramentas que os agentes do Hermes podem chamar |
+| `dev.jarvis.web` | API da HUD, do agente do PC e do MCP: controllers, SSE (`EventosHud`), os três filtros de token e CORS |
 | `dev.jarvis.util` | `Json` (leitura defensiva de campos que podem não existir, e `canonico` para comparar dois JSONs), `ComparadorDeToken` (comparação de segredo em tempo constante), `ArquivoAtomico` (gravação com troca atômica e `.bak`), `ValidadorDeEsquema` (o subconjunto de JSON Schema que os `esquemaEntrada()` usam) e `Texto` |
 
 ### A mesma ferramenta, a mesma entrada, de novo
@@ -615,6 +617,45 @@ controlar_pc ──► PcService (fila) ──► GET /api/pc/comandos ──►
   API que não é JSON, montado pelo `MultipartTelegram`) e um `Artefato` no `ResultadoFerramenta`,
   que o `AnexosService` publica para a HUD. O mime é farejado dos bytes no `PcDto`, nunca aceito
   do agente — um `image/svg+xml` declarado chegaria à tela como imagem, e SVG é scriptável.
+
+## O escritório pelo MCP
+
+Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis como servidor MCP em
+`POST /api/mcp`. O guia de ligar e conferir está em `docs/ESCRITORIO_MCP.md`; aqui ficam as regras.
+
+- **Terceiro domínio de confiança.** `MCP_TOKEN` (`jarvis.hud.mcp-token`, esticando o `Hud` com o
+  construtor de dois argumentos e o `@ConstructorBinding`) é exigido pelo `TokenMcpFiltro`, e o
+  `TokenHudFiltro` desiste da rota pelo mesmo predicado (`TokenMcpFiltro.rotaDoMcp`), como faz com
+  `/api/pc`. Sem `?token=`. Requisição com `Origin` é 403: quem chama não é navegador.
+- **O catálogo é outro.** `FerramentaMcp` **não** é `Ferramenta`: o Spring injeta só as
+  implementações dela no `ServidorMcp`, e nenhuma ferramenta da conversa vaza para os agentes, que
+  leem a internet. Ferramenta MCP nova é um `@Component` em `dev.jarvis.mcp`, e a pergunta antes de
+  criar é a do `verificar_site`: o agente escolhe valor de lista ou número, nunca destino, comando ou
+  texto que o Jarvis repita ao dono.
+- **JSON-RPC à mão, sem SDK**: um POST por mensagem, resposta JSON, sem stream nem sessão
+  (`GET`/`DELETE` são 405, notificação é 202). Erro de protocolo, método e ferramenta desconhecidos
+  são erro JSON-RPC; argumento errado vai no resultado com `isError`, para o modelo corrigir.
+- **`avisar_aprovacoes` não leva texto do agente**: tipo de uma lista e quantidade; a frase é a
+  `escritorio_aprovacoes` do `FalasService` e sai pelo `AvisosProativos` (silêncio, sem repetir o
+  mesmo número). Por cima, um aviso por tipo a cada 15 minutos, em memória.
+- **O livro financeiro é um só.** `FinancasService` atende as ferramentas da conversa
+  (`registrar_lancamento`, `resumo_financeiro`, `remover_lancamento`) e as do MCP
+  (`registrar_gasto`, `registrar_ganho`, `resumo_financeiro`). Valor em centavos (`long`), conta
+  feita em Java, e a validação (valor, data, categoria, descrição) mora no serviço, não em quem chama.
+  Remover só marca `removidoEm`; o MCP não remove. O `resumo_financeiro` do MCP devolve os mesmos
+  números também em `structuredContent` (centavos), pelo `ResultadoMcp.estruturado`: é o que o painel
+  de operação do Hermes3D desenha, sem ler número de prosa. Cada lançamento entra no diário
+  (`LANCAMENTO_FINANCEIRO`/`LANCAMENTO_REMOVIDO`, autônomos) com a origem de quem lançou — a do
+  escritório é `OrigemDaAcao.ESCRITORIO`.
+- **Agenda e leads são leitura do Google**, pelo `GooglePlanilhasService.ler` (o mesmo OAuth, com os
+  escopos `spreadsheets.readonly` e `calendar.readonly` somados ao `drive.file`; 403 vira "reconecte o
+  Google pela HUD"). `AgendaGoogleService` e `LeadsService` devolvem texto pronto para a conversa
+  (`agenda_de_hoje`, `leads_do_dia`) e para o MCP (as mesmas, só leitura). Os valores vêm de terceiros
+  — convite de agenda, planilha da rotina —, então saem limpos (`<<<`/`>>>` e controle fora) e
+  cortados. A planilha é lida **pelo cabeçalho**, não pela posição. As duas ferramentas da conversa
+  são `oferecida()` só com o Google configurado (e `LEADS_PLANILHA_ID`, na de leads), que é de partida.
+  `GOOGLE_AGENDA_ID`, `LEADS_PLANILHA_ID` e `LEADS_ABA` esticaram o bloco `Google`, com o construtor
+  de cinco argumentos e o `@ConstructorBinding`.
 
 ## A abertura falada da HUD
 
