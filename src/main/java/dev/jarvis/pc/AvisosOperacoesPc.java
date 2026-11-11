@@ -65,7 +65,8 @@ public class AvisosOperacoesPc {
             }
             if (edicao && resultado != null && resultado.ok() && (!resultado.arquivo() || entregaFalhou)
                     && !texto.contains("salvo, entrega falhou")) texto += " salvo, entrega falhou.";
-            if ("telegram".equals(canal) && chatId > 0 && (!telegramAvisado || edicao))
+            boolean empresa = "empresa_delegar".equals(estado.acao());
+            if ("telegram".equals(canal) && chatId > 0 && (!telegramAvisado || edicao || empresa))
                 try { telegram.enviarMensagem(chatId, texto); }
                 catch (Exception ignorada) { /* O estado segue consultável pelo ID. */ }
             if ("hud".equals(canal) && chatId > 0)
@@ -74,6 +75,13 @@ public class AvisosOperacoesPc {
     }
 
     static String textoDoAviso(String id, OperacoesPcService.Retrato estado, ResultadoPc resultado) {
+        if ("empresa_delegar".equals(estado.acao())) {
+            if (resultado != null && resultado.ok()) {
+                String resumo = resultado.dados() == null ? "" : resultado.dados().path("resumo").asString("");
+                return ("A empresa concluiu a tarefa.\n\n" + resumo).trim();
+            }
+            return "A tarefa da empresa precisa da sua atenção: " + estado.mensagem();
+        }
         boolean edicao = List.of("aplicar_edicao", "aplicar_desfazer").contains(estado.acao());
         if (edicao) {
             if (resultado != null && resultado.ok()) {

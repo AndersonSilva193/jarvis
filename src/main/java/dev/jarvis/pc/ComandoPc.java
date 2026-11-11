@@ -31,7 +31,8 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
             "modo_repouso", "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo",
             "rodar_rotina", "computer_acao", "preparar_edicao", "aplicar_edicao",
             "preparar_desfazer", "aplicar_desfazer",
-            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira", "inferir");
+            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira", "inferir",
+            "empresa_abrir", "empresa_status", "empresa_delegar");
 
     /**
      * As três da lixeira: levam o pedido todo em {@code dados} e respondem em {@code dados}.
@@ -51,6 +52,9 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
      * Nunca aparece ao modelo — ele não escolhe falar com outro modelo.
      */
     public static final Set<String> INFERENCIA = Set.of("inferir");
+
+    /** As da empresa no Hermes3D: têm ferramentas próprias e nunca aparecem no controlar_pc. */
+    public static final Set<String> EMPRESA = Set.of("empresa_abrir", "empresa_status", "empresa_delegar");
 
     /** As irreversíveis, que exigem aprovação {@code CRITICO} em nova mensagem autenticada. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

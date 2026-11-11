@@ -33,7 +33,9 @@ public enum AcaoAutonoma {
     PLANILHA_AGENDAR("planilha.agendar", false, Nivel.PERGUNTA, Nivel.FAZ_E_AVISA,
             "agendar edição recorrente de planilha"),
     MEMORIA_ESQUECER("memoria.esquecer", false, Nivel.PERGUNTA, Nivel.FAZ_E_AVISA,
-            "esquecer uma lembrança");
+            "esquecer uma lembrança"),
+    EMPRESA_DELEGAR("empresa.delegar", false, Nivel.PERGUNTA, Nivel.FAZ_E_AVISA,
+            "passar tarefa para a empresa no Hermes3D");
 
     /**
      * O alvo aceito. É a mesma régua que o {@code OperacoesPcService} aplica ao nome de rotina
