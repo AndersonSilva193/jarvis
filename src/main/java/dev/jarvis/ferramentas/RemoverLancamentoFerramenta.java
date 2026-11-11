@@ -36,6 +36,7 @@ public class RemoverLancamentoFerramenta implements Ferramenta {
     }
 
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.FINANCAS; }
+    @Override public boolean simples() { return true; }
     @Override public boolean mudaEstado() { return true; }
 
     @Override
