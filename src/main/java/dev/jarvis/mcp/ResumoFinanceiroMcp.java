@@ -54,6 +54,29 @@ public class ResumoFinanceiroMcp implements FerramentaMcp {
             return ResultadoMcp.erro("periodo tem de ser um de "
                     + String.join(", ", PeriodoFinanceiro.chaves()) + ".");
         }
-        return ResultadoMcp.ok(financas.resumo(periodo).texto());
+        FinancasService.Resumo resumo = financas.resumo(periodo);
+        return ResultadoMcp.ok(resumo.texto(), estruturado(resumo));
+    }
+
+    /**
+     * Os mesmos números do texto, em centavos, para o painel desenhar sem ler prosa. Categorias
+     * vão inteiras e na ordem do serviço (maior primeiro); quem desenha decide onde cortar.
+     */
+    ObjectNode estruturado(FinancasService.Resumo resumo) {
+        ObjectNode dado = json.createObjectNode()
+                .put("periodo", resumo.periodo().chave())
+                .put("de", resumo.de().toString())
+                .put("ate", resumo.ate().toString())
+                .put("ganhosCentavos", resumo.ganhos())
+                .put("gastosCentavos", resumo.gastos())
+                .put("saldoCentavos", resumo.saldo())
+                .put("quantidade", resumo.quantidade());
+        ObjectNode gastos = dado.putObject("gastosPorCategoria");
+        resumo.gastosPorCategoria().forEach((categoria, centavos) ->
+                gastos.put(categoria, centavos.longValue()));
+        ObjectNode ganhos = dado.putObject("ganhosPorCategoria");
+        resumo.ganhosPorCategoria().forEach((categoria, centavos) ->
+                ganhos.put(categoria, centavos.longValue()));
+        return dado;
     }
 }

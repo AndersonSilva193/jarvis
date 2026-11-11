@@ -90,6 +90,36 @@ class ServidorMcpTest {
     }
 
     @Test
+    @DisplayName("resumo_financeiro devolve também structuredContent, em centavos")
+    void resumoEstruturado() {
+        var servidor = servidor();
+        tratar(servidor, """
+                {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"registrar_gasto",
+                 "arguments":{"valor":49.9,"categoria":"combustível"}}}""");
+        tratar(servidor, """
+                {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"registrar_ganho",
+                 "arguments":{"valor":1200,"categoria":"site"}}}""");
+        JsonNode resumo = tratar(servidor, """
+                {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"resumo_financeiro",
+                 "arguments":{}}}""").path("result");
+        assertFalse(resumo.path("isError").booleanValue());
+        assertTrue(resumo.path("content").get(0).path("text").stringValue().startsWith("Resumo"));
+        JsonNode dado = resumo.path("structuredContent");
+        assertEquals("mes_atual", dado.path("periodo").stringValue());
+        assertEquals(120_000, dado.path("ganhosCentavos").longValue());
+        assertEquals(4_990, dado.path("gastosCentavos").longValue());
+        assertEquals(115_010, dado.path("saldoCentavos").longValue());
+        assertEquals(2, dado.path("quantidade").intValue());
+        assertEquals(4_990, dado.path("gastosPorCategoria").path("combustível").longValue());
+
+        JsonNode torto = tratar(servidor, """
+                {"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"resumo_financeiro",
+                 "arguments":{"periodo":"ano"}}}""").path("result");
+        assertTrue(torto.path("isError").booleanValue());
+        assertTrue(torto.path("structuredContent").isMissingNode());
+    }
+
+    @Test
     @DisplayName("ferramenta e método desconhecidos são erro JSON-RPC")
     void desconhecidos() {
         var servidor = servidor();

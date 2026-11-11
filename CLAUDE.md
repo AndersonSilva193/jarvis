@@ -642,7 +642,9 @@ Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis co
   (`registrar_lancamento`, `resumo_financeiro`, `remover_lancamento`) e as do MCP
   (`registrar_gasto`, `registrar_ganho`, `resumo_financeiro`). Valor em centavos (`long`), conta
   feita em Java, e a validação (valor, data, categoria, descrição) mora no serviço, não em quem chama.
-  Remover só marca `removidoEm`; o MCP não remove. Cada lançamento entra no diário
+  Remover só marca `removidoEm`; o MCP não remove. O `resumo_financeiro` do MCP devolve os mesmos
+  números também em `structuredContent` (centavos), pelo `ResultadoMcp.estruturado`: é o que o painel
+  de operação do Hermes3D desenha, sem ler número de prosa. Cada lançamento entra no diário
   (`LANCAMENTO_FINANCEIRO`/`LANCAMENTO_REMOVIDO`, autônomos) com a origem de quem lançou — a do
   escritório é `OrigemDaAcao.ESCRITORIO`.
 - **Agenda e leads são leitura do Google**, pelo `GooglePlanilhasService.ler` (o mesmo OAuth, com os

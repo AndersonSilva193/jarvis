@@ -18,7 +18,7 @@ Hermes Agent (PC) ──HTTPS + MCP_TOKEN──► nginx ──► /api/mcp ─�
 | `avisar_aprovacoes` | Avisa no Telegram que há itens esperando aprovação no quadro do escritório. O agente escolhe o tipo (`abordagens`, `propostas`, `conteudos`, `tarefas`) e a quantidade; a frase é do Jarvis. | manda mensagem ao dono |
 | `registrar_gasto` | Lança um gasto no livro financeiro do Jarvis. | sim |
 | `registrar_ganho` | Lança um ganho no mesmo livro. | sim |
-| `resumo_financeiro` | Ganhos, gastos, saldo, categorias e últimos lançamentos de um período. | não |
+| `resumo_financeiro` | Ganhos, gastos, saldo, categorias e últimos lançamentos de um período. Também em `structuredContent`, em centavos, para o painel de operação do Hermes3D. | não |
 | `agenda_de_hoje` | Compromissos do Google Agenda do dono para hoje ou amanhã. | não |
 | `leads_do_dia` | Leads de hoje da planilha de prospecção (ou os últimos, se não houver de hoje). | não |
 

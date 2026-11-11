@@ -155,6 +155,10 @@ public class ServidorMcp {
         ObjectNode corpo = json.createObjectNode();
         corpo.putArray("content").addObject().put("type", "text").put("text", resultado.texto());
         corpo.put("isError", resultado.erro());
+        if (!resultado.erro() && resultado.estruturado() != null && resultado.estruturado().isObject()) {
+            // O MCP pede o mesmo conteúdo também em texto, e ele já está no "content" acima.
+            corpo.set("structuredContent", resultado.estruturado());
+        }
         return resposta(id, corpo);
     }
 
