@@ -326,7 +326,7 @@ public class PcService {
     public boolean aguardandoArquivo(String id) {
         if (e2 != null && e2.estado(id).isPresent()) {
             var estado = e2.estado(id).orElseThrow();
-            return List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer")
+            return List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer", "empresa_delegar")
                     .contains(estado.acao())
                     && List.of("recebido", "executando").contains(estado.estado());
         }

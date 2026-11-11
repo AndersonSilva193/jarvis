@@ -38,6 +38,7 @@ public enum TipoDeAcao {
 
     // ---- o que ele só faz depois de um "sim" ("pergunta antes")
     ROTINA("rotina", "rotina executada", "rotinas executadas", false),
+    EMPRESA_TAREFA("empresa_tarefa", "tarefa passada à empresa", "tarefas passadas à empresa", false),
     COMPUTER_USE("computer_use", "tarefa no monitor", "tarefas no monitor", false),
     DESLIGAR_PC("desligar_pc", "PC desligado", "vezes que desliguei o PC", false),
     ESQUECER_MEMORIA("esquecer_memoria", "memória esquecida", "memórias esquecidas", false),

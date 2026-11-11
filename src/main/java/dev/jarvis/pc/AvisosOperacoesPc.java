@@ -14,6 +14,9 @@ import dev.jarvis.telegram.TelegramClient;
 /** Marca a tentativa antes do envio; a consulta por ID é a fonte de verdade após uma queda. */
 @Component
 public class AvisosOperacoesPc {
+    private static final String ENTREGA_FALHOU = "salvo, entrega falhou: ";
+    private static final String RESULTADO_INCOMPLETO = "\n\nO resultado completo não chegou aqui; isto é só o começo.";
+
     private final OperacoesPcService operacoes;
     private final TelegramClient telegram;
     private final RegistroConversas conversas;
@@ -65,7 +68,9 @@ public class AvisosOperacoesPc {
             }
             if (edicao && resultado != null && resultado.ok() && (!resultado.arquivo() || entregaFalhou)
                     && !texto.contains("salvo, entrega falhou")) texto += " salvo, entrega falhou.";
-            if ("telegram".equals(canal) && chatId > 0 && (!telegramAvisado || edicao))
+            boolean empresa = "empresa_delegar".equals(estado.acao());
+            if (empresa && entregaFalhou && !texto.contains(RESULTADO_INCOMPLETO)) texto += RESULTADO_INCOMPLETO;
+            if ("telegram".equals(canal) && chatId > 0 && (!telegramAvisado || edicao || empresa))
                 try { telegram.enviarMensagem(chatId, texto); }
                 catch (Exception ignorada) { /* O estado segue consultável pelo ID. */ }
             if ("hud".equals(canal) && chatId > 0)
@@ -74,6 +79,19 @@ public class AvisosOperacoesPc {
     }
 
     static String textoDoAviso(String id, OperacoesPcService.Retrato estado, ResultadoPc resultado) {
+        if ("empresa_delegar".equals(estado.acao())) {
+            if (resultado != null && resultado.ok()) {
+                String resumo = resultado.dados() == null ? "" : resultado.dados().path("resumo").asString("");
+                String texto = ("A empresa concluiu a tarefa.\n\n" + resumo).trim();
+                String mensagem = resultado.mensagem();
+                if (mensagem.startsWith(ENTREGA_FALHOU)) {
+                    return texto + RESULTADO_INCOMPLETO + " O arquivo completo está no PC: "
+                            + mensagem.substring(ENTREGA_FALHOU.length()) + ".";
+                }
+                return "resultado completo não pôde ser salvo".equals(mensagem) ? texto + RESULTADO_INCOMPLETO : texto;
+            }
+            return "A tarefa da empresa precisa da sua atenção: " + estado.mensagem();
+        }
         boolean edicao = List.of("aplicar_edicao", "aplicar_desfazer").contains(estado.acao());
         if (edicao) {
             if (resultado != null && resultado.ok()) {
