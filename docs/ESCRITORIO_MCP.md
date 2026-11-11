@@ -89,13 +89,20 @@ AGENDA_ABA=
 
 **Leads** — quem escreve é o agente de prospecção do escritório, acrescentando uma linha por lead no
 fim. CSV é o mais fácil para ele; o Excel em português abre com `;` e o Jarvis entende os dois. As
-colunas são achadas pelo cabeçalho (nome/empresa, segmento, telefone/WhatsApp, cidade/bairro, status,
-data), e "do dia" são as linhas com a data de hoje (`dd/MM/aaaa` ou `AAAA-MM-DD`):
+colunas são achadas pelo cabeçalho (nome/empresa, segmento, telefone/WhatsApp, cidade/bairro, rede
+social/Instagram, status, data), e "do dia" são as linhas com a data de hoje (`dd/MM/aaaa` ou
+`AAAA-MM-DD`):
 
 ```text
-Data;Empresa;Segmento;WhatsApp;Bairro;Status
-11/11/2026;Academia Força;academia;+55 41 99999-0000;Batel;novo
+Data;Empresa;Segmento;WhatsApp;Bairro;Instagram;Status
+11/11/2026;Academia Força;academia;+55 41 99999-0000;Batel;https://instagram.com/academiaforca;
 ```
+
+O **Status** é escrito pelo escritório (Hermes3D, com `LEADS_CSV_PATH` apontando para este arquivo):
+`abordado em 11/11/2026` quando o dono aprova a abordagem, `descartado em 11/11/2026` quando
+descarta. O `leads_do_dia` abre com a contagem (`Status: abordado 6, descartado 2, sem status 7.`) e
+mostra a rede como link curto (`instagram.com/academiaforca`); link longo demais para caber sai de
+fora, porque cortado ele não abriria.
 
 **Agenda** — uma linha por compromisso, com as colunas **Data**, **Início**, **Fim**,
 **Compromisso** e **Local** (só Data é obrigatória; sem hora é o dia inteiro). A hora pode estar na

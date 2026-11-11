@@ -658,7 +658,10 @@ Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis co
   chega como `AAAA-MM-DD` e, com o agente que traz `dataHora`, com a hora — hora pura do Excel é uma
   data em 1899 e sai só a hora. `AgendaService` e `LeadsService` devolvem texto pronto para a conversa
   (`agenda_de_hoje`, `leads_do_dia`) e para o MCP (as mesmas, só leitura). Colunas **pelo cabeçalho**,
-  não pela posição; valores saem limpos (`<<<`/`>>>` e controle fora) e cortados. As duas ferramentas
+  não pela posição; valores saem limpos (`<<<`/`>>>` e controle fora) e cortados — menos o link da
+  rede social, que sai sem esquema e some inteiro quando não cabe (URL cortada não abre). O status é
+  escrito pelo Hermes3D na aprovação (`abordado em <data>`), e o `leads_do_dia` abre com a contagem
+  pela primeira palavra dele, montada em Java para o modelo não somar lista. As duas ferramentas
   são `oferecida()` com o PC configurado (`PC_TOKEN`), que é de partida; PC desligado é a leitura que
   avisa, com a frase do `ConsultaArquivosPc`. As quatro variáveis (`LEADS_ARQUIVO`, `LEADS_ABA`,
   `AGENDA_ARQUIVO`, `AGENDA_ABA`) esticaram o bloco `Pc` com o sub-record `Escritorio` e o construtor
