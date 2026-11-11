@@ -50,6 +50,8 @@ public final class ConferenciaDoResultado {
             Map.entry("controlar_pc", "controlar_pc com status_pc ou captura_tela"),
             Map.entry("criar_lembrete", "listar_lembretes"),
             Map.entry("cancelar_lembrete", "listar_lembretes"),
+            Map.entry("registrar_lancamento", "resumo_financeiro"),
+            Map.entry("remover_lancamento", "resumo_financeiro"),
             Map.entry("registrar_memoria", "buscar_memoria"),
             Map.entry("atualizar_memoria", "buscar_memoria"),
             Map.entry("esquecer_memoria", "buscar_memoria"),

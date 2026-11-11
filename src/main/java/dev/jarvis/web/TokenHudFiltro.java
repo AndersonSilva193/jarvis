@@ -48,8 +48,10 @@ public class TokenHudFiltro extends OncePerRequestFilter {
         String uri = requisicao.getRequestURI();
         // Fora de /api não há o que proteger aqui. E /api/pc é do agente do PC: quem exige o
         // PC_TOKEN lá é o TokenPcFiltro, com o mesmo predicado, para os dois conjuntos serem
-        // disjuntos por construção (ver o javadoc de TokenPcFiltro.rotaDoPc).
-        return !uri.startsWith("/api") || TokenPcFiltro.rotaDoPc(uri);
+        // disjuntos por construção (ver o javadoc de TokenPcFiltro.rotaDoPc). O /api/mcp, dos
+        // agentes do escritório, é do TokenMcpFiltro pela mesma regra.
+        return !uri.startsWith("/api") || TokenPcFiltro.rotaDoPc(uri)
+                || TokenMcpFiltro.rotaDoMcp(uri);
     }
 
     @Override

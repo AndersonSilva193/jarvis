@@ -58,6 +58,10 @@ public class FalasService {
         // A cota mensal do Tavily na buscar_na_web. Os números saem do MedidorDeCusto.
         falas.put("busca_cota_alta",
                 "A cota de buscas do Tavily está em {percentual}% este mês ({usadas} de {cota}).");
+        // O escritório de agentes avisando, pelo MCP, que há itens esperando o dono. O {itens}
+        // ("3 abordagens") é montado em Java a partir de um tipo fechado e de um número.
+        falas.put("escritorio_aprovacoes",
+                "O escritório tem {itens} esperando sua aprovação no quadro de tarefas.");
         falas.put("busca_cota_esgotada", "A cota de buscas do Tavily acabou este mês. Até a "
                 + "virada, pesquiso pelas reservas.");
         return Map.copyOf(falas);
