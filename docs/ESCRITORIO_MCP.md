@@ -19,6 +19,8 @@ Hermes Agent (PC) ──HTTPS + MCP_TOKEN──► nginx ──► /api/mcp ─�
 | `registrar_gasto` | Lança um gasto no livro financeiro do Jarvis. | sim |
 | `registrar_ganho` | Lança um ganho no mesmo livro. | sim |
 | `resumo_financeiro` | Ganhos, gastos, saldo, categorias e últimos lançamentos de um período. | não |
+| `agenda_de_hoje` | Compromissos do Google Agenda do dono para hoje ou amanhã. | não |
+| `leads_do_dia` | Leads de hoje da planilha de prospecção (ou os últimos, se não houver de hoje). | não |
 
 O que fica de fora **de propósito**: controle do PC, arquivos, memória, lembretes, rotinas e qualquer
 ação que no Jarvis passa pelo "Posso?". Os agentes leem a internet; uma instrução escondida numa
@@ -71,6 +73,21 @@ pela conversa ("remove o lançamento a1b2c3d4"): o MCP não remove nada.
    (`kanban_request_review`), chame `avisar_aprovacoes` com o tipo `abordagens` e o total que está
    esperando." No do financeiro: "Use `registrar_gasto`/`registrar_ganho` só com valores que o dono
    informou ou confirmou, e `resumo_financeiro` para relatórios."
+
+### Agenda e leads
+
+As duas leem o Google pelo mesmo OAuth das planilhas, agora com os escopos de leitura de Agenda e
+Planilhas. Quem já tinha conectado o Google precisa **reconectar uma vez pela HUD** para dar a
+permissão nova; até lá, as duas respondem pedindo isso. No `.env`:
+
+```bash
+LEADS_PLANILHA_ID=<o trecho entre /d/ e /edit no link da planilha de leads>
+# LEADS_ABA=Leads          # vazio = a primeira aba
+# GOOGLE_AGENDA_ID=        # vazio = a agenda principal
+```
+
+As colunas da planilha são achadas pelo cabeçalho (nome/empresa, segmento, telefone/WhatsApp,
+cidade/bairro, status, data), então a ordem não importa. "Do dia" são as linhas com a data de hoje.
 
 ## Conferir
 

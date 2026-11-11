@@ -120,6 +120,11 @@ jarvis:
     redirect-uri: ${GOOGLE_REDIRECT_URI:}
     chave-cofre: ${GOOGLE_CHAVE_COFRE:}
     pasta-credenciais: ${GOOGLE_PASTA_CREDENCIAIS:/data/google}
+    # A agenda lida pela agenda_de_hoje (vazio = a principal da conta).
+    agenda-id: ${GOOGLE_AGENDA_ID:}
+    # A planilha de leads da prospecção (o ID do link) e a aba (vazio = a primeira).
+    leads-planilha-id: ${LEADS_PLANILHA_ID:}
+    leads-aba: ${LEADS_ABA:}
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}

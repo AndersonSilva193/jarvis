@@ -707,11 +707,17 @@ anota gastos e ganhos (`registrar_lancamento`), resume por período com totais e
 feitas em centavos, no servidor. O livro mora em `DIARIO_PASTA/financas.json` e é o mesmo que o
 agente financeiro do escritório usa pelo MCP.
 
+### Agenda e leads
+
+"O que eu tenho hoje?" e "quais os leads de hoje?": o Jarvis lê o Google Agenda (`agenda_de_hoje`) e
+a planilha de leads da prospecção (`leads_do_dia`), só leitura, pelo mesmo OAuth do Google. Configure
+`LEADS_PLANILHA_ID` e reconecte o Google pela HUD uma vez para dar a permissão de leitura.
+
 ### O escritório de agentes (MCP)
 
 Os agentes do Hermes3D/Hermes Agent falam com o Jarvis pelo servidor MCP em `/api/mcp`, com um token
-próprio (`MCP_TOKEN`): avisam no Telegram que há itens esperando aprovação e lançam e consultam as
-finanças. Nada além disso fica exposto a eles. Como ligar: [`docs/ESCRITORIO_MCP.md`](docs/ESCRITORIO_MCP.md).
+próprio (`MCP_TOKEN`): avisam no Telegram que há itens esperando aprovação, lançam e consultam as
+finanças e leem a agenda e os leads do dia. Nada além disso fica exposto a eles. Como ligar: [`docs/ESCRITORIO_MCP.md`](docs/ESCRITORIO_MCP.md).
 
 ## API para a HUD
 

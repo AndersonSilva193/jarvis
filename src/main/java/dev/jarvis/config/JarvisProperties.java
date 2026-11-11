@@ -404,8 +404,28 @@ public record JarvisProperties(
     }
 
     /** Credenciais OAuth da integração opcional com uma conta Google. */
+    /**
+     * OAuth do Google e o que o Jarvis lê de lá.
+     *
+     * @param agendaId        a agenda que a {@code agenda_de_hoje} lê; vazio é a principal.
+     * @param leadsPlanilhaId o ID da planilha de leads da prospecção (o trecho entre {@code /d/} e
+     *                        {@code /edit} no link). Vazio desliga a {@code leads_do_dia}.
+     * @param leadsAba        a aba dos leads; vazio é a primeira.
+     */
     public record Google(String clientId, String clientSecret, String redirectUri,
-            String chaveCofre, String pastaCredenciais) { }
+            String chaveCofre, String pastaCredenciais, String agendaId, String leadsPlanilhaId,
+            String leadsAba) {
+
+        /** A aridade de antes da agenda e dos leads: os testes montam por posição. */
+        public Google(String clientId, String clientSecret, String redirectUri, String chaveCofre,
+                String pastaCredenciais) {
+            this(clientId, clientSecret, redirectUri, chaveCofre, pastaCredenciais, null, null, null);
+        }
+
+        /** Dois construtores: sem a anotação o Spring deixaria o bloco inteiro nulo, calado. */
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Google { }
+    }
 
     /**
      * Volumes separados para registros e marcadores permanentes de exclusão.

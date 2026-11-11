@@ -46,8 +46,9 @@ public class ServidorMcp {
 
     private static final String INSTRUCOES = "Ferramentas do Jarvis, o assistente pessoal do dono. "
             + "Use avisar_aprovacoes para avisar no Telegram que há itens esperando a aprovação dele "
-            + "no quadro do escritório, e as ferramentas financeiras para lançar e consultar gastos e "
-            + "ganhos. Nada aqui envia mensagem a terceiros.";
+            + "no quadro do escritório, as ferramentas financeiras para lançar e consultar gastos e "
+            + "ganhos, agenda_de_hoje para a agenda do dono e leads_do_dia para os leads da "
+            + "prospecção. Nada aqui envia mensagem a terceiros.";
 
     private final JsonMapper json;
     /** Ordem alfabética pelo motivo da lista de ferramentas da conversa: estável entre deploys. */
@@ -137,6 +138,14 @@ public class ServidorMcp {
         ResultadoMcp resultado;
         try {
             resultado = ferramenta.executar(argumentos);
+        } catch (java.io.IOException e) {
+            // As IOException do Jarvis carregam frase própria ("reconecte o Google pela HUD"),
+            // escrita para o dono ler; a de rede crua fica só no log.
+            log.warn("MCP: {} falhou ({})", nome, e.getMessage());
+            String frase = e.getMessage() != null && !e.getMessage().startsWith("Google API")
+                    ? e.getMessage() : "Tente mais tarde.";
+            resultado = ResultadoMcp.erro("Não consegui executar " + nome + ": "
+                    + (frase.length() > 200 ? frase.substring(0, 200) : frase));
         } catch (Exception e) {
             // O detalhe fica no log do servidor; ao agente vai só que falhou.
             log.warn("MCP: {} falhou ({})", nome, e.getMessage());
