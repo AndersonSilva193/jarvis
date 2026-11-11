@@ -71,6 +71,43 @@ class AvisosEmpresaTest {
         assertTrue(Files.exists(arquivo));
     }
 
+    private static final String AVISO_INCOMPLETO = "A empresa concluiu a tarefa.\n\nQuatro conteúdos prontos."
+            + "\n\nO resultado completo não chegou aqui; isto é só o começo.";
+
+    @Test void uploadQueFalhouAvisaQueOResultadoEstaIncompleto() {
+        var resultado = new ResultadoPc("id", true, "salvo, entrega falhou: empresa-1.md", null, null, false,
+                json.createObjectNode().put("resumo", "Quatro conteúdos prontos."));
+        assertEquals(AVISO_INCOMPLETO + " O arquivo completo está no PC: empresa-1.md.",
+                AvisosOperacoesPc.textoDoAviso("id", retrato("concluído", "salvo, entrega falhou: empresa-1.md"), resultado));
+    }
+
+    @Test void arquivoQueNaoFoiSalvoAvisaQueOResultadoEstaIncompleto() {
+        var resultado = new ResultadoPc("id", true, "resultado completo não pôde ser salvo", null, null, false,
+                json.createObjectNode().put("resumo", "Quatro conteúdos prontos."));
+        assertEquals(AVISO_INCOMPLETO, AvisosOperacoesPc.textoDoAviso("id",
+                retrato("concluído", "resultado completo não pôde ser salvo"), resultado));
+    }
+
+    @Test void documentoQueNaoChegouNoTelegramAvisa() throws Exception {
+        Path arquivo = Files.writeString(pasta.resolve("r.md"), "completo");
+        var operacoes = mock(OperacoesPcService.class);
+        var telegram = mock(TelegramClient.class);
+        var arquivos = mock(ArquivosPcService.class);
+        org.mockito.Mockito.doThrow(new RuntimeException("telegram fora")).when(telegram)
+                .enviarDocumento(eq(42L), any(), eq("empresa-20261111-1000.md"));
+        when(operacoes.avisosPendentes()).thenReturn(List.of("id"));
+        when(operacoes.estado("id")).thenReturn(Optional.of(retrato("concluído", "empresa-20261111-1000.md")));
+        when(operacoes.marcarAviso("id")).thenReturn(true);
+        when(operacoes.resultado("id")).thenReturn(Optional.of(concluido(true)));
+        when(operacoes.canal("id")).thenReturn("telegram");
+        when(operacoes.chatId("id")).thenReturn(42L);
+        when(arquivos.obter("id")).thenReturn(Optional.of(arquivo));
+
+        new AvisosOperacoesPc(operacoes, telegram, mock(RegistroConversas.class), arquivos, mock(AnexosService.class)).avisar();
+
+        verify(telegram).enviarMensagem(eq(42L), eq(AVISO_INCOMPLETO));
+    }
+
     @Test void uploadDoResultadoEAceitoDuranteAExecucao() {
         var operacoes = mock(OperacoesPcService.class);
         when(operacoes.estado("id")).thenReturn(Optional.of(retrato("executando", "")));

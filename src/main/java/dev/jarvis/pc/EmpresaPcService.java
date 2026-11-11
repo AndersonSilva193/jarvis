@@ -70,16 +70,21 @@ public class EmpresaPcService {
                 Instant.now().toString(), dados);
         try {
             var futuro = e2.enfileirar(comando, PRAZO_DE_INICIO, PRAZO_DA_TAREFA, canal, usuario);
+            e2.pedirAviso(comando.id());
             if (ContextoDaTarefa.atual() != null) {
                 throw new SuspensaoDaTarefa(SuspensaoDaTarefa.Tipo.OPERACAO_PC, comando.id(), null,
                         futuro::isDone, () -> {
                             ResultadoPc resultado = futuro.get();
-                            var texto = ResultadoFerramenta.texto("Tarefa da empresa "
-                                    + (resultado.ok() ? "concluída: " : "falhou: ") + resultado.mensagem());
-                            return resultado.ok() ? texto : texto.comoFalha();
+                            if (!resultado.ok()) {
+                                return ResultadoFerramenta.texto("Tarefa da empresa falhou: " + resultado.mensagem())
+                                        .comoFalha();
+                            }
+                            String resumo = resultado.dados() == null ? resultado.mensagem()
+                                    : resultado.dados().path("resumo").asString(resultado.mensagem());
+                            return ResultadoFerramenta.texto("Tarefa da empresa concluída; o dono recebe o "
+                                    + "resultado por aviso.\n" + ROTULO_DOS_DADOS + resumo);
                         });
             }
-            e2.pedirAviso(comando.id());
             return "Passei o pedido para a empresa. Aviso quando terminar.";
         } catch (ControleDaTarefa controle) {
             throw controle;
