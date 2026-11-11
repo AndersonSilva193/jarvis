@@ -709,9 +709,10 @@ agente financeiro do escritório usa pelo MCP.
 
 ### Agenda e leads
 
-"O que eu tenho hoje?" e "quais os leads de hoje?": o Jarvis lê o Google Agenda (`agenda_de_hoje`) e
-a planilha de leads da prospecção (`leads_do_dia`), só leitura, pelo mesmo OAuth do Google. Configure
-`LEADS_PLANILHA_ID` e reconecte o Google pela HUD uma vez para dar a permissão de leitura.
+"O que eu tenho hoje?" e "quais os leads de hoje?": o Jarvis lê a agenda (`agenda_de_hoje`) e os
+leads da prospecção (`leads_do_dia`) de duas planilhas na pasta do Jarvis no PC, `agenda.xlsx` e
+`leads.csv` (XLSX ou CSV; os nomes mudam em `AGENDA_ARQUIVO` e `LEADS_ARQUIVO`). As colunas são achadas
+pelo cabeçalho. Com o PC desligado, as duas avisam que não dá para ler.
 
 ### O escritório de agentes (MCP)
 

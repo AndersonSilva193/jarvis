@@ -1,4 +1,4 @@
-package dev.jarvis.google;
+package dev.jarvis.escritorio;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -38,6 +38,14 @@ class LeadsServiceTest {
         var semData = List.of(List.of("Nome", "Telefone"), List.of("Loja A", "41 2222-2222"));
         assertTrue(LeadsService.texto(semData, HOJE).startsWith("A planilha não tem coluna de data"));
         assertEquals("A planilha de leads está vazia.", LeadsService.texto(List.of(List.of("Nome")), HOJE));
+    }
+
+    @Test
+    @DisplayName("com só as últimas linhas lidas, o total vem do arquivo")
+    void totalDoArquivo() {
+        var lidas = List.of(List.of("Nome", "Data"), List.of("Loja Z", "01/11"));
+        assertTrue(LeadsService.texto(lidas, 420, HOJE)
+                .startsWith("Nenhum lead com a data de hoje; os últimos 1 de 420:"));
     }
 
     @Test

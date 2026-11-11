@@ -58,7 +58,8 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream, para o SSE ou sem cliente pelo `DestinoDaGeracao`), o controle por conversa (`EstadoDoHologramaService`, `ResolvedorDeAlvo`, `ComandoDoHolograma`, `IntentoDoHolograma`/`AtalhoDoHolograma`, `FalasDoHolograma`), `GaleriaDeHologramas` (os objetos completos em disco, a chave do cache e as miniaturas), `BenchmarkDeHolograma`/`MedidaDaGeracao` (os dez objetos de referência por gerador, relatório em `HOLOGRAMA_PASTA/benchmark`), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
-| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth, criação de planilha nativa e leitura (`ler`); `AgendaGoogleService` (os compromissos do dia) e `LeadsService` (a planilha de leads da prospecção) |
+| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa |
+| `dev.jarvis.escritorio` | `AgendaService` (os compromissos do dia) e `LeadsService` (os leads da prospecção), lidos de planilhas na pasta do Jarvis no PC pelo `PlanilhaDoPc` |
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
@@ -647,15 +648,21 @@ Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis co
   de operação do Hermes3D desenha, sem ler número de prosa. Cada lançamento entra no diário
   (`LANCAMENTO_FINANCEIRO`/`LANCAMENTO_REMOVIDO`, autônomos) com a origem de quem lançou — a do
   escritório é `OrigemDaAcao.ESCRITORIO`.
-- **Agenda e leads são leitura do Google**, pelo `GooglePlanilhasService.ler` (o mesmo OAuth, com os
-  escopos `spreadsheets.readonly` e `calendar.readonly` somados ao `drive.file`; 403 vira "reconecte o
-  Google pela HUD"). `AgendaGoogleService` e `LeadsService` devolvem texto pronto para a conversa
-  (`agenda_de_hoje`, `leads_do_dia`) e para o MCP (as mesmas, só leitura). Os valores vêm de terceiros
-  — convite de agenda, planilha da rotina —, então saem limpos (`<<<`/`>>>` e controle fora) e
-  cortados. A planilha é lida **pelo cabeçalho**, não pela posição. As duas ferramentas da conversa
-  são `oferecida()` só com o Google configurado (e `LEADS_PLANILHA_ID`, na de leads), que é de partida.
-  `GOOGLE_AGENDA_ID`, `LEADS_PLANILHA_ID` e `LEADS_ABA` esticaram o bloco `Google`, com o construtor
-  de cinco argumentos e o `@ConstructorBinding`.
+- **Agenda e leads são arquivos no PC, não no Google.** `LEADS_ARQUIVO` (padrão `leads.csv`) e
+  `AGENDA_ARQUIVO` (padrão `agenda.xlsx`) são planilhas XLSX ou CSV na `pastaArquivos` do agente — a
+  pasta do Jarvis —, escritas pelo agente de prospecção do escritório e pelo dono. Quem lê é o
+  `PlanilhaDoPc` (em `ferramentas`, porque usa o `ConsultaArquivosPc`): `listar_arquivos` acha o ID
+  pelo **nome exato**, e `ler_arquivo` traz o cabeçalho e as **últimas** linhas (até 8 idas de 99
+  linhas no XLSX e 100 no CSV, os tetos do agente), porque os dois arquivos crescem para baixo. CSV
+  salvo pelo Excel em português vem com `;`: o leitor percebe pelo cabeçalho e relê. Data do Excel
+  chega como `AAAA-MM-DD` e, com o agente que traz `dataHora`, com a hora — hora pura do Excel é uma
+  data em 1899 e sai só a hora. `AgendaService` e `LeadsService` devolvem texto pronto para a conversa
+  (`agenda_de_hoje`, `leads_do_dia`) e para o MCP (as mesmas, só leitura). Colunas **pelo cabeçalho**,
+  não pela posição; valores saem limpos (`<<<`/`>>>` e controle fora) e cortados. As duas ferramentas
+  são `oferecida()` com o PC configurado (`PC_TOKEN`), que é de partida; PC desligado é a leitura que
+  avisa, com a frase do `ConsultaArquivosPc`. As quatro variáveis (`LEADS_ARQUIVO`, `LEADS_ABA`,
+  `AGENDA_ARQUIVO`, `AGENDA_ABA`) esticaram o bloco `Pc` com o sub-record `Escritorio` e o construtor
+  de seis argumentos; o nome é validado como nome de arquivo, sem barra, e o torto cai no padrão.
 
 ## A abertura falada da HUD
 

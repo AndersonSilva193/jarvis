@@ -33,14 +33,7 @@ import tools.jackson.databind.node.ObjectNode;
 /** OAuth e criação de planilhas com HTTP direto; nenhum token entra no prompt ou nos logs. */
 @Service
 public class GooglePlanilhasService {
-    /**
-     * Criar planilhas (drive.file) e ler agenda e planilhas existentes (somente leitura): a
-     * planilha de leads é escrita pela rotina de prospecção, não pelo Jarvis, então drive.file não
-     * a alcança. Quem autorizou antes destes escopos só precisa reconectar uma vez.
-     */
-    private static final String ESCOPO = "https://www.googleapis.com/auth/drive.file"
-            + " https://www.googleapis.com/auth/spreadsheets.readonly"
-            + " https://www.googleapis.com/auth/calendar.readonly";
+    private static final String ESCOPO = "https://www.googleapis.com/auth/drive.file";
     private record Pendente(Instant expira) { }
     private final Map<String, Pendente> estados = new ConcurrentHashMap<>();
     private final HttpClient http;
@@ -227,20 +220,6 @@ public class GooglePlanilhasService {
         ObjectNode corpo = json.createObjectNode(); corpo.set("requests", requests);
         chamar("POST", "https://sheets.googleapis.com/v4/spreadsheets/" + id + ":batchUpdate",
                 acesso, corpo);
-    }
-
-    /** Um GET autenticado, para quem só lê (agenda e leads). Recusa 403 com a dica de reconectar. */
-    public JsonNode ler(String url) throws Exception {
-        if (!autorizado()) throw new IOException("Google não conectado; conecte pela HUD.");
-        try {
-            return chamar("GET", url, acesso(), null);
-        } catch (IOException e) {
-            if (e.getMessage() != null && e.getMessage().contains("HTTP 403")) {
-                throw new IOException("O Google recusou a leitura: reconecte o Google pela HUD para "
-                        + "dar a permissão de agenda e planilhas.", e);
-            }
-            throw e;
-        }
     }
 
     private String acesso() throws Exception {

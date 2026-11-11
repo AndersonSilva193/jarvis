@@ -1,7 +1,5 @@
-package dev.jarvis.google;
+package dev.jarvis.escritorio;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -15,16 +13,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import dev.jarvis.config.JarvisProperties;
+import dev.jarvis.ferramentas.PlanilhaDoPc;
 import dev.jarvis.util.Texto;
-import tools.jackson.databind.JsonNode;
 
 /**
- * Os leads da planilha de prospecção, lidos do Google Sheets.
+ * Os leads da prospecção, lidos de uma planilha na pasta do Jarvis no PC ({@code LEADS_ARQUIVO},
+ * XLSX ou CSV, padrão {@code leads.csv}).
  *
- * <p>Quem escreve a planilha é a rotina de prospecção, não o Jarvis, e o formato dela pode mudar.
+ * <p>Quem escreve o arquivo é o agente de prospecção, não o Jarvis, e o formato dele pode mudar.
  * Então as colunas são achadas pelo <b>cabeçalho</b> (nome, segmento, telefone, cidade, status,
  * data), e não pela posição. "Do dia" são as linhas com a data de hoje na coluna de data; sem essa
- * coluna, ou sem nada de hoje, saem as últimas linhas, e o texto diz qual dos dois foi.
+ * coluna, ou sem nada de hoje, saem as últimas linhas, e o texto diz qual dos dois foi. Só as
+ * últimas {@link #LINHAS_LIDAS} linhas do arquivo são lidas: lead novo entra no fim.
  *
  * <p>Os valores são dados de terceiros (nomes e telefones de empresas): saem limpos e cortados.
  */
@@ -33,40 +33,37 @@ public class LeadsService {
 
     static final int MAX_LEADS = 15;
     static final int MAX_CAMPO = 60;
-    private static final String INTERVALO = "A1:Z2000";
+    static final int LINHAS_LIDAS = 300;
     private static final Pattern DATA_BR = Pattern.compile("^(\\d{1,2})/(\\d{1,2})(?:/(\\d{2,4}))?");
 
-    private final GooglePlanilhasService google;
-    private final JarvisProperties.Google config;
+    private final PlanilhaDoPc planilha;
+    private final JarvisProperties props;
     private final ZoneId zona;
     private final Clock relogio;
 
     @Autowired
-    public LeadsService(GooglePlanilhasService google, JarvisProperties props) {
-        this(google, props, Clock.systemUTC());
+    public LeadsService(PlanilhaDoPc planilha, JarvisProperties props) {
+        this(planilha, props, Clock.systemUTC());
     }
 
-    public LeadsService(GooglePlanilhasService google, JarvisProperties props, Clock relogio) {
-        this.google = google;
-        this.config = props.google();
+    public LeadsService(PlanilhaDoPc planilha, JarvisProperties props, Clock relogio) {
+        this.planilha = planilha;
+        this.props = props;
         this.zona = props.zona();
         this.relogio = relogio;
     }
 
-    /** De partida: OAuth configurado e a planilha informada no .env. */
+    /** De partida: o controle do PC configurado. PC desligado é a leitura que avisa. */
     public boolean configurado() {
-        return google.configurado() && config != null && config.leadsPlanilhaId() != null
-                && config.leadsPlanilhaId().matches("[A-Za-z0-9_-]{10,}");
+        return props.pcConfigurado();
     }
 
     public String textoDoDia() throws Exception {
-        String aba = config.leadsAba() == null || config.leadsAba().isBlank() ? ""
-                : "'" + config.leadsAba().trim().replace("'", "''") + "'!";
-        String url = "https://sheets.googleapis.com/v4/spreadsheets/" + config.leadsPlanilhaId().trim()
-                + "/values/" + URLEncoder.encode(aba + INTERVALO, StandardCharsets.UTF_8)
-                        .replace("+", "%20")
-                + "?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE";
-        return texto(linhas(google.ler(url).path("values")), LocalDate.now(relogio.withZone(zona)));
+        PlanilhaDoPc.Tabela tabela = planilha.ler(props.arquivoDeLeads(), props.abaDeLeads(), LINHAS_LIDAS);
+        List<List<String>> linhas = new ArrayList<>();
+        linhas.add(tabela.cabecalho());
+        linhas.addAll(tabela.linhas());
+        return texto(linhas, tabela.totalDeLinhas(), LocalDate.now(relogio.withZone(zona)));
     }
 
     /** As colunas que importam, achadas pelo cabeçalho. -1 é coluna que a planilha não tem. */
@@ -91,17 +88,15 @@ public class LeadsService {
         }
     }
 
-    static List<List<String>> linhas(JsonNode valores) {
-        List<List<String>> linhas = new ArrayList<>();
-        for (JsonNode linha : valores) {
-            List<String> celulas = new ArrayList<>();
-            for (JsonNode celula : linha) celulas.add(celula.isString() ? celula.stringValue() : celula.toString());
-            linhas.add(celulas);
-        }
-        return linhas;
+    static String texto(List<List<String>> linhas, LocalDate hoje) {
+        return texto(linhas, linhas.size() - 1, hoje);
     }
 
-    static String texto(List<List<String>> linhas, LocalDate hoje) {
+    /**
+     * @param linhas o cabeçalho e as linhas lidas (as últimas do arquivo).
+     * @param total  quantas linhas de dados o arquivo tem, lidas ou não.
+     */
+    static String texto(List<List<String>> linhas, int total, LocalDate hoje) {
         if (linhas.size() < 2) {
             return "A planilha de leads está vazia.";
         }
@@ -121,7 +116,7 @@ public class LeadsService {
             escolhidos = dados.subList(Math.max(0, dados.size() - MAX_LEADS), dados.size());
             titulo = (colunas.data() < 0 ? "A planilha não tem coluna de data; os últimos "
                     : "Nenhum lead com a data de hoje; os últimos ") + escolhidos.size() + " de "
-                    + dados.size() + ":";
+                    + Math.max(total, dados.size()) + ":";
         }
         StringBuilder texto = new StringBuilder(titulo);
         int numero = 1;

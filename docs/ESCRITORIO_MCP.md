@@ -76,18 +76,32 @@ pela conversa ("remove o lançamento a1b2c3d4"): o MCP não remove nada.
 
 ### Agenda e leads
 
-As duas leem o Google pelo mesmo OAuth das planilhas, agora com os escopos de leitura de Agenda e
-Planilhas. Quem já tinha conectado o Google precisa **reconectar uma vez pela HUD** para dar a
-permissão nova; até lá, as duas respondem pedindo isso. No `.env`:
+As duas leem planilhas na **pasta do Jarvis no PC** (a `pastaArquivos` do `config.properties` do
+agente), não o Google. O PC precisa estar ligado; desligado, as duas avisam. No `.env` da VPS, só se
+quiser outros nomes:
 
 ```bash
-LEADS_PLANILHA_ID=<o trecho entre /d/ e /edit no link da planilha de leads>
-# LEADS_ABA=Leads          # vazio = a primeira aba
-# GOOGLE_AGENDA_ID=        # vazio = a agenda principal
+LEADS_ARQUIVO=leads.csv      # XLSX ou CSV, nome exato, na raiz da pasta
+LEADS_ABA=                   # no XLSX; vazio = a primeira
+AGENDA_ARQUIVO=agenda.xlsx
+AGENDA_ABA=
 ```
 
-As colunas da planilha são achadas pelo cabeçalho (nome/empresa, segmento, telefone/WhatsApp,
-cidade/bairro, status, data), então a ordem não importa. "Do dia" são as linhas com a data de hoje.
+**Leads** — quem escreve é o agente de prospecção do escritório, acrescentando uma linha por lead no
+fim. CSV é o mais fácil para ele; o Excel em português abre com `;` e o Jarvis entende os dois. As
+colunas são achadas pelo cabeçalho (nome/empresa, segmento, telefone/WhatsApp, cidade/bairro, status,
+data), e "do dia" são as linhas com a data de hoje (`dd/MM/aaaa` ou `AAAA-MM-DD`):
+
+```text
+Data;Empresa;Segmento;WhatsApp;Bairro;Status
+11/11/2026;Academia Força;academia;+55 41 99999-0000;Batel;novo
+```
+
+**Agenda** — uma linha por compromisso, com as colunas **Data**, **Início**, **Fim**,
+**Compromisso** e **Local** (só Data é obrigatória; sem hora é o dia inteiro). A hora pode estar na
+própria coluna de data (`11/11/2026 14:00`). Numa célula de hora do Excel, a hora só chega com o
+agente do PC atualizado (o campo `dataHora`); com o agente antigo, escreva a hora como texto
+(`14:00`).
 
 ## Conferir
 
