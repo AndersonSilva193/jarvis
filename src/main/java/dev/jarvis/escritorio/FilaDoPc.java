@@ -65,7 +65,8 @@ public class FilaDoPc {
                 tarefa -> Thread.ofVirtual().name("fila-do-pc").start(tarefa));
     }
 
-    FilaDoPc(Function<PedidoDeEscrita, Resposta> envio, Path arquivo, JsonMapper json, Consumer<String> aviso,
+    /** Para os testes e para quem monta à mão: o envio ao PC e o executor vêm de fora. */
+    public FilaDoPc(Function<PedidoDeEscrita, Resposta> envio, Path arquivo, JsonMapper json, Consumer<String> aviso,
             Executor executor) {
         this.envio = envio;
         this.arquivo = arquivo;
@@ -97,6 +98,16 @@ public class FilaDoPc {
         Resposta propria = respostas.get(pedido.id());
         if (propria != null && (propria.gravado() || propria.estado() == Estado.ID_INEXISTENTE)) return propria;
         return parou != null ? parou : propria;
+    }
+
+    /**
+     * Só guarda e pede o esvaziamento em outra thread, sem esperar o PC. Para quem não tem a quem
+     * responder na hora, como a migração do livro na partida.
+     */
+    public synchronized void enfileirar(PedidoDeEscrita pedido) {
+        fila.add(pedido);
+        salvar();
+        executor.execute(this::esvaziar);
     }
 
     public synchronized int pendentes() {

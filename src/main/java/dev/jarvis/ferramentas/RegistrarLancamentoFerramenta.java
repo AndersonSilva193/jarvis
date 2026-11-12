@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.financas.FinancasService;
+import dev.jarvis.financas.Registrado;
 import dev.jarvis.financas.Lancamento;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -93,7 +94,7 @@ public class RegistrarLancamentoFerramenta implements Ferramenta {
             return "Não anotei: o valor tem de ser um número, como 49.90.";
         }
         try {
-            Lancamento l = financas.registrar(tipo, valor.doubleValue(),
+            Registrado l = financas.registrarNoLivro(tipo, valor.doubleValue(),
                     Json.texto(entrada.path("categoria")), Json.texto(entrada.path("descricao")),
                     Json.texto(entrada.path("data")), canal);
             return "Anotado. " + FinancasService.confirmacao(l);

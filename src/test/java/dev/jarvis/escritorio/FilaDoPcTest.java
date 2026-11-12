@@ -178,4 +178,16 @@ class FilaDoPcTest {
         assertEquals(List.of("a"), enviados);
         assertEquals(3, fila.pendentes());
     }
+
+    @Test
+    void enfileirarGuardaEEsvaziaPeloExecutor() {
+        List<Runnable> agendadas = new ArrayList<>();
+        FilaDoPc fila = new FilaDoPc(pc, pasta.resolve("pendentes-pc.json"), json, avisos::add, agendadas::add);
+        fila.enfileirar(pedido("m"));
+        assertEquals(1, fila.pendentes());
+        assertTrue(enviados.isEmpty(), "não espera o PC na hora");
+        agendadas.forEach(Runnable::run);
+        assertEquals(List.of("m"), enviados);
+        assertEquals(0, fila.pendentes());
+    }
 }
