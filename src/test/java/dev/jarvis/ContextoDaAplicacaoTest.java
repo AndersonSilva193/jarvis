@@ -63,7 +63,7 @@ class ContextoDaAplicacaoTest {
 
     @Test
     void metadadosEDescricoesDasFerramentas() throws Exception {
-        assertEquals(68, ferramentasRegistradas.size());
+        assertEquals(71, ferramentasRegistradas.size());
         java.util.List<String> longas = new java.util.ArrayList<>();
         for (Ferramenta ferramenta : ferramentasRegistradas) {
             assertNotNull(ferramenta.grupo(), ferramenta.nome());

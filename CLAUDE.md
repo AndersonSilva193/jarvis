@@ -666,6 +666,17 @@ Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis co
   avisa, com a frase do `ConsultaArquivosPc`. As quatro variáveis (`LEADS_ARQUIVO`, `LEADS_ABA`,
   `AGENDA_ARQUIVO`, `AGENDA_ABA`) esticaram o bloco `Pc` com o sub-record `Escritorio` e o construtor
   de seis argumentos; o nome é validado como nome de arquivo, sem barra, e o torto cai no padrão.
+- **Escrita nas planilhas dos agentes** (`dev.jarvis.escritorio`): `agenda.csv` e `financas.csv` são
+  escritos pelo agente do PC com as ações `acrescentar_linhas`, `alterar_linha` e `remover_linha`
+  (`ComandoPc.PLANILHA`, fora do `controlar_pc`), mandadas pela `EscritaNoPc` só a um agente que as
+  anunciou no `X-Pc-Acoes`. A `FilaDoPc` (`DIARIO_PASTA/pendentes-pc.json`) guarda o que não gravou —
+  PC desligado, arquivo aberto no Excel, agente antigo — e reenvia em ordem no `PcVoltou` (em outra
+  thread: o evento sai de dentro da consulta do agente) e a cada cinco minutos; a idempotência é a
+  coluna `Id` de cada linha, que o agente confere. O `FinancasService` continua com a cópia de
+  trabalho em `financas.json` e manda cada lançamento (e cada remoção, como linha `remocao`) ao
+  `financas.csv`; `registrar`/`remover` mantêm a assinatura, e `registrarNoLivro`/`removerDoLivro`
+  dizem onde a linha ficou. A agenda ganhou `registrar_compromisso`, `alterar_compromisso` e
+  `cancelar_compromisso` (conversa e MCP, pelo `PedidosDaAgenda`), e a `agenda_de_hoje` mostra o id.
 
 ## A abertura falada da HUD
 

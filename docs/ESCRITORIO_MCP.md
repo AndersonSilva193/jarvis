@@ -16,10 +16,13 @@ Hermes Agent (PC) ──HTTPS + MCP_TOKEN──► nginx ──► /api/mcp ─�
 | Ferramenta | O que faz | Escreve? |
 |---|---|---|
 | `avisar_aprovacoes` | Avisa no Telegram que há itens esperando aprovação no quadro do escritório. O agente escolhe o tipo (`abordagens`, `propostas`, `conteudos`, `tarefas`) e a quantidade; a frase é do Jarvis. | manda mensagem ao dono |
-| `registrar_gasto` | Lança um gasto no livro financeiro do Jarvis. | sim |
+| `registrar_gasto` | Lança um gasto no livro financeiro do Jarvis (`financas.csv` na pasta do PC). | sim |
 | `registrar_ganho` | Lança um ganho no mesmo livro. | sim |
 | `resumo_financeiro` | Ganhos, gastos, saldo, categorias e últimos lançamentos de um período. Também em `structuredContent`, em centavos, para o painel de operação do Hermes3D. | não |
-| `agenda_de_hoje` | Compromissos do Google Agenda do dono para hoje ou amanhã. | não |
+| `agenda_de_hoje` | Compromissos do dono para hoje ou amanhã, do `agenda.csv` do PC, com o id de cada um. | não |
+| `registrar_compromisso` | Marca um compromisso no `agenda.csv`. Devolve o id. | sim |
+| `alterar_compromisso` | Muda campos de um compromisso pelo id. | sim |
+| `cancelar_compromisso` | Tira um compromisso da agenda pelo id. | sim |
 | `leads_do_dia` | Leads de hoje da planilha de prospecção (ou os últimos, se não houver de hoje). | não |
 
 O que fica de fora **de propósito**: controle do PC, arquivos, memória, lembretes, rotinas e qualquer
@@ -104,11 +107,26 @@ descarta. O `leads_do_dia` abre com a contagem (`Status: abordado 6, descartado 
 mostra a rede como link curto (`instagram.com/academiaforca`); link longo demais para caber sai de
 fora, porque cortado ele não abriria.
 
-**Agenda** — uma linha por compromisso, com as colunas **Data**, **Início**, **Fim**,
+**Agenda** — uma linha por compromisso, com as colunas **Id**, **Data**, **Início**, **Fim**,
 **Compromisso** e **Local** (só Data é obrigatória; sem hora é o dia inteiro). A hora pode estar na
-própria coluna de data (`11/11/2026 14:00`). Numa célula de hora do Excel, a hora só chega com o
-agente do PC atualizado (o campo `dataHora`); com o agente antigo, escreva a hora como texto
-(`14:00`).
+própria coluna de data (`11/11/2026 14:00`). O dono edita à mão no Excel e os agentes escrevem com
+`registrar_compromisso`, `alterar_compromisso` e `cancelar_compromisso`; linha escrita à mão sem
+**Id** ganha um na próxima escrita do agente do PC. Escrever exige agenda em CSV.
+
+```text
+Id;Data;Início;Fim;Compromisso;Local
+a1b2c3d4;12/11/2026;14:00;15:00;Reunião com a barbearia;Batel
+```
+
+**Livro financeiro** — `financas.csv`, só para olhar: uma linha por lançamento, e remover é mais uma
+linha `remocao` apontando o id removido na coluna **Remove**. A cópia de trabalho continua na VPS
+(`DIARIO_PASTA/financas.json`), então o resumo sai com o PC desligado.
+
+**PC desligado ou arquivo aberto no Excel** — a escrita entra na fila da VPS
+(`DIARIO_PASTA/pendentes-pc.json`) e a resposta diz "gravo quando o PC voltar": isso é sucesso, não
+erro. A fila esvazia quando o PC volta e a cada cinco minutos, em ordem, sem duplicar (o agente
+confere o **Id**). Agente do PC antigo, que não conhece as ações de planilha, recebe um aviso único
+no Telegram para ser atualizado.
 
 ## Conferir
 
