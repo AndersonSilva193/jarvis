@@ -267,7 +267,7 @@
 ### Task 8: Revisão do branch do jarvis
 
 - [ ] **Step 1:** `"$MVN" -q verify` no `jarvis` e `"$MVN" -q package` no `jarvis-agente-pc` → sucesso; gera `target\jarvis-agente-pc.jar`.
-- [ ] **Step 2:** Conferir a Review Focus: cada item tem teste passando. Conferir que nenhum arquivo versionado tem `C:\Users\ameta` (`git grep` pelo nome do usuário vazio nos dois repositórios).
+- [ ] **Step 2:** Conferir a Review Focus: cada item tem teste passando. Conferir que nenhum arquivo versionado tem caminho pessoal (`git grep` pelo nome do usuário vazio nos dois repositórios).
 
 ### Task 9: Instruções dos agentes e entrega (com o dono)
 
