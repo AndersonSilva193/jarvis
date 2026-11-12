@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Repositórios: `C:\Users\ameta\OneDrive\Desktop\projetos\jarvis-agente-pc` (Tasks 1–2) e `C:\Users\ameta\OneDrive\Desktop\projetos\jarvis` (Tasks 3–8).
+- Repositórios: `<projetos>\jarvis-agente-pc` (Tasks 1–2) e `<projetos>\jarvis` (Tasks 3–8).
 - Branches: no agente, `feat/planilhas-dos-agentes` a partir de `feat/empresa-hermes3d`; no jarvis, `feat/arquivos-dos-agentes-no-pc` a partir de `origin/feat/servidor-mcp-escritorio` (ponta, hoje `225f2cc`). Não fazer push nem merge sem o dono pedir.
-- Maven: não está no PATH. Use `MVN="/c/Users/ameta/.m2/wrapper/dists/apache-maven-3.9.16/0daed3be3ebd1c706f0e69e8b07c6b73f5cc4ea3dfce72a8d0ec2e849ca2ddb0/bin/mvn"` e rode `"$MVN" -q test -Dtest=<Classe>` na raiz de cada repositório.
+- Maven: não está no PATH. Use `MVN="~/.m2/wrapper/dists/apache-maven-3.9.16/0daed3be3ebd1c706f0e69e8b07c6b73f5cc4ea3dfce72a8d0ec2e849ca2ddb0/bin/mvn"` e rode `"$MVN" -q test -Dtest=<Classe>` na raiz de cada repositório.
 - O agente do PC **nunca** aceita caminho vindo da VPS: `arquivo` é um nome simples (sem `/`, `\`, `..`, `:`), comparado sem diferenciar maiúsculas com a lista `planilhas.permitidas` (padrão `agenda.csv,financas.csv,leads.csv`).
 - CSV escrito: separador `;`, UTF-8 **com BOM**, fim de linha `\r\n`, mesma proteção anti-fórmula do CSV do `CriadorDeArquivo`. Leitura: BOM → UTF-8; senão UTF-8 estrito; se falhar, `windows-1252`.
 - Primeira coluna de `agenda.csv` e `financas.csv` é `Id`. Cabeçalhos exatos:
@@ -23,7 +23,7 @@
 - Datas escritas `dd/MM/yyyy`; valor em reais `120,00`; `Tipo` ∈ `gasto|ganho|remocao`; `Remove` = `Id` removido (só na linha `remocao`).
 - `financas.csv` é só para olhar: a VPS nunca altera nem remove linhas dele, só acrescenta. `agenda.csv` pode ser alterado à mão e pelos agentes.
 - Lembretes (`dev.jarvis.lembretes`) não mudam.
-- Textos ao dono em português do Brasil, no tom das mensagens existentes. Nenhum caminho pessoal (`C:\Users\ameta...`) em arquivo versionado.
+- Textos ao dono em português do Brasil, no tom das mensagens existentes. Nenhum caminho pessoal (`C:\Users\<usuário>...`) em arquivo versionado.
 - Nada roda na VPS a partir daqui: comandos de deploy vão para o dono (Task 9).
 
 ## Review Focus
@@ -267,15 +267,15 @@
 ### Task 8: Revisão do branch do jarvis
 
 - [ ] **Step 1:** `"$MVN" -q verify` no `jarvis` e `"$MVN" -q package` no `jarvis-agente-pc` → sucesso; gera `target\jarvis-agente-pc.jar`.
-- [ ] **Step 2:** Conferir a Review Focus: cada item tem teste passando. Conferir que nenhum arquivo versionado tem `C:\Users\ameta` (`git grep -n "ameta"` vazio nos dois repositórios).
+- [ ] **Step 2:** Conferir a Review Focus: cada item tem teste passando. Conferir que nenhum arquivo versionado tem `C:\Users\ameta` (`git grep` pelo nome do usuário vazio nos dois repositórios).
 
 ### Task 9: Instruções dos agentes e entrega (com o dono)
 
 Fora dos repositórios. Cada passo marcado **(dono)** só acontece com a confirmação dele.
 
 - [ ] **Step 1: Instruções dos agentes.** Com o Hermes3D parado, copiar `~/.hermes/hermes3d-agents.json` para `hermes3d-agents.json.bak-<data>` e, em `files`:
-  - `closer-ebe396/AGENTS.md`: trocar `<a pastaArquivos do agente do PC>` por `C:\Users\ameta\OneDrive\Documentos\Jarvis\leads.csv`.
-  - `ledger-cfec35/AGENTS.md`: substituir a linha "• Financeiro: ..." por um bloco curto: agenda e livro ficam na pasta do Jarvis no PC (`C:\Users\ameta\OneDrive\Documentos\Jarvis`); use `agenda_de_hoje`, `registrar_compromisso`, `alterar_compromisso` (pelo id), `cancelar_compromisso`; `registrar_gasto`, `registrar_ganho`, `remover_lancamento`, `resumo_financeiro` só com valores que o dono informou ou confirmou; nunca editar `financas.csv` direto nem procurar arquivos na VPS; "anotado, lanço quando o PC voltar" é sucesso, não erro.
+  - `closer-ebe396/AGENTS.md`: trocar `<a pastaArquivos do agente do PC>` por `%USERPROFILE%\OneDrive\Documentos\Jarvis\leads.csv`.
+  - `ledger-cfec35/AGENTS.md`: substituir a linha "• Financeiro: ..." por um bloco curto: agenda e livro ficam na pasta do Jarvis no PC (`%USERPROFILE%\OneDrive\Documentos\Jarvis`); use `agenda_de_hoje`, `registrar_compromisso`, `alterar_compromisso` (pelo id), `cancelar_compromisso`; `registrar_gasto`, `registrar_ganho`, `remover_lancamento`, `resumo_financeiro` só com valores que o dono informou ou confirmou; nunca editar `financas.csv` direto nem procurar arquivos na VPS; "anotado, lanço quando o PC voltar" é sucesso, não erro.
   - Conferir com `node -e` que o JSON continua válido.
 - [ ] **Step 2 (dono): Agente do PC novo.** Parar a tarefa `JarvisAgentePc`, trocar o jar, iniciar de novo.
 - [ ] **Step 3 (dono): Merge e deploy da VPS.** Merge dos branches; na VPS, o comando de `chown` da Task 3 e `docker compose up -d --build`.

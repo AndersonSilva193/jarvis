@@ -13,7 +13,7 @@ com dono `jarvis` antes do `USER jarvis`; o Docker criou o ponto de montagem com
 não grava.
 
 Além do erro, o dono quer uma regra simples: **o que os agentes do Hermes3D mexem ou leem fica na
-pasta do Jarvis no PC** (`C:\Users\ameta\OneDrive\Documentos\Jarvis`, a `pastaArquivos` do agente
+pasta do Jarvis no PC** (`%USERPROFILE%\OneDrive\Documentos\Jarvis`, a `pastaArquivos` do agente
 do PC), num lugar só, "para que eles não se batam pra achar". Hoje a instrução do Closer diz
 literalmente "pasta do Jarvis (`<a pastaArquivos do agente do PC>`)" — o caminho nunca foi
 preenchido.
@@ -112,7 +112,7 @@ Em `~/.hermes/hermes3d-agents.json` (arquivos `AGENTS.md`/`TOOLS.md` de cada age
 de edição de agentes do Hermes3D ou direto no JSON:
 
 - Closer: trocar `<a pastaArquivos do agente do PC>` pelo caminho real
-  `C:\Users\ameta\OneDrive\Documentos\Jarvis\leads.csv`.
+  `%USERPROFILE%\OneDrive\Documentos\Jarvis\leads.csv`.
 - Ledger: dizer que agenda e finanças ficam na pasta do Jarvis no PC, que ele usa
   `registrar_compromisso` / `alterar_compromisso` / `cancelar_compromisso` / `agenda_de_hoje` e
   `registrar_gasto` / `registrar_ganho` / `remover_lancamento` / `resumo_financeiro`, e que não
