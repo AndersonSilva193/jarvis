@@ -31,7 +31,8 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
             "modo_repouso", "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo",
             "rodar_rotina", "computer_acao", "preparar_edicao", "aplicar_edicao",
             "preparar_desfazer", "aplicar_desfazer",
-            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira", "inferir");
+            "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira", "inferir",
+            "acrescentar_linhas", "alterar_linha", "remover_linha");
 
     /**
      * As três da lixeira: levam o pedido todo em {@code dados} e respondem em {@code dados}.
@@ -51,6 +52,13 @@ public record ComandoPc(String id, String acao, String argumento, String criadoE
      * Nunca aparece ao modelo — ele não escolhe falar com outro modelo.
      */
     public static final Set<String> INFERENCIA = Set.of("inferir");
+
+    /**
+     * As planilhas dos agentes do escritório (agenda e livro financeiro) na pasta do PC. Quem as
+     * manda é a {@code EscritaNoPc}, nunca o modelo: ficam fora do {@code controlar_pc} e só vão a
+     * um agente que as anunciou no {@code X-Pc-Acoes}. Respondem em {@code dados}.
+     */
+    public static final Set<String> PLANILHA = Set.of("acrescentar_linhas", "alterar_linha", "remover_linha");
 
     /** As irreversíveis, que exigem aprovação {@code CRITICO} em nova mensagem autenticada. */
     public static final Set<String> PERIGOSAS = Set.of("desligar", "reiniciar");

@@ -382,11 +382,14 @@ class ControlarPcFerramentaTest {
                     || "computer_acao".equals(acao)
                     || ComandoPc.LIXEIRA.contains(acao)
                     || ComandoPc.INFERENCIA.contains(acao)
+                    || ComandoPc.PLANILHA.contains(acao)
                     || java.util.List.of("preparar_edicao", "aplicar_edicao",
                             "preparar_desfazer", "aplicar_desfazer").contains(acao)) continue; // ferramentas próprias
             assertTrue(comApps.contains(acao), "ação '" + acao + "' fora do enum");
         }
         assertFalse(comApps.contains("inferir"), "o modelo não escolhe falar com outro modelo");
+        for (String acao : ComandoPc.PLANILHA)
+            assertFalse(comApps.contains(acao), "a planilha dos agentes só muda pelas ferramentas de agenda e finanças");
     }
 
     private String enumDeAcoes() {

@@ -93,9 +93,10 @@ public class PcController {
     @GetMapping("/v2/comandos")
     public ResponseEntity<?> comandosE2(@RequestHeader(value = "X-Pc-Apps", required = false) String apps,
             @RequestHeader(value = "X-Pc-Ia", required = false) String ia,
-            @RequestHeader(value = "X-Pc-Foco", required = false) String foco)
+            @RequestHeader(value = "X-Pc-Foco", required = false) String foco,
+            @RequestHeader(value = "X-Pc-Acoes", required = false) String acoes)
             throws InterruptedException {
-        pc.proximoComando(Duration.ZERO, apps, ia, foco);
+        pc.proximoComando(Duration.ZERO, apps, ia, foco, acoes);
         return e2.proximo(espera).<ResponseEntity<?>>map(entrega -> ResponseEntity.ok(Map.of(
                 "versao", OperacoesPcService.VERSAO, "comando", PcDto.de(entrega.comando()),
                 "prazoInicio", entrega.prazoInicio(), "prazoExecucao", entrega.prazoExecucao())))
@@ -139,7 +140,8 @@ public class PcController {
                 || (dados && !List.of("listar_arquivos", "ler_arquivo", "computer_acao",
                         "preparar_edicao", "aplicar_edicao", "preparar_desfazer", "aplicar_desfazer")
                         .contains(acao)
-                        && !ComandoPc.LIXEIRA.contains(acao) && !inferencia))
+                        && !ComandoPc.LIXEIRA.contains(acao) && !ComandoPc.PLANILHA.contains(acao)
+                        && !inferencia))
             return ResponseEntity.badRequest().build();
         var dto = new PcDto.Resultado(id, "concluído".equals(corpo.estado()),
                 corpo.mensagem(), corpo.imagemBase64(), arquivo, corpo.dados());
@@ -202,8 +204,9 @@ public class PcController {
     public ResponseEntity<?> comandos(
             @RequestHeader(value = "X-Pc-Apps", required = false) String apps,
             @RequestHeader(value = "X-Pc-Ia", required = false) String ia,
-            @RequestHeader(value = "X-Pc-Foco", required = false) String foco) {
-        return pc.proximoComando(espera, apps, ia, foco)
+            @RequestHeader(value = "X-Pc-Foco", required = false) String foco,
+            @RequestHeader(value = "X-Pc-Acoes", required = false) String acoes) {
+        return pc.proximoComando(espera, apps, ia, foco, acoes)
                 .<ResponseEntity<?>>map(comando -> ResponseEntity.ok(PcDto.de(comando)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
