@@ -27,6 +27,7 @@ O catálogo (chave, alvo, padrão, piso):
   arquivo.apagar_lote      apagar mais de 5 arquivos        padrão pergunta   piso faz_e_avisa
   planilha.agendar         agendar edição de planilha       padrão pergunta   piso faz_e_avisa
   memoria.esquecer         esquecer uma lembrança           padrão pergunta   piso faz_e_avisa
+  empresa.delegar          passar tarefa para a empresa     padrão pergunta   piso faz_e_avisa
 O alvo de rotina.rodar é o nome exato da rotina que o PC anuncia (letras minúsculas,
 números, ponto, hífen e sublinhado). Piso "pergunta" quer dizer que nenhuma linha daqui
 libera a ação sem pergunta; ela ainda pode ser proibida.

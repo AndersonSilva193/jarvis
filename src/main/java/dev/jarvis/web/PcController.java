@@ -134,11 +134,12 @@ public class PcController {
         boolean inferencia = ComandoPc.INFERENCIA.contains(acao);
         if (((arquivo || imagem) && !"concluído".equals(corpo.estado()))
                 || (dados && !"concluído".equals(corpo.estado()) && !etapaDeEdicao && !inferencia)
-                || (arquivo && !List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer")
+                || (arquivo && !List.of("criar_arquivo", "aplicar_edicao", "aplicar_desfazer", "empresa_delegar")
                         .contains(acao))
                 || (imagem && !List.of("captura_tela", "computer_acao").contains(acao))
                 || (dados && !List.of("listar_arquivos", "ler_arquivo", "computer_acao",
-                        "preparar_edicao", "aplicar_edicao", "preparar_desfazer", "aplicar_desfazer")
+                        "preparar_edicao", "aplicar_edicao", "preparar_desfazer", "aplicar_desfazer",
+                        "empresa_delegar", "empresa_status")
                         .contains(acao)
                         && !ComandoPc.LIXEIRA.contains(acao) && !ComandoPc.PLANILHA.contains(acao)
                         && !inferencia))
