@@ -2,12 +2,12 @@ package dev.jarvis.ferramentas;
 
 import org.springframework.stereotype.Component;
 
-import dev.jarvis.google.LeadsService;
+import dev.jarvis.escritorio.LeadsService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-/** {@code leads_do_dia}: os leads que a prospecção achou hoje, da planilha de leads. */
+/** {@code leads_do_dia}: os leads que a prospecção achou hoje, da planilha de leads no PC. */
 @Component
 public class LeadsDoDiaFerramenta implements Ferramenta {
 
@@ -26,7 +26,7 @@ public class LeadsDoDiaFerramenta implements Ferramenta {
 
     @Override public GrupoFerramenta grupo() { return GrupoFerramenta.PLANILHAS; }
     @Override public boolean simples() { return true; }
-    /** De partida: OAuth e LEADS_PLANILHA_ID configurados. */
+    /** De partida: o controle do PC configurado. */
     @Override public boolean oferecida() { return leads.configurado(); }
 
     @Override

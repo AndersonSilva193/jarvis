@@ -111,6 +111,18 @@ docker compose logs -f         # acompanha os logs (Ctrl+C para sair)
 
 Mudou o `.env` ou o código? Rode `docker compose up -d --build` de novo.
 
+**Volumes criados antes de 2026-11-12.** As pastas `diario`, `custo`, `proativo` e `google`
+entraram no `Dockerfile` só agora; um volume que já existia continua com dono root e o Jarvis não
+grava nele (é o "erro de gravação em `/data/jarvis/diario`"). Uma vez só, acerte o dono — confira
+os nomes reais com `docker volume ls`, que levam o nome do projeto na frente:
+
+```bash
+docker compose stop jarvis
+docker run --rm -v jarvis_diario:/a -v jarvis_custo:/b -v jarvis_proativo:/c -v jarvis_google:/d \
+  alpine chown -R 1001:1001 /a /b /c /d
+docker compose up -d --build
+```
+
 Para rodar no seu PC (sem Docker), exporte as mesmas variáveis do `.env`, aponte
 `JARVIS_PERSONALIDADE_ARQUIVO=config/personalidade.md` e rode `mvn spring-boot:run`.
 
@@ -709,9 +721,10 @@ agente financeiro do escritório usa pelo MCP.
 
 ### Agenda e leads
 
-"O que eu tenho hoje?" e "quais os leads de hoje?": o Jarvis lê o Google Agenda (`agenda_de_hoje`) e
-a planilha de leads da prospecção (`leads_do_dia`), só leitura, pelo mesmo OAuth do Google. Configure
-`LEADS_PLANILHA_ID` e reconecte o Google pela HUD uma vez para dar a permissão de leitura.
+"O que eu tenho hoje?" e "quais os leads de hoje?": o Jarvis lê a agenda (`agenda_de_hoje`) e os
+leads da prospecção (`leads_do_dia`) de duas planilhas na pasta do Jarvis no PC, `agenda.csv` e
+`leads.csv` (XLSX ou CSV; os nomes mudam em `AGENDA_ARQUIVO` e `LEADS_ARQUIVO`). As colunas são achadas
+pelo cabeçalho. Com o PC desligado, as duas avisam que não dá para ler.
 
 ### O escritório de agentes (MCP)
 

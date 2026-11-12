@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import dev.jarvis.diario.OrigemDaAcao;
 import dev.jarvis.financas.FinancasService;
+import dev.jarvis.financas.Registrado;
 import dev.jarvis.financas.Lancamento;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -57,7 +58,7 @@ abstract class RegistrarLancamentoMcp implements FerramentaMcp {
             return ResultadoMcp.erro("valor tem de ser um número em reais, como 49.90.");
         }
         try {
-            Lancamento l = financas.registrar(tipo, valor.doubleValue(),
+            Registrado l = financas.registrarNoLivro(tipo, valor.doubleValue(),
                     Json.texto(argumentos.path("categoria")), Json.texto(argumentos.path("descricao")),
                     Json.texto(argumentos.path("data")), OrigemDaAcao.ESCRITORIO.chave());
             return ResultadoMcp.ok("Lancei. " + FinancasService.confirmacao(l));

@@ -139,7 +139,7 @@ public class ServidorMcp {
         try {
             resultado = ferramenta.executar(argumentos);
         } catch (java.io.IOException e) {
-            // As IOException do Jarvis carregam frase própria ("reconecte o Google pela HUD"),
+            // As IOException do Jarvis carregam frase própria ("O PC está offline..."),
             // escrita para o dono ler; a de rede crua fica só no log.
             log.warn("MCP: {} falhou ({})", nome, e.getMessage());
             String frase = e.getMessage() != null && !e.getMessage().startsWith("Google API")

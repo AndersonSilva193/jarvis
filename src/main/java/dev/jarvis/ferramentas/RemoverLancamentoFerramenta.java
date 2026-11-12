@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import dev.jarvis.conversa.OuvinteProgresso;
 import dev.jarvis.financas.FinancasService;
+import dev.jarvis.financas.Registrado;
 import dev.jarvis.financas.Lancamento;
 import dev.jarvis.util.Json;
 import tools.jackson.databind.JsonNode;
@@ -76,7 +77,7 @@ public class RemoverLancamentoFerramenta implements Ferramenta {
         if (id.isEmpty()) {
             return "Diga o id do lançamento; o resumo_financeiro mostra os últimos.";
         }
-        Optional<Lancamento> removido = financas.remover(id, canal);
+        Optional<Registrado> removido = financas.removerDoLivro(id, canal);
         return removido.map(l -> "Removido das contas: " + FinancasService.confirmacao(l))
                 .orElse("Não achei lançamento ativo com o id " + id + ".");
     }

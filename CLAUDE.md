@@ -58,7 +58,8 @@ Telegram ──► TelegramPoller ──► Assistente ──► Claude (Message
 | `dev.jarvis.conversa` | Execução assíncrona da HUD (`ConversaService`), retratos públicos do histórico (`RegistroConversas`), `HistoricoEmArquivo` (o JSON por chat), progresso, `Confirmacao`, `EscutaResposta` e `AnexosService` |
 | `dev.jarvis.computer` | O computer use: `TarefasComputerUse`, o `DetectorDeTravamento` (encerra a tarefa que anda em círculos) e os provedores `ProvedorAnthropicComputerUse` / `ProvedorOpenAiComputerUse` por trás de `ProvedorComputerUse` |
 | `dev.jarvis.holograma` | O modo Holograma: `HologramaLineParser`/`HologramaValidator`/`MontagemDeHolograma` (NDJSON → peças), `HologramaService` (a geração com stream, para o SSE ou sem cliente pelo `DestinoDaGeracao`), o controle por conversa (`EstadoDoHologramaService`, `ResolvedorDeAlvo`, `ComandoDoHolograma`, `IntentoDoHolograma`/`AtalhoDoHolograma`, `FalasDoHolograma`), `GaleriaDeHologramas` (os objetos completos em disco, a chave do cache e as miniaturas), `BenchmarkDeHolograma`/`MedidaDaGeracao` (os dez objetos de referência por gerador, relatório em `HOLOGRAMA_PASTA/benchmark`), `PromptDeHolograma`, `BufferDeLinhas`, `DetalheHolograma` e os exemplos. Contrato em `docs/HOLOGRAMA.md` |
-| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth, criação de planilha nativa e leitura (`ler`); `AgendaGoogleService` (os compromissos do dia) e `LeadsService` (a planilha de leads da prospecção) |
+| `dev.jarvis.google` | `GooglePlanilhasService`: OAuth e criação de planilha nativa |
+| `dev.jarvis.escritorio` | `AgendaService` (os compromissos do dia) e `LeadsService` (os leads da prospecção), lidos de planilhas na pasta do Jarvis no PC pelo `PlanilhaDoPc` |
 | `dev.jarvis.busca` | A busca configurável: `ProvedorDeBusca` e os três provedores (`TavilyBusca`, `SearxngBusca`, `AnthropicBusca`), `BuscaNaWeb` (ordem, reserva, filtro https e cache), `CotaDeBusca` (cota mensal do Tavily) e `UrlsDaBusca` (o que a `ler_pagina_web` pode abrir) |
 | `dev.jarvis.config` | `BeansConfig` (beans compartilhados) e `JarvisProperties` (toda a config) |
 | `dev.jarvis.custo` | `MedidorDeCusto` (soma por origem e modelo, alertas), `TabelaDePrecos` (faixas configuradas) e `CustoDiarioEmArquivo` (JSON diário no volume `custo`) |
@@ -647,15 +648,35 @@ Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis co
   de operação do Hermes3D desenha, sem ler número de prosa. Cada lançamento entra no diário
   (`LANCAMENTO_FINANCEIRO`/`LANCAMENTO_REMOVIDO`, autônomos) com a origem de quem lançou — a do
   escritório é `OrigemDaAcao.ESCRITORIO`.
-- **Agenda e leads são leitura do Google**, pelo `GooglePlanilhasService.ler` (o mesmo OAuth, com os
-  escopos `spreadsheets.readonly` e `calendar.readonly` somados ao `drive.file`; 403 vira "reconecte o
-  Google pela HUD"). `AgendaGoogleService` e `LeadsService` devolvem texto pronto para a conversa
-  (`agenda_de_hoje`, `leads_do_dia`) e para o MCP (as mesmas, só leitura). Os valores vêm de terceiros
-  — convite de agenda, planilha da rotina —, então saem limpos (`<<<`/`>>>` e controle fora) e
-  cortados. A planilha é lida **pelo cabeçalho**, não pela posição. As duas ferramentas da conversa
-  são `oferecida()` só com o Google configurado (e `LEADS_PLANILHA_ID`, na de leads), que é de partida.
-  `GOOGLE_AGENDA_ID`, `LEADS_PLANILHA_ID` e `LEADS_ABA` esticaram o bloco `Google`, com o construtor
-  de cinco argumentos e o `@ConstructorBinding`.
+- **Agenda e leads são arquivos no PC, não no Google.** `LEADS_ARQUIVO` (padrão `leads.csv`) e
+  `AGENDA_ARQUIVO` (padrão `agenda.csv`) são planilhas XLSX ou CSV na `pastaArquivos` do agente — a
+  pasta do Jarvis —, escritas pelo agente de prospecção do escritório e pelo dono. Quem lê é o
+  `PlanilhaDoPc` (em `ferramentas`, porque usa o `ConsultaArquivosPc`): `listar_arquivos` acha o ID
+  pelo **nome exato**, e `ler_arquivo` traz o cabeçalho e as **últimas** linhas (até 8 idas de 99
+  linhas no XLSX e 100 no CSV, os tetos do agente), porque os dois arquivos crescem para baixo. CSV
+  salvo pelo Excel em português vem com `;`: o leitor percebe pelo cabeçalho e relê. Data do Excel
+  chega como `AAAA-MM-DD` e, com o agente que traz `dataHora`, com a hora — hora pura do Excel é uma
+  data em 1899 e sai só a hora. `AgendaService` e `LeadsService` devolvem texto pronto para a conversa
+  (`agenda_de_hoje`, `leads_do_dia`) e para o MCP (as mesmas, só leitura). Colunas **pelo cabeçalho**,
+  não pela posição; valores saem limpos (`<<<`/`>>>` e controle fora) e cortados — menos o link da
+  rede social, que sai sem esquema e some inteiro quando não cabe (URL cortada não abre). O status é
+  escrito pelo Hermes3D na aprovação (`abordado em <data>`), e o `leads_do_dia` abre com a contagem
+  pela primeira palavra dele, montada em Java para o modelo não somar lista. As duas ferramentas
+  são `oferecida()` com o PC configurado (`PC_TOKEN`), que é de partida; PC desligado é a leitura que
+  avisa, com a frase do `ConsultaArquivosPc`. As quatro variáveis (`LEADS_ARQUIVO`, `LEADS_ABA`,
+  `AGENDA_ARQUIVO`, `AGENDA_ABA`) esticaram o bloco `Pc` com o sub-record `Escritorio` e o construtor
+  de seis argumentos; o nome é validado como nome de arquivo, sem barra, e o torto cai no padrão.
+- **Escrita nas planilhas dos agentes** (`dev.jarvis.escritorio`): `agenda.csv` e `financas.csv` são
+  escritos pelo agente do PC com as ações `acrescentar_linhas`, `alterar_linha` e `remover_linha`
+  (`ComandoPc.PLANILHA`, fora do `controlar_pc`), mandadas pela `EscritaNoPc` só a um agente que as
+  anunciou no `X-Pc-Acoes`. A `FilaDoPc` (`DIARIO_PASTA/pendentes-pc.json`) guarda o que não gravou —
+  PC desligado, arquivo aberto no Excel, agente antigo — e reenvia em ordem no `PcVoltou` (em outra
+  thread: o evento sai de dentro da consulta do agente) e a cada cinco minutos; a idempotência é a
+  coluna `Id` de cada linha, que o agente confere. O `FinancasService` continua com a cópia de
+  trabalho em `financas.json` e manda cada lançamento (e cada remoção, como linha `remocao`) ao
+  `financas.csv`; `registrar`/`remover` mantêm a assinatura, e `registrarNoLivro`/`removerDoLivro`
+  dizem onde a linha ficou. A agenda ganhou `registrar_compromisso`, `alterar_compromisso` e
+  `cancelar_compromisso` (conversa e MCP, pelo `PedidosDaAgenda`), e a `agenda_de_hoje` mostra o id.
 
 ## A abertura falada da HUD
 

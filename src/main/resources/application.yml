@@ -102,6 +102,13 @@ jarvis:
       vram-minima-mb: ${IA_LOCAL_VRAM_MINIMA_MB:6000}
       # Modo de partida do seletor (auto, local ou claude). A troca por frase persiste em disco.
       modo: ${IA_MODO_PADRAO:auto}
+    # A agenda e os leads do dia: planilhas (XLSX ou CSV) na pasta do Jarvis no PC (pastaArquivos
+    # do agente). Nome exato do arquivo; aba vazia = a primeira.
+    escritorio:
+      leads-arquivo: ${LEADS_ARQUIVO:leads.csv}
+      leads-aba: ${LEADS_ABA:}
+      agenda-arquivo: ${AGENDA_ARQUIVO:agenda.csv}
+      agenda-aba: ${AGENDA_ABA:}
     # Token do agente que roda no PC Windows. Separado do HUD_TOKEN de propósito: a HUD não manda
     # na máquina. Vazio = /api/pc recusa tudo com 401 e o controle do PC fica desligado.
     token: ${PC_TOKEN:}
@@ -120,11 +127,6 @@ jarvis:
     redirect-uri: ${GOOGLE_REDIRECT_URI:}
     chave-cofre: ${GOOGLE_CHAVE_COFRE:}
     pasta-credenciais: ${GOOGLE_PASTA_CREDENCIAIS:/data/google}
-    # A agenda lida pela agenda_de_hoje (vazio = a principal da conta).
-    agenda-id: ${GOOGLE_AGENDA_ID:}
-    # A planilha de leads da prospecção (o ID do link) e a aba (vazio = a primeira).
-    leads-planilha-id: ${LEADS_PLANILHA_ID:}
-    leads-aba: ${LEADS_ABA:}
   personalidade:
     # Markdown com o jeito do Jarvis. É relido sozinho quando o arquivo muda, sem rebuild.
     arquivo: ${JARVIS_PERSONALIDADE_ARQUIVO:/app/config/personalidade.md}

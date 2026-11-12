@@ -2,7 +2,7 @@ package dev.jarvis.mcp;
 
 import org.springframework.stereotype.Component;
 
-import dev.jarvis.google.LeadsService;
+import dev.jarvis.escritorio.LeadsService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -41,7 +41,7 @@ public class LeadsDoDiaMcp implements FerramentaMcp {
     @Override
     public ResultadoMcp executar(JsonNode argumentos) throws Exception {
         if (!leads.configurado()) {
-            return ResultadoMcp.erro("A planilha de leads não está configurada no Jarvis (LEADS_PLANILHA_ID).");
+            return ResultadoMcp.erro("O controle do PC não está configurado no Jarvis (PC_TOKEN).");
         }
         return ResultadoMcp.ok(leads.textoDoDia());
     }

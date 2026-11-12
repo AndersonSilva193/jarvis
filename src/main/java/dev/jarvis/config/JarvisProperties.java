@@ -369,9 +369,16 @@ public record JarvisProperties(
      * única fonte de verdade, no PC.
      */
     public record Pc(String token, String operacoesPasta, int edicaoMaxBytes,
-            int edicaoMaxOperacoes, int edicaoMaxBytesResultado, IaLocal iaLocal) {
+            int edicaoMaxOperacoes, int edicaoMaxBytesResultado, IaLocal iaLocal,
+            Escritorio escritorio) {
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Pc { }
+        /** A aridade de antes dos arquivos do escritório: os testes montam por posição. */
+        public Pc(String token, String operacoesPasta, int edicaoMaxBytes,
+                int edicaoMaxOperacoes, int edicaoMaxBytesResultado, IaLocal iaLocal) {
+            this(token, operacoesPasta, edicaoMaxBytes, edicaoMaxOperacoes,
+                    edicaoMaxBytesResultado, iaLocal, null);
+        }
         public Pc(String token, String operacoesPasta, int edicaoMaxBytes,
                 int edicaoMaxOperacoes, int edicaoMaxBytesResultado) {
             this(token, operacoesPasta, edicaoMaxBytes, edicaoMaxOperacoes,
@@ -392,6 +399,18 @@ public record JarvisProperties(
          *              torto cai em {@code auto} com um WARN, em vez de impedir o Jarvis de subir.
          *              Depois da primeira troca vale o que está no {@code modo-ia.json}.
          */
+        /**
+         * A agenda e os leads do dia, em planilhas na {@code pastaArquivos} do agente do PC (a
+         * pasta do Jarvis), lidas pelo mesmo {@code ler_arquivo} das outras ferramentas.
+         *
+         * @param leadsArquivo  nome exato do arquivo de leads (XLSX ou CSV); vazio é {@code leads.csv}.
+         * @param leadsAba      a aba, no XLSX; vazio é a primeira.
+         * @param agendaArquivo nome exato do arquivo da agenda; vazio é {@code agenda.csv}.
+         * @param agendaAba     a aba, no XLSX; vazio é a primeira.
+         */
+        public record Escritorio(String leadsArquivo, String leadsAba, String agendaArquivo,
+                String agendaAba) { }
+
         public record IaLocal(boolean ativa, String apoio, int timeoutSegundos, int vramMinimaMb,
                 String modo) {
             @org.springframework.boot.context.properties.bind.ConstructorBinding
@@ -404,28 +423,8 @@ public record JarvisProperties(
     }
 
     /** Credenciais OAuth da integração opcional com uma conta Google. */
-    /**
-     * OAuth do Google e o que o Jarvis lê de lá.
-     *
-     * @param agendaId        a agenda que a {@code agenda_de_hoje} lê; vazio é a principal.
-     * @param leadsPlanilhaId o ID da planilha de leads da prospecção (o trecho entre {@code /d/} e
-     *                        {@code /edit} no link). Vazio desliga a {@code leads_do_dia}.
-     * @param leadsAba        a aba dos leads; vazio é a primeira.
-     */
     public record Google(String clientId, String clientSecret, String redirectUri,
-            String chaveCofre, String pastaCredenciais, String agendaId, String leadsPlanilhaId,
-            String leadsAba) {
-
-        /** A aridade de antes da agenda e dos leads: os testes montam por posição. */
-        public Google(String clientId, String clientSecret, String redirectUri, String chaveCofre,
-                String pastaCredenciais) {
-            this(clientId, clientSecret, redirectUri, chaveCofre, pastaCredenciais, null, null, null);
-        }
-
-        /** Dois construtores: sem a anotação o Spring deixaria o bloco inteiro nulo, calado. */
-        @org.springframework.boot.context.properties.bind.ConstructorBinding
-        public Google { }
-    }
+            String chaveCofre, String pastaCredenciais) { }
 
     /**
      * Volumes separados para registros e marcadores permanentes de exclusão.
@@ -613,6 +612,37 @@ public record JarvisProperties(
     /** Se o controle do PC está configurado. Sem token, a rota do agente recusa tudo. */
     public boolean pcConfigurado() {
         return !tokenDoPc().isBlank();
+    }
+
+    /** O arquivo de leads na pasta do Jarvis no PC. */
+    public String arquivoDeLeads() {
+        return nomeDeArquivo(pc == null || pc.escritorio() == null ? null : pc.escritorio().leadsArquivo(),
+                "leads.csv");
+    }
+
+    public String abaDeLeads() {
+        return pc == null || pc.escritorio() == null || pc.escritorio().leadsAba() == null ? ""
+                : pc.escritorio().leadsAba().trim();
+    }
+
+    /** O arquivo da agenda na pasta do Jarvis no PC. */
+    public String arquivoDaAgenda() {
+        return nomeDeArquivo(pc == null || pc.escritorio() == null ? null : pc.escritorio().agendaArquivo(),
+                "agenda.csv");
+    }
+
+    public String abaDaAgenda() {
+        return pc == null || pc.escritorio() == null || pc.escritorio().agendaAba() == null ? ""
+                : pc.escritorio().agendaAba().trim();
+    }
+
+    /**
+     * Um nome de arquivo, não um caminho: o agente só lê o que está catalogado na própria pasta, e
+     * uma barra aqui seria pedir outra coisa. Valor torto cai no padrão.
+     */
+    private static String nomeDeArquivo(String valor, String padrao) {
+        String nome = valor == null ? "" : valor.trim();
+        return nome.matches("[^/\\\\:*?\"<>|]{1,120}\\.(?i:xlsx|csv)") ? nome : padrao;
     }
 
     /** Se a VPS pode mandar {@code inferir} ao PC. Null-safe: properties à mão ficam sem IA local. */

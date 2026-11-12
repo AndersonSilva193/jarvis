@@ -1,4 +1,4 @@
-package dev.jarvis.google;
+package dev.jarvis.escritorio;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -24,9 +24,38 @@ class LeadsServiceTest {
                 List.of("11/11/2026", "Academia Força", "academia", "41 99999-0000", "Batel", "novo"),
                 List.of("2026-11-11", "Barbearia Central", "barbearia", "", "Água Verde", "novo"));
         String texto = LeadsService.texto(linhas, HOJE);
-        assertEquals("Leads de hoje (2):\n"
+        assertEquals("Status: novo 2, abordado 1.\n"
+                + "Leads de hoje (2):\n"
                 + "1. Academia Força — academia — 41 99999-0000 — Batel — novo\n"
                 + "2. Barbearia Central — barbearia — Água Verde — novo", texto);
+    }
+
+    @Test
+    @DisplayName("traz a rede social como link curto e conta os status escritos pelo escritório")
+    void redeSocialEStatus() {
+        var linhas = List.of(
+                List.of("Data", "Empresa", "WhatsApp", "Instagram", "Status"),
+                List.of("11/11/2026", "Barbearia Central", "41 99999-0000",
+                        "https://www.instagram.com/barbeariacentral/", "abordado em 11/11/2026"),
+                List.of("11/11/2026", "Studio Fit", "41 98888-7777", "https://instagram.com/" + "x".repeat(80),
+                        "descartado em 11/11/2026"),
+                List.of("11/11/2026", "Padaria Sol", "41 97777-6666", "", ""));
+        assertEquals("Status: abordado 1, descartado 1, sem status 1.\n"
+                + "Leads de hoje (3):\n"
+                + "1. Barbearia Central — 41 99999-0000 — instagram.com/barbeariacentral — abordado em 11/11/2026\n"
+                + "2. Studio Fit — 41 98888-7777 — descartado em 11/11/2026\n"
+                + "3. Padaria Sol — 41 97777-6666", LeadsService.texto(linhas, HOJE));
+    }
+
+    @Test
+    @DisplayName("a contagem diz quando cobre só as últimas linhas, e some sem status escrito")
+    void contagemParcial() {
+        var dados = List.of(List.of("abordado em 10/11"), List.of("Abordado"), List.of("novo"),
+                List.of("x1"), List.of("x2"), List.of("x3"));
+        assertEquals("Status das últimas 6 linhas: abordado 2, novo 1, x1 1, x2 1, outros 1.",
+                LeadsService.contagemDeStatus(dados, 0, true));
+        assertNull(LeadsService.contagemDeStatus(List.of(List.of("")), 0, false));
+        assertNull(LeadsService.contagemDeStatus(dados, -1, false));
     }
 
     @Test
@@ -38,6 +67,14 @@ class LeadsServiceTest {
         var semData = List.of(List.of("Nome", "Telefone"), List.of("Loja A", "41 2222-2222"));
         assertTrue(LeadsService.texto(semData, HOJE).startsWith("A planilha não tem coluna de data"));
         assertEquals("A planilha de leads está vazia.", LeadsService.texto(List.of(List.of("Nome")), HOJE));
+    }
+
+    @Test
+    @DisplayName("com só as últimas linhas lidas, o total vem do arquivo")
+    void totalDoArquivo() {
+        var lidas = List.of(List.of("Nome", "Data"), List.of("Loja Z", "01/11"));
+        assertTrue(LeadsService.texto(lidas, 420, HOJE)
+                .startsWith("Nenhum lead com a data de hoje; os últimos 1 de 420:"));
     }
 
     @Test

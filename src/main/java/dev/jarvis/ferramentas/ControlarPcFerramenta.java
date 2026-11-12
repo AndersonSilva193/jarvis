@@ -125,6 +125,7 @@ public class ControlarPcFerramenta implements Ferramenta {
                 .filter(nome -> !ComandoPc.LIXEIRA.contains(nome))
                 .filter(nome -> !ComandoPc.INFERENCIA.contains(nome))
                 .filter(nome -> !ComandoPc.EMPRESA.contains(nome))
+                .filter(nome -> !ComandoPc.PLANILHA.contains(nome))
                 .filter(nome -> !"abrir_app".equals(nome) || !apps.isEmpty())
                 .forEach(opcoes::add);
 
@@ -168,7 +169,8 @@ public class ControlarPcFerramenta implements Ferramenta {
             return ResultadoFerramenta.texto("Use a ferramenta rodar_rotina para executar cadastros manuais.");
         if ("computer_acao".equals(acao))
             return ResultadoFerramenta.texto("Ação interna do computer use; use tarefa_no_pc.");
-        if (ComandoPc.INFERENCIA.contains(acao) || ComandoPc.EMPRESA.contains(acao))
+        if (ComandoPc.INFERENCIA.contains(acao) || ComandoPc.EMPRESA.contains(acao)
+                || ComandoPc.PLANILHA.contains(acao))
             return ResultadoFerramenta.texto("Ação interna do Jarvis; não está disponível aqui.");
         if (ComandoPc.LIXEIRA.contains(acao))
             return ResultadoFerramenta.texto("Use apagar_arquivo para mover à lixeira e "

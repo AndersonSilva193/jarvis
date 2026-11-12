@@ -76,6 +76,8 @@ public class PcService {
     private final ApplicationEventPublisher eventos;
     /** O último {@code X-Pc-Ia}, cru, e quando chegou. Quem interpreta é a {@code DisponibilidadeLocal}. */
     private volatile EstadoIa estadoIa;
+    /** O último {@code X-Pc-Acoes}: as ações de planilha que o agente no ar sabe executar. */
+    private volatile java.util.Set<String> acoesDoAgente = java.util.Set.of();
 
     /**
      * O cabeçalho {@code X-Pc-Ia} como chegou e o instante. Guardado cru porque aqui ninguém o lê:
@@ -250,7 +252,7 @@ public class PcService {
      *                 anterior, como o {@code X-Pc-Apps}: quem decide se ele ficou velho é a idade
      */
     public Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa) {
-        return proximoComando(espera, headerApps, headerIa, null, false);
+        return proximoComando(espera, headerApps, headerIa, null, false, null);
     }
 
     /**
@@ -259,17 +261,34 @@ public class PcService {
      */
     public Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa,
             String headerFoco) {
-        return proximoComando(espera, headerApps, headerIa, headerFoco, true);
+        return proximoComando(espera, headerApps, headerIa, headerFoco, true, null);
+    }
+
+    /**
+     * @param headerAcoes o {@code X-Pc-Acoes}, as ações de planilha que o agente conhece; ausente
+     *                    apaga a lista anterior — um agente antigo não manda o cabeçalho
+     */
+    public Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa,
+            String headerFoco, String headerAcoes) {
+        return proximoComando(espera, headerApps, headerIa, headerFoco, true, headerAcoes);
+    }
+
+    /** Se o agente no ar disse, na última consulta, que sabe executar esta ação de planilha. */
+    public boolean agenteConhece(String acao) {
+        return acao != null && acoesDoAgente.contains(acao);
     }
 
     private Optional<ComandoPc> proximoComando(Duration espera, String headerApps, String headerIa,
-            String headerFoco, boolean comFoco) {
+            String headerFoco, boolean comFoco, String headerAcoes) {
         // No começo, não no fim: a prova de vida é a chegada da requisição. Marcar depois do
         // poll atrasaria o "último contato" em até 25 segundos.
-        registrarContato();
+        // Os cabeçalhos antes do contato: quem ouve o PcVoltou (a fila do PC) já precisa saber o
+        // que este agente sabe fazer.
         registrarApps(headerApps);
         registrarIa(headerIa);
         if (comFoco) registrarFoco(headerFoco);
+        registrarAcoes(headerAcoes);
+        registrarContato();
 
         long restante = espera.toNanos();
         while (restante > 0) {
@@ -313,7 +332,8 @@ public class PcService {
         if (resultado.dados() != null && !List.of("listar_arquivos", "ler_arquivo")
                 .contains(pendente.comando().acao())
                 && !ComandoPc.LIXEIRA.contains(pendente.comando().acao())
-                && !ComandoPc.INFERENCIA.contains(pendente.comando().acao())) {
+                && !ComandoPc.INFERENCIA.contains(pendente.comando().acao())
+                && !ComandoPc.PLANILHA.contains(pendente.comando().acao())) {
             pendente.resposta().complete(new ResultadoPc(resultado.comandoId(), false,
                     "dados inesperados para esta ação", null, null));
             return false;
@@ -452,6 +472,20 @@ public class PcService {
             try { eventos.publishEvent(new PcVoltou(agora, ausencia)); }
             catch (RuntimeException e) { log.warn("Ouvinte de PcVoltou falhou: {}", e.getMessage()); }
         }
+    }
+
+    /** Só nomes de ação limpos; o resto do cabeçalho é ignorado. */
+    private void registrarAcoes(String headerAcoes) {
+        if (headerAcoes == null) {
+            acoesDoAgente = java.util.Set.of();
+            return;
+        }
+        java.util.Set<String> acoes = new java.util.HashSet<>();
+        for (String acao : headerAcoes.split(",", 50)) {
+            String limpa = acao.trim();
+            if (limpa.matches("[a-z_]{1,40}")) acoes.add(limpa);
+        }
+        acoesDoAgente = java.util.Set.copyOf(acoes);
     }
 
     /** Sem caractere de controle e com teto: o cabeçalho vem de fora da VPS. */

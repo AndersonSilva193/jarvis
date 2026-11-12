@@ -2,6 +2,7 @@ package dev.jarvis.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -262,6 +263,36 @@ class PcE2HttpTest {
         // O agente omite o cabeçalho quando não tem nome válido: o foco de antes não vale mais.
         http.perform(get("/api/pc/v2/comandos")).andExpect(status().isNoContent());
         assertTrue(pc.foco().isEmpty());
+    }
+
+    @Test void cabecalhoAcoesChegaAoPcServiceEAusenteApaga() throws Exception {
+        var e2 = new OperacoesPcService(JsonMapper.builder().build(),
+                temporaria.resolve("operacoes.json"), Clock.systemUTC());
+        var pc = new PcService(e2);
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(pc,
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+        http.perform(get("/api/pc/v2/comandos").header("X-Pc-Acoes", "acrescentar_linhas,alterar_linha"))
+                .andExpect(status().isNoContent());
+        assertTrue(pc.agenteConhece("acrescentar_linhas"));
+        http.perform(get("/api/pc/v2/comandos")).andExpect(status().isNoContent());
+        assertFalse(pc.agenteConhece("acrescentar_linhas"));
+    }
+
+    @Test void planilhaAceitaDadosNoResultado() throws Exception {
+        var json = JsonMapper.builder().build();
+        var e2 = new OperacoesPcService(json, temporaria.resolve("operacoes.json"), Clock.systemUTC());
+        var pc = new PcService(e2);
+        MockMvc http = MockMvcBuilders.standaloneSetup(new PcController(pc,
+                new FalaDaTelaService(evento -> { }, () -> 0), Duration.ZERO, e2)).build();
+        var comando = new ComandoPc(java.util.UUID.randomUUID().toString(), "acrescentar_linhas", "",
+                Instant.now().toString(), json.readTree("{\"arquivo\":\"agenda.csv\"}"));
+        e2.enfileirar(comando, Duration.ofMinutes(1), Duration.ofMinutes(1), "", 0);
+        iniciar(http, comando.id());
+        http.perform(post("/api/pc/v2/comandos/" + comando.id() + "/resultado")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"estado\":\"concluído\",\"mensagem\":\"planilha gravada\",\"dados\":{\"gravadas\":1,\"jaExistiam\":0}}"))
+                .andExpect(status().isNoContent());
+        assertEquals(1, e2.resultado(comando.id()).orElseThrow().dados().path("gravadas").asInt());
     }
 
     private static void iniciar(MockMvc http, String id) throws Exception {
