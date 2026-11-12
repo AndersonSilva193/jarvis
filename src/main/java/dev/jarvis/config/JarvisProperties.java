@@ -405,7 +405,7 @@ public record JarvisProperties(
          *
          * @param leadsArquivo  nome exato do arquivo de leads (XLSX ou CSV); vazio é {@code leads.csv}.
          * @param leadsAba      a aba, no XLSX; vazio é a primeira.
-         * @param agendaArquivo nome exato do arquivo da agenda; vazio é {@code agenda.xlsx}.
+         * @param agendaArquivo nome exato do arquivo da agenda; vazio é {@code agenda.csv}.
          * @param agendaAba     a aba, no XLSX; vazio é a primeira.
          */
         public record Escritorio(String leadsArquivo, String leadsAba, String agendaArquivo,
@@ -628,7 +628,7 @@ public record JarvisProperties(
     /** O arquivo da agenda na pasta do Jarvis no PC. */
     public String arquivoDaAgenda() {
         return nomeDeArquivo(pc == null || pc.escritorio() == null ? null : pc.escritorio().agendaArquivo(),
-                "agenda.xlsx");
+                "agenda.csv");
     }
 
     public String abaDaAgenda() {

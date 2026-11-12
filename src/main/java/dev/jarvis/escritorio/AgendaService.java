@@ -20,7 +20,7 @@ import dev.jarvis.util.Texto;
 
 /**
  * Os compromissos de um dia, lidos de uma planilha na pasta do Jarvis no PC
- * ({@code AGENDA_ARQUIVO}, XLSX ou CSV, padrão {@code agenda.xlsx}).
+ * ({@code AGENDA_ARQUIVO}, XLSX ou CSV, padrão {@code agenda.csv}).
  *
  * <p>Uma linha por compromisso. As colunas são achadas pelo <b>cabeçalho</b>: data (obrigatória),
  * início ou hora, fim, o compromisso (título, evento, assunto) e o local. A data aceita

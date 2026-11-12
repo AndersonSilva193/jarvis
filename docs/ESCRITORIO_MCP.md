@@ -83,7 +83,7 @@ quiser outros nomes:
 ```bash
 LEADS_ARQUIVO=leads.csv      # XLSX ou CSV, nome exato, na raiz da pasta
 LEADS_ABA=                   # no XLSX; vazio = a primeira
-AGENDA_ARQUIVO=agenda.xlsx
+AGENDA_ARQUIVO=agenda.csv
 AGENDA_ABA=
 ```
 

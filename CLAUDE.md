@@ -649,7 +649,7 @@ Os agentes do escritório (Hermes3D com o Hermes Agent no PC) chamam o Jarvis co
   (`LANCAMENTO_FINANCEIRO`/`LANCAMENTO_REMOVIDO`, autônomos) com a origem de quem lançou — a do
   escritório é `OrigemDaAcao.ESCRITORIO`.
 - **Agenda e leads são arquivos no PC, não no Google.** `LEADS_ARQUIVO` (padrão `leads.csv`) e
-  `AGENDA_ARQUIVO` (padrão `agenda.xlsx`) são planilhas XLSX ou CSV na `pastaArquivos` do agente — a
+  `AGENDA_ARQUIVO` (padrão `agenda.csv`) são planilhas XLSX ou CSV na `pastaArquivos` do agente — a
   pasta do Jarvis —, escritas pelo agente de prospecção do escritório e pelo dono. Quem lê é o
   `PlanilhaDoPc` (em `ferramentas`, porque usa o `ConsultaArquivosPc`): `listar_arquivos` acha o ID
   pelo **nome exato**, e `ler_arquivo` traz o cabeçalho e as **últimas** linhas (até 8 idas de 99

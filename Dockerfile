@@ -10,12 +10,13 @@ RUN mvn -q -B package -DskipTests
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 RUN useradd --system --uid 1001 jarvis
-# O cache de voz precisa existir COM dono certo antes do USER: o Docker copia essa
-# propriedade ao criar o volume nomeado, e sem isso ele nasceria do root e o Jarvis
-# (uid 1001) não conseguiria gravar nada.
-RUN mkdir -p /data/voz /data/jarvis/memoria /data/jarvis/memoria-exclusoes \
-    /data/jarvis/lembretes /data/jarvis/historico /data/jarvis/holograma /data/pc \
-    && chown -R jarvis:jarvis /data/voz /data/jarvis /data/pc
+# Toda pasta de volume nomeado precisa existir COM dono certo antes do USER: o Docker copia essa
+# propriedade ao criar o volume, e sem isso ele nasceria do root e o Jarvis (uid 1001) não
+# conseguiria gravar nada. O DockerfileTest confere esta lista contra o docker-compose.yml.
+RUN mkdir -p /data/voz /data/google /data/jarvis/memoria /data/jarvis/memoria-exclusoes \
+    /data/jarvis/lembretes /data/jarvis/historico /data/jarvis/custo /data/jarvis/diario \
+    /data/jarvis/proativo /data/jarvis/holograma /data/pc \
+    && chown -R jarvis:jarvis /data
 COPY --from=build /app/target/jarvis.jar app.jar
 USER jarvis
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
