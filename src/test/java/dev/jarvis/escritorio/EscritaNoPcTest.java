@@ -61,8 +61,10 @@ class EscritaNoPcTest {
                 escrita(true, true, pronto(false, "arquivo_travado: aberto no Excel")).enviar(pedido()).estado());
         assertEquals(EscritaNoPc.Estado.ID_INEXISTENTE,
                 escrita(true, true, pronto(false, "id_inexistente: nenhuma linha")).enviar(pedido()).estado());
-        assertEquals(EscritaNoPc.Estado.FALHOU,
+        assertEquals(EscritaNoPc.Estado.RECUSADO,
                 escrita(true, true, pronto(false, "nao_permitido: x")).enviar(pedido()).estado());
+        assertEquals(EscritaNoPc.Estado.FALHOU,
+                escrita(true, true, pronto(false, "algo deu errado")).enviar(pedido()).estado());
     }
 
     @Test

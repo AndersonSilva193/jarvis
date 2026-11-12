@@ -154,7 +154,14 @@ public class FinancasService {
      * Como {@link #registrar}, e também manda a linha ao {@code financas.csv} do PC (ou à fila).
      * O lançamento conta nas contas de qualquer jeito; o {@link Registrado} diz onde ele está.
      */
-    public synchronized Registrado registrarNoLivro(Lancamento.Tipo tipo, double valor, String categoria,
+    public Registrado registrarNoLivro(Lancamento.Tipo tipo, double valor, String categoria,
+            String descricao, String data, String origem) throws IOException {
+        Lancamento novo = registrarNaCopia(tipo, valor, categoria, descricao, data, origem);
+        // Fora da trava: a ida ao PC pode levar segundos, e o resumo não pode esperar por ela.
+        return new Registrado(novo, mandarAoPc(List.of(LivroNoPc.linha(novo, zona))));
+    }
+
+    private synchronized Lancamento registrarNaCopia(Lancamento.Tipo tipo, double valor, String categoria,
             String descricao, String data, String origem) throws IOException {
         if (tipo == null) {
             throw new IllegalArgumentException("o tipo tem de ser gasto ou ganho.");
@@ -175,7 +182,7 @@ public class FinancasService {
             throw e instanceof IOException io ? io : new IOException("não consegui gravar", e);
         }
         anotarNoDiario(TipoDeAcao.LANCAMENTO_FINANCEIRO, descreverParaODiario(novo), novo.origem());
-        return new Registrado(novo, mandarAoPc(List.of(LivroNoPc.linha(novo, zona))));
+        return novo;
     }
 
     /**
@@ -188,7 +195,15 @@ public class FinancasService {
     }
 
     /** Como {@link #remover}, e acrescenta a linha {@code remocao} no {@code financas.csv} do PC. */
-    public synchronized Optional<Registrado> removerDoLivro(String id, String origem) throws IOException {
+    public Optional<Registrado> removerDoLivro(String id, String origem) throws IOException {
+        Optional<List<String>> remocao = removerDaCopia(id, origem);
+        if (remocao.isEmpty()) return Optional.empty();
+        Lancamento removido = porId(remocao.get().get(8)).orElseThrow();
+        return Optional.of(new Registrado(removido, mandarAoPc(List.of(remocao.get()))));
+    }
+
+    /** Tira das contas na cópia e devolve a linha {@code remocao} que vai ao PC. */
+    private synchronized Optional<List<String>> removerDaCopia(String id, String origem) throws IOException {
         String procurado = id == null ? "" : id.trim().toLowerCase(Locale.ROOT);
         for (int i = 0; i < lancamentos.size(); i++) {
             Lancamento l = lancamentos.get(i);
@@ -203,14 +218,18 @@ public class FinancasService {
                 }
                 anotarNoDiario(TipoDeAcao.LANCAMENTO_REMOVIDO,
                         "Removi: " + descreverParaODiario(l), origemValida(origem));
-                return Optional.of(new Registrado(removido, mandarAoPc(List.of(LivroNoPc.linhaDeRemocao(
-                        novoId(), l, removido.removidoEm(), origemValida(origem), zona)))));
+                return Optional.of(LivroNoPc.linhaDeRemocao(novoId(), l, removido.removidoEm(),
+                        origemValida(origem), zona));
             }
         }
         return Optional.empty();
     }
 
     // ---------------------------------------------------------------- PC
+
+    private synchronized Optional<Lancamento> porId(String id) {
+        return lancamentos.stream().filter(l -> l.id().equals(id)).findFirst();
+    }
 
     private EscritaNoPc.Estado mandarAoPc(List<List<String>> linhas) {
         if (fila == null) return EscritaNoPc.Estado.GRAVADO;
@@ -263,10 +282,19 @@ public class FinancasService {
         executor.execute(this::importarSeVazio);
     }
 
-    synchronized void importarSeVazio() {
-        if (!lancamentos.isEmpty()) return;
+    void importarSeVazio() {
+        synchronized (this) {
+            if (!lancamentos.isEmpty()) return;
+        }
+        // A leitura do PC fora da trava; a conferência de vazio se repete antes de usar o que veio.
         Optional<PlanilhaDoPc.Tabela> tabela = livroDoPc.get();
         if (tabela.isEmpty()) return;
+        importar(tabela.get());
+    }
+
+    private synchronized void importar(PlanilhaDoPc.Tabela lida) {
+        if (!lancamentos.isEmpty()) return;
+        Optional<PlanilhaDoPc.Tabela> tabela = Optional.of(lida);
         if (tabela.get().totalDeLinhas() > LINHAS_IMPORTADAS)
             log.warn("financas.csv tem {} linhas; importei as {} últimas", tabela.get().totalDeLinhas(),
                     LINHAS_IMPORTADAS);
@@ -395,7 +423,13 @@ public class FinancasService {
         return switch (r.noPc()) {
             case GRAVADO, ID_INEXISTENTE -> texto;
             case ARQUIVO_TRAVADO -> texto + " O livro está aberto no PC; lanço no financas.csv assim que ele for fechado.";
-            default -> texto + " Ainda não está no financas.csv: lanço quando o PC voltar.";
+            case PC_OFFLINE -> texto + " Ainda não está no financas.csv: lanço quando o PC voltar.";
+            case AGENTE_ANTIGO -> texto + " Ainda não está no financas.csv: o agente do PC precisa ser atualizado, "
+                    + "e lanço assim que for.";
+            case RECUSADO -> texto + " O PC recusou gravar no financas.csv (confira o arquivo na pasta do "
+                    + "Jarvis); o lançamento continua nas contas do Jarvis.";
+            case FALHOU -> texto + " O PC ainda não confirmou o financas.csv; fica na fila e tento de novo em "
+                    + "alguns minutos.";
         };
     }
 
@@ -483,7 +517,8 @@ public class FinancasService {
 
     private String novoId() {
         while (true) {
-            String id = UUID.randomUUID().toString().substring(0, 8);
+            // Começando por letra: o financas.csv aberto e salvo no Excel não vira número.
+            String id = dev.jarvis.escritorio.AgendaService.idCurto();
             boolean usado = lancamentos.stream().anyMatch(l -> l.id().equals(id));
             if (!usado) {
                 return id;

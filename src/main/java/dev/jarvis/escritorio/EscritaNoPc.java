@@ -28,7 +28,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class EscritaNoPc {
 
-    public enum Estado { GRAVADO, PC_OFFLINE, ARQUIVO_TRAVADO, AGENTE_ANTIGO, ID_INEXISTENTE, FALHOU }
+    public enum Estado { GRAVADO, PC_OFFLINE, ARQUIVO_TRAVADO, AGENTE_ANTIGO, ID_INEXISTENTE, RECUSADO, FALHOU }
 
     public record Resposta(Estado estado, String mensagem) {
         public boolean gravado() {
@@ -84,6 +84,8 @@ public class EscritaNoPc {
         if (resultado.ok()) return new Resposta(Estado.GRAVADO, mensagem);
         if (mensagem.startsWith("arquivo_travado")) return new Resposta(Estado.ARQUIVO_TRAVADO, mensagem);
         if (mensagem.startsWith("id_inexistente")) return new Resposta(Estado.ID_INEXISTENTE, mensagem);
+        // Recusa do agente (arquivo fora da lista, planilha grande demais, link): tentar de novo não muda.
+        if (mensagem.startsWith("nao_permitido")) return new Resposta(Estado.RECUSADO, mensagem);
         return new Resposta(Estado.FALHOU, mensagem);
     }
 }

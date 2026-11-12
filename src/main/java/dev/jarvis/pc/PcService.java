@@ -282,11 +282,13 @@ public class PcService {
             String headerFoco, boolean comFoco, String headerAcoes) {
         // No começo, não no fim: a prova de vida é a chegada da requisição. Marcar depois do
         // poll atrasaria o "último contato" em até 25 segundos.
-        registrarContato();
+        // Os cabeçalhos antes do contato: quem ouve o PcVoltou (a fila do PC) já precisa saber o
+        // que este agente sabe fazer.
         registrarApps(headerApps);
         registrarIa(headerIa);
         if (comFoco) registrarFoco(headerFoco);
         registrarAcoes(headerAcoes);
+        registrarContato();
 
         long restante = espera.toNanos();
         while (restante > 0) {

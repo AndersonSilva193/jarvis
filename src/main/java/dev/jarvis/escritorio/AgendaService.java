@@ -94,7 +94,7 @@ public class AgendaService {
      * @throws IllegalArgumentException com a frase do que corrigir; nada vai ao PC
      */
     public Gravacao registrar(String data, String inicio, String fim, String titulo, String local) {
-        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String id = idCurto();
         List<String> linha = List.of(id, dataDaAgenda(data), horaOpcional(inicio, "início"),
                 horaOpcional(fim, "fim"), titulo(titulo), localDoCompromisso(local));
         var dados = JSON.createObjectNode();
@@ -145,6 +145,15 @@ public class AgendaService {
     }
 
     private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
+
+    /**
+     * Oito caracteres hexadecimais começando por letra. Só com dígitos (ou como {@code 123e4567}),
+     * o Excel leria número ao salvar o agenda.csv e o compromisso não seria mais achado pelo id.
+     */
+    public static String idCurto() {
+        String hex = UUID.randomUUID().toString().replace("-", "");
+        return "abcdef".charAt(Character.digit(hex.charAt(0), 16) % 6) + hex.substring(1, 8);
+    }
 
     private static String idValido(String id) {
         String limpo = id == null ? "" : id.trim();

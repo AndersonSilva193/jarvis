@@ -140,4 +140,38 @@ class FinancasNoPcTest {
         assertTrue(r.gravadoNoPc());
         assertEquals(LocalDate.of(2026, 11, 11), r.lancamento().data());
     }
+
+    @Test
+    void resumoNaoEsperaOPcResponderUmLancamento() throws Exception {
+        var naoResponde = new java.util.concurrent.CountDownLatch(1);
+        FilaDoPc lenta = new FilaDoPc(pedido -> {
+            try { naoResponde.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            return new Resposta(Estado.GRAVADO, "");
+        }, pasta.resolve("pendentes-pc.json"), json, texto -> { }, Runnable::run);
+        var financas = financas(lenta);
+        var lancando = java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try { financas.registrarNoLivro(Lancamento.Tipo.GASTO, 120, "ia", "Claude Pro", "", "escritorio"); }
+            catch (Exception e) { throw new RuntimeException(e); }
+        });
+        try {
+            Thread.sleep(200);
+            long gastos = java.util.concurrent.CompletableFuture
+                    .supplyAsync(() -> financas.resumo(PeriodoFinanceiro.MES_ATUAL).gastos())
+                    .get(2, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(12000, gastos, "o lançamento já conta enquanto o PC não responde");
+        } finally {
+            naoResponde.countDown();
+            lancando.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void confirmacaoDizAVerdadeEmCadaEstado() throws Exception {
+        Lancamento l = financas(null).registrar(Lancamento.Tipo.GASTO, 10, "café", "", "", "telegram");
+        assertTrue(FinancasService.confirmacao(new Registrado(l, Estado.AGENTE_ANTIGO)).contains("atualizado"));
+        assertTrue(FinancasService.confirmacao(new Registrado(l, Estado.FALHOU)).contains("tento de novo"));
+        assertTrue(FinancasService.confirmacao(new Registrado(l, Estado.RECUSADO)).contains("recusou"));
+        assertFalse(FinancasService.confirmacao(new Registrado(l, Estado.FALHOU)).contains("quando o PC voltar"),
+                "o PC está ligado: dizer que ele voltará seria mentira");
+    }
 }

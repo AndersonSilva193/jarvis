@@ -63,8 +63,14 @@ public final class PedidosDaAgenda {
                     + " na agenda do PC; confira o id com agenda_de_hoje.", true, g.id(), false);
             case ARQUIVO_TRAVADO -> new Saida(feito + " A agenda está aberta no PC; gravo no agenda.csv assim "
                     + "que ela for fechada.", false, g.id(), false);
-            default -> new Saida(feito + " Ainda não está no agenda.csv: gravo quando o PC voltar.", false,
+            case PC_OFFLINE -> new Saida(feito + " Ainda não está no agenda.csv: gravo quando o PC voltar.", false,
                     g.id(), false);
+            case AGENTE_ANTIGO -> new Saida(feito + " Ainda não está no agenda.csv: o agente do PC precisa ser "
+                    + "atualizado, e gravo assim que for.", false, g.id(), false);
+            case RECUSADO -> new Saida("Não gravei: o PC recusou escrever no agenda.csv (confira o arquivo na "
+                    + "pasta do Jarvis).", true, g.id(), false);
+            case FALHOU -> new Saida(feito + " O PC ainda não confirmou o agenda.csv; fica na fila e tento de novo "
+                    + "em alguns minutos.", false, g.id(), false);
         };
     }
 

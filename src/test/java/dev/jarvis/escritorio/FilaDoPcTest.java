@@ -28,11 +28,110 @@ class FilaDoPcTest {
     private final Deque<Estado> respostas = new ArrayDeque<>();
     private Estado ultima = Estado.GRAVADO;
 
+    /** Resposta fixa por arquivo, quando houver; senão a sequência de {@link #respostas}. */
+    private final java.util.Map<String, Estado> porArquivo = new java.util.HashMap<>();
+
     private final Function<PedidoDeEscrita, Resposta> pc = pedido -> {
         enviados.add(pedido.id());
+        Estado fixo = porArquivo.get(pedido.arquivo());
+        if (fixo != null) return new Resposta(fixo, fixo.name());
         if (!respostas.isEmpty()) ultima = respostas.poll();
         return new Resposta(ultima, ultima.name());
     };
+
+    private PedidoDeEscrita doLivro(String id) {
+        return new PedidoDeEscrita(id, "acrescentar_linhas", "financas.csv", json.createObjectNode().put("id", id),
+                "2026-11-12T10:00:00Z");
+    }
+
+    @Test
+    void recusaNaHoraVoltaParaQuemPediuSemFilaNemAviso() {
+        FilaDoPc fila = fila();
+        respostas.add(Estado.RECUSADO);
+        assertEquals(Estado.RECUSADO, fila.gravarOuEnfileirar(pedido("a")).estado());
+        assertEquals(0, fila.pendentes());
+        assertTrue(avisos.isEmpty());
+    }
+
+    @Test
+    void recusaDepoisSaiDaFilaEAvisaODono() {
+        FilaDoPc fila = fila();
+        respostas.add(Estado.PC_OFFLINE);
+        fila.gravarOuEnfileirar(pedido("a"));
+        respostas.add(Estado.RECUSADO);
+        respostas.add(Estado.GRAVADO);
+        fila.gravarOuEnfileirar(pedido("b"));
+        assertEquals(0, fila.pendentes(), "a recusa não trava o que vem atrás");
+        assertEquals(1, avisos.size());
+        assertTrue(avisos.get(0).contains("agenda.csv"), avisos.get(0));
+    }
+
+    @Test
+    void arquivoTravadoNaoSeguraOOutroArquivo() {
+        FilaDoPc fila = fila();
+        porArquivo.put("agenda.csv", Estado.ARQUIVO_TRAVADO);
+        fila.gravarOuEnfileirar(pedido("a"));
+        porArquivo.put("financas.csv", Estado.GRAVADO);
+        assertEquals(Estado.GRAVADO, fila.gravarOuEnfileirar(doLivro("l")).estado());
+        assertEquals(1, fila.pendentes(), "só a agenda espera");
+    }
+
+    @Test
+    void idInexistenteDeQuemEstaEsperandoNaoVaiProTelegram() {
+        FilaDoPc fila = fila();
+        respostas.add(Estado.PC_OFFLINE);
+        fila.gravarOuEnfileirar(pedido("a"));
+        respostas.add(Estado.GRAVADO);
+        respostas.add(Estado.ID_INEXISTENTE);
+        assertEquals(Estado.ID_INEXISTENTE, fila.gravarOuEnfileirar(pedido("x", "alterar_linha")).estado());
+        assertTrue(avisos.isEmpty(), "quem pediu já recebe a resposta: " + avisos);
+    }
+
+    @Test
+    void esvaziarSoDisparaOEsvaziadorSemEsperarOPc() {
+        respostas.add(Estado.PC_OFFLINE);
+        fila().gravarOuEnfileirar(pedido("a"));
+        List<Runnable> agendadas = new ArrayList<>();
+        FilaDoPc fila = new FilaDoPc(pc, pasta.resolve("pendentes-pc.json"), json, avisos::add, agendadas::add);
+        enviados.clear();
+        fila.esvaziar();
+        assertTrue(enviados.isEmpty(), "o agendador do Spring não espera o PC");
+        assertEquals(1, agendadas.size());
+    }
+
+    @Test
+    void pcVoltouEsperaOsCabecalhosAntesDeEsvaziar() {
+        respostas.add(Estado.PC_OFFLINE);
+        fila().gravarOuEnfileirar(pedido("a"));
+        FilaDoPc fila = new FilaDoPc(pc, pasta.resolve("pendentes-pc.json"), json, avisos::add, Runnable::run,
+                java.time.Duration.ofMillis(150));
+        respostas.add(Estado.GRAVADO);
+        long antes = System.nanoTime();
+        fila.pcVoltou(null);
+        assertTrue(System.nanoTime() - antes >= 150_000_000L, "esvaziou antes de a VPS ler os cabeçalhos do agente");
+        assertEquals(0, fila.pendentes());
+    }
+
+    @Test
+    void falhaAoGravarNoDiscoAvisaUmaVez() throws Exception {
+        java.nio.file.Files.createDirectories(pasta.resolve("eh-pasta"));
+        FilaDoPc fila = new FilaDoPc(pc, pasta.resolve("eh-pasta"), json, avisos::add, Runnable::run);
+        respostas.add(Estado.PC_OFFLINE);
+        fila.gravarOuEnfileirar(pedido("a"));
+        fila.gravarOuEnfileirar(pedido("b"));
+        assertEquals(1, avisos.size(), avisos.toString());
+        assertTrue(avisos.get(0).contains("disco"), avisos.get(0));
+    }
+
+    @Test
+    void arquivoCorrompidoVaiParaOLadoEmVezDeSerSobrescrito() throws Exception {
+        java.nio.file.Files.writeString(pasta.resolve("pendentes-pc.json"), "{lixo");
+        FilaDoPc fila = fila();
+        assertEquals(0, fila.pendentes());
+        try (var arquivos = java.nio.file.Files.list(pasta)) {
+            assertTrue(arquivos.anyMatch(p -> p.getFileName().toString().startsWith("pendentes-pc.json.corrompido")));
+        }
+    }
 
     private FilaDoPc fila() {
         return new FilaDoPc(pc, pasta.resolve("pendentes-pc.json"), json, avisos::add, Runnable::run);

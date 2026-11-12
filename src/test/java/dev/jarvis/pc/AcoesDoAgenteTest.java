@@ -52,6 +52,17 @@ class AcoesDoAgenteTest {
     }
 
     @Test
+    void quandoOPcVoltaAsAcoesDeleJaEstaoRegistradas() {
+        java.util.List<Boolean> conheciaNoEvento = new java.util.ArrayList<>();
+        PcService[] servico = new PcService[1];
+        servico[0] = new PcService(new RelogioFalso("2026-11-12T10:00:00Z"),
+                evento -> conheciaNoEvento.add(servico[0].agenteConhece("acrescentar_linhas")));
+        servico[0].proximoComando(Duration.ZERO, "", null, null, "acrescentar_linhas");
+        assertTrue(!conheciaNoEvento.isEmpty() && conheciaNoEvento.get(0),
+                "a fila esvazia no PcVoltou e acharia que o agente é antigo: " + conheciaNoEvento);
+    }
+
+    @Test
     void comandoAceitaAsAcoesDePlanilha() {
         for (String acao : ComandoPc.PLANILHA)
             assertDoesNotThrow(() -> new ComandoPc("id", acao, "", "2026-11-12T00:00:00Z"));

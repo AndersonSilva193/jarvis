@@ -52,7 +52,7 @@ class AgendaEscritaTest {
     void registrarMandaLinhaComIdNoCabecalhoDaAgenda() {
         AgendaService.Gravacao g = agenda().registrar("12/11/2026", "14:00", "", "Reunião com cliente", "Batel");
         assertEquals(Estado.GRAVADO, g.estado());
-        assertTrue(g.id().matches("[0-9a-f]{8}"), g.id());
+        assertTrue(g.id().matches("[a-f][0-9a-f]{7}"), "o Excel transforma id só de dígitos em número: " + g.id());
         PedidoDeEscrita pedido = enviados.get(0);
         assertEquals("acrescentar_linhas", pedido.acao());
         assertEquals("agenda.csv", pedido.arquivo());
@@ -104,6 +104,25 @@ class AgendaEscritaTest {
         assertEquals("a1b2c3d4", g.id());
         assertEquals("remover_linha", enviados.get(0).acao());
         assertEquals("a1b2c3d4", enviados.get(0).dados().path("id").asString());
+    }
+
+    @Test
+    void recusaDoPcVoltaComoErroParaQuemPediu() {
+        estadoDoPc = Estado.RECUSADO;
+        var saida = PedidosDaAgenda.registrar(agenda(), json.readTree(
+                "{\"data\":\"12/11/2026\",\"compromisso\":\"Dentista\"}"));
+        assertTrue(saida.erro(), saida.texto());
+        assertTrue(saida.texto().contains("recusou"), saida.texto());
+    }
+
+    @Test
+    void pcLigadoSemConfirmarNaoDizQueEleVaiVoltar() {
+        estadoDoPc = Estado.FALHOU;
+        var saida = PedidosDaAgenda.registrar(agenda(), json.readTree(
+                "{\"data\":\"12/11/2026\",\"compromisso\":\"Dentista\"}"));
+        assertFalse(saida.erro());
+        assertFalse(saida.texto().contains("quando o PC voltar"), saida.texto());
+        assertTrue(saida.texto().contains("tento de novo"), saida.texto());
     }
 
     @Test
